@@ -1,7 +1,7 @@
 use std::path::Path;
-use std::process::Command;
 
 use serde_json::json;
+use xx::process;
 
 use crate::anthropic::ToolDefinition;
 use crate::error::{Error, Result};
@@ -32,33 +32,29 @@ pub fn execute(repo_root: &Path, input: &serde_json::Value) -> Result<String> {
         .as_str()
         .ok_or_else(|| Error::Tool("grep: missing 'pattern' parameter".into()))?;
 
-    let mut cmd = Command::new("rg");
-    cmd.args(["--line-number", "--no-heading", "--max-count", "50"])
+    let mut cmd = process::cmd("rg", ["--line-number", "--no-heading", "--max-count", "50"])
         .arg(pattern)
-        .current_dir(repo_root);
+        .cwd(repo_root)
+        .unchecked(); // rg returns exit code 1 for no matches
 
     if let Some(glob) = input.get("glob").and_then(|v| v.as_str()) {
-        cmd.args(["--glob", glob]);
+        cmd = cmd.args(["--glob", glob]);
     }
 
-    let output = cmd.output().map_err(|e| {
-        Error::Tool(format!(
-            "grep: failed to run rg (is ripgrep installed?): {e}"
-        ))
-    })?;
+    let output = cmd.stdout_capture().stderr_capture().run()?;
 
-    // rg returns exit code 1 for no matches — that's not an error
-    if !output.status.success() && output.status.code() != Some(1) {
+    // Exit code 2+ is an actual error
+    if output.status.code().is_some_and(|c| c >= 2) {
         return Err(Error::Tool(format!(
             "grep: {}",
             String::from_utf8_lossy(&output.stderr)
         )));
     }
 
-    let result = String::from_utf8_lossy(&output.stdout).to_string();
+    let result = String::from_utf8_lossy(&output.stdout);
     if result.is_empty() {
         Ok("No matches found.".into())
     } else {
-        Ok(result)
+        Ok(result.to_string())
     }
 }

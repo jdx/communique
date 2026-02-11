@@ -1,30 +1,21 @@
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use regex::Regex;
+use xx::git::Git;
+use xx::process;
 
 use crate::error::{Error, Result};
 
 pub fn repo_root() -> Result<PathBuf> {
-    let output = Command::new("git")
-        .args(["rev-parse", "--show-toplevel"])
-        .output()?;
-    if !output.status.success() {
-        return Err(Error::Git("not a git repository".into()));
-    }
-    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let path = process::cmd("git", ["rev-parse", "--show-toplevel"]).read()?;
     Ok(PathBuf::from(path))
 }
 
 pub fn detect_remote(repo_root: &Path) -> Result<String> {
-    let output = Command::new("git")
-        .args(["remote", "get-url", "origin"])
-        .current_dir(repo_root)
-        .output()?;
-    if !output.status.success() {
-        return Err(Error::Git("no origin remote found".into()));
-    }
-    let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let git = Git::new(repo_root.to_path_buf());
+    let url = git
+        .get_remote_url()
+        .ok_or_else(|| Error::Git("no origin remote found".into()))?;
     parse_owner_repo(&url)
 }
 
@@ -42,31 +33,22 @@ fn parse_owner_repo(url: &str) -> Result<String> {
         let repo = rest.trim_end_matches(".git");
         return Ok(repo.to_string());
     }
-    Err(Error::Git(format!("cannot parse GitHub repo from remote URL: {url}")))
+    Err(Error::Git(format!(
+        "cannot parse GitHub repo from remote URL: {url}"
+    )))
 }
 
 pub fn previous_tag(repo_root: &Path, current_tag: &str) -> Result<String> {
-    // Get the tag before `current_tag` by listing tags sorted by version in descending order.
-    let output = Command::new("git")
-        .args(["tag", "--sort=-v:refname"])
-        .current_dir(repo_root)
-        .output()?;
-    if !output.status.success() {
-        return Err(Error::Git("failed to list tags".into()));
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let tags: Vec<&str> = stdout
-        .lines()
-        .map(str::trim)
-        .filter(|t| !t.is_empty())
-        .collect();
+    let stdout = process::cmd("git", ["tag", "--sort=-v:refname"])
+        .cwd(repo_root)
+        .read()?;
 
     let mut found = false;
-    for tag in &tags {
+    for tag in stdout.lines().map(str::trim).filter(|t| !t.is_empty()) {
         if found {
             return Ok(tag.to_string());
         }
-        if *tag == current_tag {
+        if tag == current_tag {
             found = true;
         }
     }
@@ -77,17 +59,10 @@ pub fn previous_tag(repo_root: &Path, current_tag: &str) -> Result<String> {
 
 pub fn log_between(repo_root: &Path, from: &str, to: &str) -> Result<String> {
     let range = format!("{from}..{to}");
-    let output = Command::new("git")
-        .args(["log", &range, "--pretty=format:%h %s", "--reverse"])
-        .current_dir(repo_root)
-        .output()?;
-    if !output.status.success() {
-        return Err(Error::Git(format!(
-            "failed to get log for {range}: {}",
-            String::from_utf8_lossy(&output.stderr)
-        )));
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    let output = process::cmd("git", ["log", &range, "--pretty=format:%h %s", "--reverse"])
+        .cwd(repo_root)
+        .read()?;
+    Ok(output)
 }
 
 pub fn extract_pr_numbers(log: &str) -> Vec<u64> {

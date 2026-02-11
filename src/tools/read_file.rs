@@ -42,7 +42,7 @@ pub fn execute(repo_root: &Path, input: &serde_json::Value) -> Result<String> {
         )));
     }
 
-    let contents = std::fs::read_to_string(&canonical)
+    let contents = xx::file::read_to_string(&canonical)
         .map_err(|e| Error::Tool(format!("read_file: {rel_path}: {e}")))?;
 
     // Truncate very large files

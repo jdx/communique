@@ -1,31 +1,47 @@
-use clap::Parser;
+use clap::{Parser, Subcommand};
 
 #[derive(Parser, Debug)]
-#[command(name = "communique", about = "Editorialized release notes powered by Claude")]
+#[command(name = "communique", version, about = "Editorialized release notes powered by Claude")]
 pub struct Cli {
-    /// Git tag to generate release notes for
-    pub tag: String,
+    #[command(subcommand)]
+    pub command: Command,
+}
 
-    /// Previous tag (auto-detected if omitted)
-    pub prev_tag: Option<String>,
+#[derive(Subcommand, Debug)]
+pub enum Command {
+    /// Generate release notes for a git tag
+    Generate {
+        /// Git tag to generate release notes for
+        tag: String,
 
-    /// Push editorialized notes to the GitHub release
-    #[arg(long)]
-    pub github_release: bool,
+        /// Previous tag (auto-detected if omitted)
+        prev_tag: Option<String>,
 
-    /// Output concise changelog entry instead of detailed notes
-    #[arg(long)]
-    pub concise: bool,
+        /// Push editorialized notes to the GitHub release
+        #[arg(long)]
+        github_release: bool,
 
-    /// GitHub repo in owner/repo format (auto-detected from git remote)
-    #[arg(long)]
-    pub repo: Option<String>,
+        /// Output concise changelog entry instead of detailed notes
+        #[arg(long)]
+        concise: bool,
 
-    /// Anthropic model to use
-    #[arg(long, default_value = "claude-opus-4-6")]
-    pub model: String,
+        /// GitHub repo in owner/repo format (auto-detected from git remote)
+        #[arg(long)]
+        repo: Option<String>,
 
-    /// Max response tokens
-    #[arg(long, default_value_t = 4096)]
-    pub max_tokens: u32,
+        /// Anthropic model to use
+        #[arg(long)]
+        model: Option<String>,
+
+        /// Max response tokens
+        #[arg(long)]
+        max_tokens: Option<u32>,
+    },
+
+    /// Generate a communique.toml config file in the repo root
+    Init {
+        /// Overwrite existing config file
+        #[arg(long)]
+        force: bool,
+    },
 }

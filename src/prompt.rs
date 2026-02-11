@@ -1,5 +1,5 @@
-pub fn system_prompt() -> String {
-    r#"You are an expert technical writer generating release notes for a software project.
+pub fn system_prompt(extra: Option<&str>) -> String {
+    let mut prompt = r#"You are an expert technical writer generating release notes for a software project.
 
 You have access to tools to browse the repository:
 - read_file: Read file contents (path relative to repo root)
@@ -26,7 +26,14 @@ You MUST produce output in exactly this format — two sections separated by the
 - Detailed sections covering notable changes
 - Contributor mentions (@username) where relevant
 
-Write clearly and concisely. Focus on what matters to users. Do NOT fabricate changes — only describe what you can verify from the git log, PRs, and source code."#.into()
+Write clearly and concisely. Focus on what matters to users. Do NOT fabricate changes — only describe what you can verify from the git log, PRs, and source code."#.to_string();
+
+    if let Some(extra) = extra {
+        prompt.push_str("\n\n");
+        prompt.push_str(extra);
+    }
+
+    prompt
 }
 
 pub fn user_prompt(
@@ -36,11 +43,18 @@ pub fn user_prompt(
     pr_numbers: &[u64],
     changelog_entry: Option<&str>,
     existing_release: Option<&str>,
+    context: Option<&str>,
 ) -> String {
-    let mut parts = vec![format!(
+    let mut parts = Vec::new();
+
+    if let Some(ctx) = context {
+        parts.push(format!("## Project Context\n{ctx}"));
+    }
+
+    parts.push(format!(
         "Generate release notes for **{tag}** (previous release: {prev_tag}).\n\n\
          ## Git Log\n```\n{git_log}\n```"
-    )];
+    ));
 
     if !pr_numbers.is_empty() {
         let prs = pr_numbers

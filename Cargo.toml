@@ -2,6 +2,9 @@
 name = "communique"
 version = "0.1.0"
 edition = "2024"
+description = "Editorialized release notes powered by Claude"
+repository = "https://github.com/jdx/communique"
+license = "MIT"
 
 [dependencies]
 clap = { version = "4", features = ["derive", "env"] }
@@ -14,3 +17,5 @@ thiserror = "2"
 regex = "1"
 log = "0.4"
 env_logger = "0.11"
+toml = "0.8"
+xx = "2"

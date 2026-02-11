@@ -18,6 +18,9 @@ pub enum Error {
     #[error("parse error: {0}")]
     Parse(String),
 
+    #[error("config error: {0}")]
+    Config(String),
+
     #[error(transparent)]
     Reqwest(#[from] reqwest::Error),
 
@@ -26,6 +29,9 @@ pub enum Error {
 
     #[error(transparent)]
     Json(#[from] serde_json::Error),
+
+    #[error(transparent)]
+    Xx(#[from] xx::XXError),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
