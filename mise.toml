@@ -22,4 +22,5 @@ dir = "docs"
 run = "npm i && exec npm run docs:dev"
 
 [tools]
+hk = "latest"
 usage = "latest"
