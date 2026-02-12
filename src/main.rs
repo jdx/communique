@@ -10,6 +10,7 @@ mod llm;
 mod output;
 mod prompt;
 mod providers;
+mod retry;
 mod tools;
 mod usage;
 

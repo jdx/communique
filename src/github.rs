@@ -74,13 +74,14 @@ impl GitHubClient {
 
     pub async fn get_release_by_tag(&self, tag: &str) -> Result<Option<Release>> {
         let url = self.api_url(&format!("/releases/tags/{tag}"));
-        let resp = self
-            .client
-            .get(&url)
-            .bearer_auth(&self.token)
-            .header("Accept", "application/vnd.github+json")
-            .send()
-            .await?;
+        let resp = crate::retry::retry_request("GitHub API", || {
+            self.client
+                .get(&url)
+                .bearer_auth(&self.token)
+                .header("Accept", "application/vnd.github+json")
+                .send()
+        })
+        .await?;
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
             return Ok(None);
         }
@@ -103,14 +104,15 @@ impl GitHubClient {
             name: title.map(String::from),
             body: body.map(String::from),
         };
-        let resp = self
-            .client
-            .patch(&url)
-            .bearer_auth(&self.token)
-            .header("Accept", "application/vnd.github+json")
-            .json(&payload)
-            .send()
-            .await?;
+        let resp = crate::retry::retry_request("GitHub API", || {
+            self.client
+                .patch(&url)
+                .bearer_auth(&self.token)
+                .header("Accept", "application/vnd.github+json")
+                .json(&payload)
+                .send()
+        })
+        .await?;
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
@@ -123,13 +125,14 @@ impl GitHubClient {
 
     pub async fn list_recent_releases(&self, count: u8) -> Result<Vec<Release>> {
         let url = self.api_url(&format!("/releases?per_page={count}"));
-        let resp = self
-            .client
-            .get(&url)
-            .bearer_auth(&self.token)
-            .header("Accept", "application/vnd.github+json")
-            .send()
-            .await?;
+        let resp = crate::retry::retry_request("GitHub API", || {
+            self.client
+                .get(&url)
+                .bearer_auth(&self.token)
+                .header("Accept", "application/vnd.github+json")
+                .send()
+        })
+        .await?;
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
@@ -140,13 +143,14 @@ impl GitHubClient {
 
     pub async fn get_pr(&self, number: u64) -> Result<PullRequest> {
         let url = self.api_url(&format!("/pulls/{number}"));
-        let resp = self
-            .client
-            .get(&url)
-            .bearer_auth(&self.token)
-            .header("Accept", "application/vnd.github+json")
-            .send()
-            .await?;
+        let resp = crate::retry::retry_request("GitHub API", || {
+            self.client
+                .get(&url)
+                .bearer_auth(&self.token)
+                .header("Accept", "application/vnd.github+json")
+                .send()
+        })
+        .await?;
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
@@ -157,13 +161,14 @@ impl GitHubClient {
 
     pub async fn get_pr_diff(&self, number: u64) -> Result<String> {
         let url = self.api_url(&format!("/pulls/{number}"));
-        let resp = self
-            .client
-            .get(&url)
-            .bearer_auth(&self.token)
-            .header("Accept", "application/vnd.github.v3.diff")
-            .send()
-            .await?;
+        let resp = crate::retry::retry_request("GitHub API", || {
+            self.client
+                .get(&url)
+                .bearer_auth(&self.token)
+                .header("Accept", "application/vnd.github.v3.diff")
+                .send()
+        })
+        .await?;
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
