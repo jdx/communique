@@ -97,9 +97,11 @@ jobs:
           " <<< "$CONCISE_NOTES"
           fi
 
-          # Update PR body with full release notes
+          # Update PR title and body with full release notes
           FULL_NOTES=$($COMMUNIQUE generate "$TAG")
-          gh pr edit "$PR_NUMBER" --body "$FULL_NOTES"
+          PR_TITLE=$(echo "$FULL_NOTES" | head -1 | sed 's/^# //')
+          PR_BODY=$(echo "$FULL_NOTES" | tail -n +3)
+          gh pr edit "$PR_NUMBER" --title "$PR_TITLE" --body "$PR_BODY"
 
           # Commit and push changelog changes
           if ! git diff --quiet CHANGELOG.md 2>/dev/null; then
