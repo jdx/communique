@@ -7,6 +7,7 @@ use log::info;
 use crate::anthropic::{AnthropicClient, ContentBlock, Message, MessagesRequest, ToolDefinition};
 use crate::error::{Error, Result};
 use crate::github::GitHubClient;
+use crate::output::ParsedOutput;
 use crate::tools;
 
 const MAX_ITERATIONS: usize = 25;
@@ -19,7 +20,7 @@ pub async fn run(
     repo_root: &Path,
     github: Option<&GitHubClient>,
     job: &Arc<ProgressJob>,
-) -> Result<String> {
+) -> Result<ParsedOutput> {
     let mut messages = vec![Message {
         role: "user".into(),
         content: vec![ContentBlock::Text {
@@ -67,24 +68,35 @@ pub async fn run(
             content: response.content.clone(),
         });
 
+        // Check for submit_release_notes tool call — this is the final output
+        for (_, name, input) in &tool_calls {
+            if name == "submit_release_notes" {
+                let changelog = input["changelog"]
+                    .as_str()
+                    .ok_or_else(|| Error::Parse("missing changelog in submission".into()))?
+                    .to_string();
+                let release_title = input["release_title"]
+                    .as_str()
+                    .ok_or_else(|| Error::Parse("missing release_title in submission".into()))?
+                    .to_string();
+                let release_body = input["release_body"]
+                    .as_str()
+                    .ok_or_else(|| Error::Parse("missing release_body in submission".into()))?
+                    .to_string();
+                return Ok(ParsedOutput {
+                    changelog,
+                    release_title,
+                    release_body,
+                });
+            }
+        }
+
         let stop_reason = response.stop_reason.as_deref().unwrap_or("unknown");
 
         if tool_calls.is_empty() || stop_reason == "end_turn" {
-            // Extract final text
-            let text = response
-                .content
-                .iter()
-                .filter_map(|block| match block {
-                    ContentBlock::Text { text } => Some(text.as_str()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
-
-            if text.is_empty() {
-                return Err(Error::Anthropic("no text in final response".into()));
-            }
-            return Ok(text);
+            return Err(Error::Anthropic(
+                "model finished without calling submit_release_notes".into(),
+            ));
         }
 
         // Execute tools and build results

@@ -3,6 +3,7 @@ pub mod get_pr_diff;
 pub mod grep;
 pub mod list_files;
 pub mod read_file;
+pub mod submit_release_notes;
 
 use std::path::Path;
 
@@ -15,6 +16,7 @@ pub fn all_definitions(has_github: bool) -> Vec<ToolDefinition> {
         read_file::definition(),
         list_files::definition(),
         grep::definition(),
+        submit_release_notes::definition(),
     ];
     if has_github {
         defs.push(get_pr::definition());

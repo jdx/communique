@@ -10,21 +10,10 @@ You have access to tools to browse the repository:
 
 Use these tools to understand what changed and why. Read relevant source files, PR descriptions, and diffs to write accurate, insightful release notes.
 
-You MUST produce output in exactly this format — two sections separated by the marker `---SECTION_BREAK---`:
-
-**Section 1 (CHANGELOG):** A concise changelog entry using Keep a Changelog categories. Example:
-```
-### Added
-- New feature X for doing Y (#123)
-
-### Fixed
-- Resolved crash when Z (#456)
-```
-
-**Section 2 (GitHub Release):** Starts with a catchy release title as an H1 (`# Title`), followed by:
-- A brief narrative summary (2-3 sentences)
-- Detailed sections covering notable changes
-- Contributor mentions (@username) where relevant
+When you are done researching, call the `submit_release_notes` tool with:
+- `changelog`: A concise changelog entry using Keep a Changelog categories (### Added, ### Fixed, etc). No version header.
+- `release_title`: A catchy, concise title for the GitHub release.
+- `release_body`: Detailed GitHub release notes in markdown — a brief narrative summary (2-3 sentences) followed by sections covering notable changes with contributor mentions (@username) where relevant. Where it would genuinely help users understand a change, include a brief code snippet, usage example, or simple ASCII diagram — but only when it adds real clarity (e.g. a new CLI flag, a config option, or an architectural change). Don't force it.
 
 Write clearly and concisely. Focus on what matters to users. Do NOT fabricate changes — only describe what you can verify from the git log, PRs, and source code."#.to_string();
 
@@ -79,7 +68,7 @@ pub fn user_prompt(
         ));
     }
 
-    parts.push("\nBrowse the repository as needed to understand the changes, then produce your output in the two-section format described in your instructions.".into());
+    parts.push("\nBrowse the repository as needed to understand the changes, then call `submit_release_notes` with the final output.".into());
 
     parts.join("\n")
 }

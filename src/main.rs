@@ -174,7 +174,7 @@ async fn cmd_generate(
     let anthropic = anthropic::AnthropicClient::new(api_key, model, max_tokens);
     let tool_defs = tools::all_definitions(github_client.is_some());
 
-    let raw = agent::run(
+    let parsed = agent::run(
         &anthropic,
         &system,
         &user_msg,
@@ -184,9 +184,6 @@ async fn cmd_generate(
         &job,
     )
     .await?;
-
-    // Parse output
-    let parsed = output::parse(&raw)?;
 
     // Update GitHub release if requested
     if github_release {
