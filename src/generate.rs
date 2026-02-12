@@ -19,7 +19,7 @@ pub struct GenerateOptions {
     pub repo: Option<String>,
     pub model: Option<String>,
     pub max_tokens: Option<u32>,
-    pub provider: Option<String>,
+    pub provider: Option<Provider>,
     pub base_url: Option<String>,
     pub output: Option<PathBuf>,
 }
@@ -94,16 +94,11 @@ async fn gather_context(opts: &GenerateOptions, job: &Arc<ProgressJob>) -> miett
     info!("repo: {owner_repo}");
 
     // Determine provider
-    let provider = match opts.provider.as_deref().or(defaults.provider.as_deref()) {
-        Some("anthropic") => Provider::Anthropic,
-        Some("openai") => Provider::OpenAI,
-        Some(other) => {
-            return Err(crate::error::Error::Config(format!(
-                "unknown provider: {other} (expected 'anthropic' or 'openai')"
-            )))?;
-        }
-        None => providers::detect_provider(&model),
-    };
+    let provider = opts
+        .provider
+        .clone()
+        .or(defaults.provider.clone())
+        .unwrap_or_else(|| providers::detect_provider(&model));
     info!("provider: {provider:?}, model: {model}");
 
     // Resolve API key based on provider

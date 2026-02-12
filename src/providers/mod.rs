@@ -1,11 +1,18 @@
 pub mod anthropic;
 pub mod openai;
 
+use serde::Deserialize;
+use strum::{Display, EnumString};
+
 use crate::llm::LlmClient;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, EnumString, Display, Deserialize)]
+#[strum(serialize_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
 pub enum Provider {
     Anthropic,
+    #[strum(serialize = "openai")]
+    #[serde(rename = "openai")]
     OpenAI,
 }
 

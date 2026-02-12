@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
+use crate::providers::Provider;
 use crate::usage;
 
 #[derive(Parser, Debug)]
@@ -59,7 +60,7 @@ pub enum Command {
 
         /// LLM provider (anthropic or openai, auto-detected from model if omitted)
         #[arg(long)]
-        provider: Option<String>,
+        provider: Option<Provider>,
 
         /// Base URL for the LLM API
         #[arg(long)]

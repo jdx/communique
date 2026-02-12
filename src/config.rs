@@ -3,6 +3,7 @@ use std::path::Path;
 use serde::Deserialize;
 
 use crate::error::Result;
+use crate::providers::Provider;
 
 #[derive(Debug, Deserialize, Default)]
 pub struct Config {
@@ -16,7 +17,7 @@ pub struct Defaults {
     pub model: Option<String>,
     pub max_tokens: Option<u32>,
     pub repo: Option<String>,
-    pub provider: Option<String>,
+    pub provider: Option<Provider>,
     pub base_url: Option<String>,
     pub emoji: Option<bool>,
     pub verify_links: Option<bool>,
@@ -57,7 +58,28 @@ impl Config {
                 span,
             }
         })?;
+        config.validate()?;
         Ok(Some(config))
+    }
+
+    fn validate(&self) -> Result<()> {
+        if let Some(defaults) = &self.defaults {
+            if let Some(max_tokens) = defaults.max_tokens
+                && max_tokens == 0
+            {
+                return Err(crate::error::Error::Config(
+                    "max_tokens must be greater than 0".into(),
+                ));
+            }
+            if let Some(repo) = &defaults.repo
+                && (!repo.contains('/') || repo.starts_with('/') || repo.ends_with('/'))
+            {
+                return Err(crate::error::Error::Config(format!(
+                    "invalid repo '{repo}' (expected 'owner/repo' format)"
+                )));
+            }
+        }
+        Ok(())
     }
 
     pub fn template() -> &'static str {
@@ -111,5 +133,56 @@ emoji = false
     fn test_template_is_valid_toml() {
         let config: Config = toml::from_str(Config::template()).unwrap();
         assert!(config.system_extra.is_none());
+    }
+
+    #[test]
+    fn test_validate_max_tokens_zero() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("communique.toml"),
+            "[defaults]\nmax_tokens = 0\n",
+        )
+        .unwrap();
+        let err = Config::load(dir.path()).unwrap_err();
+        assert!(err.to_string().contains("max_tokens"));
+    }
+
+    #[test]
+    fn test_validate_invalid_provider() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("communique.toml"),
+            "[defaults]\nprovider = \"gemini\"\n",
+        )
+        .unwrap();
+        let err = Config::load(dir.path()).unwrap_err();
+        assert!(err.to_string().contains("gemini"));
+    }
+
+    #[test]
+    fn test_validate_invalid_repo() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("communique.toml"),
+            "[defaults]\nrepo = \"noslash\"\n",
+        )
+        .unwrap();
+        let err = Config::load(dir.path()).unwrap_err();
+        assert!(err.to_string().contains("noslash"));
+    }
+
+    #[test]
+    fn test_validate_valid_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("communique.toml"),
+            "[defaults]\nmax_tokens = 4096\nprovider = \"openai\"\nrepo = \"jdx/communique\"\n",
+        )
+        .unwrap();
+        let config = Config::load(dir.path()).unwrap().unwrap();
+        let defaults = config.defaults.unwrap();
+        assert_eq!(defaults.max_tokens, Some(4096));
+        assert_eq!(defaults.provider, Some(crate::providers::Provider::OpenAI));
+        assert_eq!(defaults.repo.as_deref(), Some("jdx/communique"));
     }
 }
