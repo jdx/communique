@@ -1,4 +1,14 @@
+use std::future::Future;
 use std::path::Path;
+use std::pin::Pin;
+use std::sync::Mutex;
+
+use serde_json::json;
+
+use crate::error::Result;
+use crate::llm::{
+    Conversation, LlmClient, ToolCall, ToolDefinition, ToolResult, TurnResponse, Usage,
+};
 
 pub struct TempRepo {
     pub dir: tempfile::TempDir,
@@ -48,4 +58,55 @@ fn git(dir: &Path, args: &[&str]) {
         args,
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+pub struct MockLlmClient {
+    responses: Mutex<Vec<TurnResponse>>,
+}
+
+impl MockLlmClient {
+    pub fn new(responses: Vec<TurnResponse>) -> Self {
+        Self {
+            responses: Mutex::new(responses),
+        }
+    }
+}
+
+impl LlmClient for MockLlmClient {
+    fn new_conversation(&self, _user_message: &str) -> Conversation {
+        Conversation {
+            messages: Vec::new(),
+        }
+    }
+
+    fn append_tool_results(&self, _conversation: &mut Conversation, _results: &[ToolResult]) {}
+
+    fn send_turn<'a>(
+        &'a self,
+        _system: &'a str,
+        _conversation: &'a mut Conversation,
+        _tools: &'a [ToolDefinition],
+    ) -> Pin<Box<dyn Future<Output = Result<TurnResponse>> + Send + 'a>> {
+        let resp = self.responses.lock().unwrap().remove(0);
+        Box::pin(async move { Ok(resp) })
+    }
+}
+
+pub fn submit_tool_call(changelog: &str, title: &str, body: &str) -> ToolCall {
+    ToolCall {
+        id: "call_1".into(),
+        name: "submit_release_notes".into(),
+        input: json!({
+            "changelog": changelog,
+            "release_title": title,
+            "release_body": body,
+        }),
+    }
+}
+
+pub fn fake_usage() -> Usage {
+    Usage {
+        input_tokens: 0,
+        output_tokens: 0,
+    }
 }

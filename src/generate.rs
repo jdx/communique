@@ -267,6 +267,247 @@ async fn publish(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::llm::{StopReason, TurnResponse};
+    use crate::test_helpers::{MockLlmClient, TempRepo, fake_usage, submit_tool_call};
+    use serde_json::json;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn test_opts(tag: &str) -> GenerateOptions {
+        GenerateOptions {
+            tag: tag.into(),
+            prev_tag: None,
+            github_release: false,
+            concise: false,
+            dry_run: false,
+            repo: None,
+            model: None,
+            max_tokens: None,
+            provider: None,
+            base_url: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_generate_notes_basic() {
+        let repo = TempRepo::new();
+        repo.write_file("README.md", "# Hello");
+        repo.commit("initial commit");
+        repo.tag("v0.9.0");
+        repo.write_file("src/main.rs", "fn main() {}");
+        repo.commit("feat: add main");
+        repo.tag("v1.0.0");
+
+        let mock_client = MockLlmClient::new(vec![TurnResponse {
+            tool_calls: vec![submit_tool_call(
+                "### Added\n- Main function",
+                "Initial Release",
+                "First release.",
+            )],
+            stop_reason: StopReason::ToolUse,
+            usage: fake_usage(),
+        }]);
+
+        let ctx = Context {
+            repo_root: repo.path().to_path_buf(),
+            owner_repo: "test/repo".into(),
+            tag: "v1.0.0".into(),
+            prev_tag: "v0.9.0".into(),
+            client: Box::new(mock_client),
+            defaults: Defaults {
+                verify_links: Some(false),
+                ..Defaults::default()
+            },
+            system_extra: None,
+            context: None,
+            github_client: None,
+        };
+
+        let job = Arc::new(ProgressJobBuilder::new().build());
+        let parsed = generate_notes(&ctx, false, &job).await.unwrap();
+        assert_eq!(parsed.release_title, "Initial Release");
+        assert!(parsed.changelog.contains("Main function"));
+    }
+
+    #[tokio::test]
+    async fn test_generate_notes_with_github() {
+        let repo = TempRepo::new();
+        repo.write_file("README.md", "# Hello");
+        repo.commit("initial");
+        repo.tag("v0.9.0");
+        repo.write_file("src/main.rs", "fn main() {}");
+        repo.commit("feat: add feature (#1)");
+        repo.tag("v1.0.0");
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/repos/test/repo/releases/tags/v1.0.0"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": 1, "tag_name": "v1.0.0", "name": "v1.0.0",
+                "body": "Existing notes"
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/repos/test/repo/releases"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+                {"id": 2, "tag_name": "v0.9.0", "name": "v0.9.0", "body": "Previous notes"}
+            ])))
+            .mount(&server)
+            .await;
+
+        let gh =
+            github::GitHubClient::with_base_url("test-token".into(), "test/repo", server.uri())
+                .unwrap();
+
+        let mock_client = MockLlmClient::new(vec![TurnResponse {
+            tool_calls: vec![submit_tool_call("### Added\n- Feature", "Title", "Body")],
+            stop_reason: StopReason::ToolUse,
+            usage: fake_usage(),
+        }]);
+
+        let ctx = Context {
+            repo_root: repo.path().to_path_buf(),
+            owner_repo: "test/repo".into(),
+            tag: "v1.0.0".into(),
+            prev_tag: "v0.9.0".into(),
+            client: Box::new(mock_client),
+            defaults: Defaults {
+                verify_links: Some(false),
+                ..Defaults::default()
+            },
+            system_extra: Some("Extra instructions".into()),
+            context: Some("Test project".into()),
+            github_client: Some(gh),
+        };
+
+        let job = Arc::new(ProgressJobBuilder::new().build());
+        let parsed = generate_notes(&ctx, false, &job).await.unwrap();
+        assert_eq!(parsed.release_title, "Title");
+        assert_eq!(parsed.release_body, "Body");
+    }
+
+    #[tokio::test]
+    async fn test_publish_updates_release() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/repos/test/repo/releases/tags/v1.0.0"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": 42, "tag_name": "v1.0.0", "name": "v1.0.0", "body": "old"
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("PATCH"))
+            .and(path("/repos/test/repo/releases/42"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"id": 42})))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let gh =
+            github::GitHubClient::with_base_url("test-token".into(), "test/repo", server.uri())
+                .unwrap();
+
+        let ctx = Context {
+            repo_root: PathBuf::from("/tmp"),
+            owner_repo: "test/repo".into(),
+            tag: "v1.0.0".into(),
+            prev_tag: "v0.9.0".into(),
+            client: Box::new(MockLlmClient::new(vec![])),
+            defaults: Defaults::default(),
+            system_extra: None,
+            context: None,
+            github_client: Some(gh),
+        };
+
+        let opts = GenerateOptions {
+            github_release: true,
+            dry_run: false,
+            ..test_opts("v1.0.0")
+        };
+
+        let parsed = ParsedOutput {
+            changelog: "changes".into(),
+            release_title: "Title".into(),
+            release_body: "Body".into(),
+        };
+
+        let job = Arc::new(ProgressJobBuilder::new().build());
+        publish(&opts, &ctx, &parsed, &job).await.unwrap();
+        // wiremock expect(1) verifies PATCH was called
+    }
+
+    #[tokio::test]
+    async fn test_publish_dry_run_skips_update() {
+        let ctx = Context {
+            repo_root: PathBuf::from("/tmp"),
+            owner_repo: "test/repo".into(),
+            tag: "v1.0.0".into(),
+            prev_tag: "v0.9.0".into(),
+            client: Box::new(MockLlmClient::new(vec![])),
+            defaults: Defaults::default(),
+            system_extra: None,
+            context: None,
+            github_client: None,
+        };
+
+        let opts = GenerateOptions {
+            github_release: true,
+            dry_run: true,
+            ..test_opts("v1.0.0")
+        };
+
+        let parsed = ParsedOutput {
+            changelog: "changes".into(),
+            release_title: "Title".into(),
+            release_body: "Body".into(),
+        };
+
+        let job = Arc::new(ProgressJobBuilder::new().build());
+        publish(&opts, &ctx, &parsed, &job).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_publish_no_release_found() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/repos/test/repo/releases/tags/v1.0.0"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+
+        let gh =
+            github::GitHubClient::with_base_url("test-token".into(), "test/repo", server.uri())
+                .unwrap();
+
+        let ctx = Context {
+            repo_root: PathBuf::from("/tmp"),
+            owner_repo: "test/repo".into(),
+            tag: "v1.0.0".into(),
+            prev_tag: "v0.9.0".into(),
+            client: Box::new(MockLlmClient::new(vec![])),
+            defaults: Defaults::default(),
+            system_extra: None,
+            context: None,
+            github_client: Some(gh),
+        };
+
+        let opts = GenerateOptions {
+            github_release: true,
+            dry_run: false,
+            ..test_opts("v1.0.0")
+        };
+
+        let parsed = ParsedOutput {
+            changelog: "changes".into(),
+            release_title: "Title".into(),
+            release_body: "Body".into(),
+        };
+
+        let job = Arc::new(ProgressJobBuilder::new().build());
+        // Should not error — just warns and skips
+        publish(&opts, &ctx, &parsed, &job).await.unwrap();
+    }
 
     #[test]
     fn test_read_changelog_entry_found() {

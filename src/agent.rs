@@ -177,66 +177,14 @@ fn tool_detail(name: &str, input: &serde_json::Value) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::future::Future;
-    use std::pin::Pin;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
 
     use clx::progress::ProgressJobBuilder;
     use serde_json::json;
 
     use super::*;
-    use crate::llm::{Conversation, StopReason, ToolCall, TurnResponse, Usage};
-
-    struct MockLlmClient {
-        responses: Mutex<Vec<TurnResponse>>,
-    }
-
-    impl MockLlmClient {
-        fn new(responses: Vec<TurnResponse>) -> Self {
-            Self {
-                responses: Mutex::new(responses),
-            }
-        }
-    }
-
-    impl LlmClient for MockLlmClient {
-        fn new_conversation(&self, _user_message: &str) -> Conversation {
-            Conversation {
-                messages: Vec::new(),
-            }
-        }
-
-        fn append_tool_results(&self, _conversation: &mut Conversation, _results: &[ToolResult]) {}
-
-        fn send_turn<'a>(
-            &'a self,
-            _system: &'a str,
-            _conversation: &'a mut Conversation,
-            _tools: &'a [ToolDefinition],
-        ) -> Pin<Box<dyn Future<Output = Result<TurnResponse>> + Send + 'a>> {
-            let resp = self.responses.lock().unwrap().remove(0);
-            Box::pin(async move { Ok(resp) })
-        }
-    }
-
-    fn submit_tool_call(changelog: &str, title: &str, body: &str) -> ToolCall {
-        ToolCall {
-            id: "call_1".into(),
-            name: "submit_release_notes".into(),
-            input: json!({
-                "changelog": changelog,
-                "release_title": title,
-                "release_body": body,
-            }),
-        }
-    }
-
-    fn fake_usage() -> Usage {
-        Usage {
-            input_tokens: 0,
-            output_tokens: 0,
-        }
-    }
+    use crate::llm::{StopReason, ToolCall, TurnResponse};
+    use crate::test_helpers::{MockLlmClient, fake_usage, submit_tool_call};
 
     #[tokio::test]
     async fn test_direct_submission() {
