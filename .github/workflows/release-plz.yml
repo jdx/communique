@@ -33,6 +33,7 @@ jobs:
         run: git fetch --tags
       - name: Enhance GitHub release with communique
         if: steps.release-plz.outputs.releases_created == 'true'
+        continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -89,6 +90,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
       - name: Update release PR
         if: steps.release-plz.outputs.prs_created == 'true'
+        continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
