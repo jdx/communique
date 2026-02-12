@@ -9,34 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.1](https://github.com/jdx/communique/compare/v0.1.0...v0.1.1) - 2026-02-12
 
-### Other
+### Added
+- Multi-model LLM support with OpenAI-compatible provider — use any OpenAI API-compatible model via `--provider openai` or auto-detect from model name
+- Dry-run mode (`--dry-run` / `-n`) to preview release notes without publishing or verifying links
+- Link verification in the agent loop — broken URLs are automatically detected and the model is asked to fix them
+- Configurable emoji toggle (`emoji` in `communique.toml` defaults) to suppress emoji in output
+- Progress indication via spinner/status while fetching PRs and waiting on the LLM
+- VitePress documentation site
+- `communique init` and `communique generate` subcommands with `communique.toml` configuration file
+- Style matching from recent releases — the agent reads your last 2 releases for tone/format consistency
+- Structured tool call (`submit_release_notes`) for cleaner, more reliable output parsing
 
-- Parallelize tool dispatch in agent loop ([#19](https://github.com/jdx/communique/pull/19))
-- Add generate.rs integration tests and extract shared test helpers
-- Add CLAUDE.md with project guidance for Claude Code
-- Add code coverage to CI ([#22](https://github.com/jdx/communique/pull/22))
-- Add ripgrep to mise tools and remove has_rg guards from tests
-- Add agent loop edge case and link verification fallback tests
-- Update release PR title with communique output ([#23](https://github.com/jdx/communique/pull/23))
-- Rename lint workflow to CI and add cargo test
-- Add comprehensive test suite across all modules
-- Add mock LlmClient agent loop tests
-- Add multi-model LLM support with OpenAI-compatible provider
-- Add release body template, dry-run mode, and link verification in agent loop
-- Add link verification, emoji toggle, tool details, and prompt improvements
-- Add pkl to mise tools for hk config parsing in CI
-- Add hk to mise tools so it's available in CI
-- Use structured tool call for release notes output
-- Add hk for pre-commit hooks, lint CI, miette TOML errors, and resolve_ref fallback
-- Use debug builds and add Rust cache to release-plz workflow
-- Build communique from main before checking out PR branch
-- Fix previous_tag to fall back to root commit when no tags exist
-- Support non-tag refs and integrate communique into release-plz workflow
-- Add usage-lib for auto-generated CLI reference docs
-- Add progress indication via clx
-- Add README with roadmap
-- Add VitePress docs site with vaporwave theme
-- release v0.1.0 ([#3](https://github.com/jdx/communique/pull/3))
+### Changed
+- Tool calls from a single LLM turn are now executed concurrently, speeding up iterations with multiple GitHub API calls
+
+### Fixed
+- `previous_tag` now falls back to the root commit when no prior tags exist, instead of erroring
+- Git ref resolution falls back to HEAD when a tag doesn't exist yet (e.g. during release-plz workflows)
 
 ## [0.1.0](https://github.com/jdx/communique/releases/tag/v0.1.0) - 2026-02-11
 
