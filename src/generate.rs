@@ -162,17 +162,15 @@ async fn generate_notes(
 
     job.prop("message", "Fetching existing release context...");
     let changelog_entry = read_changelog_entry(&ctx.repo_root, &ctx.tag);
-    let existing_release = if let Some(gh) = &ctx.github_client {
-        match gh.get_release_by_tag(&ctx.tag).await? {
-            Some(r) => r.body,
-            None => None,
-        }
-    } else {
-        None
-    };
 
-    let recent_releases = if ctx.defaults.match_style.unwrap_or(true) {
-        if let Some(gh) = &ctx.github_client {
+    // Fetch existing release and recent releases in parallel
+    let match_style = ctx.defaults.match_style.unwrap_or(true);
+    let (existing_release, recent_releases) = if let Some(gh) = &ctx.github_client {
+        let existing_fut = gh.get_release_by_tag(&ctx.tag);
+        let recent_fut = async {
+            if !match_style {
+                return vec![];
+            }
             match gh.list_recent_releases(3).await {
                 Ok(releases) => releases
                     .into_iter()
@@ -192,11 +190,15 @@ async fn generate_notes(
                     vec![]
                 }
             }
-        } else {
-            vec![]
-        }
+        };
+        let (existing_result, recent) = tokio::join!(existing_fut, recent_fut);
+        let existing = match existing_result? {
+            Some(r) => r.body,
+            None => None,
+        };
+        (existing, recent)
     } else {
-        vec![]
+        (None, vec![])
     };
 
     let emoji = ctx.defaults.emoji.unwrap_or(true);
