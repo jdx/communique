@@ -21,6 +21,7 @@ pub struct GenerateOptions {
     pub max_tokens: Option<u32>,
     pub provider: Option<String>,
     pub base_url: Option<String>,
+    pub output: Option<PathBuf>,
 }
 
 struct Context {
@@ -50,10 +51,16 @@ pub async fn run(opts: GenerateOptions) -> miette::Result<()> {
     job.prop("message", "Done");
     clx::progress::flush();
 
-    if opts.concise {
-        println!("{}", parsed.changelog);
+    let text = if opts.concise {
+        parsed.changelog.clone()
     } else {
-        println!("# {}\n\n{}", parsed.release_title, parsed.release_body);
+        format!("# {}\n\n{}", parsed.release_title, parsed.release_body)
+    };
+
+    if let Some(path) = &opts.output {
+        xx::file::write(path, &text)?;
+    } else {
+        println!("{text}");
     }
 
     Ok(())

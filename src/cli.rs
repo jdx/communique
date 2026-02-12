@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use clap::{Parser, Subcommand};
 
 use crate::usage;
@@ -11,6 +13,14 @@ use crate::usage;
 pub struct Cli {
     #[command(subcommand)]
     pub command: Command,
+
+    /// Enable verbose logging output
+    #[arg(long, short, global = true)]
+    pub verbose: bool,
+
+    /// Suppress progress output
+    #[arg(long, short, global = true)]
+    pub quiet: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -54,6 +64,10 @@ pub enum Command {
         /// Base URL for the LLM API
         #[arg(long)]
         base_url: Option<String>,
+
+        /// Write output to a file instead of stdout
+        #[arg(long, short)]
+        output: Option<PathBuf>,
     },
 
     /// Generate a communique.toml config file in the repo root
