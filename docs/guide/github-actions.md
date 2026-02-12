@@ -4,12 +4,15 @@ communiqué integrates naturally into CI/CD pipelines. This guide covers the mos
 
 ## Prerequisites
 
-Add these secrets to your repository (Settings > Secrets and variables > Actions):
+Add your LLM provider secret to your repository (Settings > Secrets and variables > Actions):
 
-| Secret | Required | Purpose |
-|--------|----------|---------|
-| `ANTHROPIC_API_KEY` | Yes | LLM access for generating release notes |
-| `GITHUB_TOKEN` | Automatic | PR and release access (provided by Actions) |
+| Secret | Purpose |
+|--------|---------|
+| `ANTHROPIC_API_KEY` | API key for Claude models |
+| `OPENAI_API_KEY` | API key for OpenAI-compatible providers |
+| `GITHUB_TOKEN` | PR and release access (provided automatically by Actions) |
+
+You only need one of `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, depending on which provider you use.
 
 ## Basic: Update release on tag push
 
@@ -38,7 +41,9 @@ jobs:
       - name: Generate release notes
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Use whichever provider you've configured:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: communique generate "${{ github.ref_name }}" --github-release
 ```
 

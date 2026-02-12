@@ -1,52 +1,72 @@
 # Getting Started
 
-Welcome, operator. Follow these steps to initialize your communiqué installation.
-
 ## Installation
 
-Acquire the binary from the central registry:
+Install with [mise](https://mise.jdx.dev) (recommended):
+
+```sh
+mise use communique
+```
+
+Or with cargo:
 
 ```sh
 cargo install communique
 ```
 
+Pre-built binaries for macOS, Linux, and Windows are also available on the [GitHub releases page](https://github.com/jdx/communique/releases).
+
 ## Prerequisites
 
-You will need to supply valid credentials for neural network access:
+communiqué needs an API key for the LLM provider that will generate your release notes. Set one of the following:
 
 ```sh
+# For Claude models (default)
 export ANTHROPIC_API_KEY="sk-ant-..."
+
+# For OpenAI-compatible providers
+export OPENAI_API_KEY="sk-..."
 ```
 
-For GitHub uplink capabilities (PR reconnaissance, release publishing), also provide:
+The provider is auto-detected from the model name: `claude-*` models use Anthropic, everything else uses OpenAI-compatible endpoints.
+
+For GitHub features (reading PR details, publishing releases), you also need a GitHub token:
 
 ```sh
 export GITHUB_TOKEN="ghp_..."
 ```
 
+The token needs the `repo` scope (or `public_repo` for public repositories). The easiest way to create one:
+
+```sh
+gh auth token  # if you use the GitHub CLI
+```
+
+Or create a [personal access token](https://github.com/settings/tokens) in GitHub settings.
+
 ## Quick Start
 
-### 1. Initialize your workspace
+### 1. Initialize your config
 
-Generate a `communique.toml` manifest in your repository root:
+Generate a `communique.toml` in your repository root:
 
 ```sh
 communique init
 ```
 
-### 2. Generate a communiqué
+### 2. Generate release notes
 
-Synthesize release notes for a specific git tag:
+Generate release notes for a specific git tag:
 
 ```sh
 communique generate v1.0.0
 ```
 
-The system will automatically locate the previous tag, gather all relevant history and PR data, and produce editorialized release notes.
+communiqué automatically finds the previous tag, gathers the git history and PR data, and produces editorialized release notes.
 
 ### 3. Publish to GitHub
 
-Transmit the finished communiqué directly to a GitHub Release:
+Write the release notes directly to a GitHub Release:
 
 ```sh
 communique generate v1.0.0 --github-release
@@ -56,7 +76,7 @@ communique generate v1.0.0 --github-release
 
 1. Scans your git history between two tags
 2. Extracts PR references from commit messages
-3. Fetches PR details and diffs from the GitHub uplink (if token provided)
-4. Dispatches context to an LLM equipped with codebase exploration tools
+3. Fetches PR details and diffs from GitHub (if token provided)
+4. Sends context to an LLM equipped with codebase exploration tools
 5. The agent reads files, searches code, and builds a mental model of the changes
 6. Outputs a concise changelog entry and a detailed release narrative
