@@ -76,6 +76,7 @@ async fn main() -> miette::Result<()> {
                 provider,
                 base_url,
                 output,
+                config: cli.config,
             })
             .await
         }

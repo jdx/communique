@@ -22,6 +22,7 @@ pub struct GenerateOptions {
     pub provider: Option<Provider>,
     pub base_url: Option<String>,
     pub output: Option<PathBuf>,
+    pub config: Option<PathBuf>,
 }
 
 struct Context {
@@ -78,7 +79,11 @@ async fn gather_context(opts: &GenerateOptions, job: &Arc<ProgressJob>) -> miett
     let repo_root = git::repo_root()?;
     info!("repo root: {}", repo_root.display());
 
-    let config = config::Config::load(&repo_root)?.unwrap_or_default();
+    let config = match &opts.config {
+        Some(path) => config::Config::load_from(path)?,
+        None => config::Config::load(&repo_root)?,
+    }
+    .unwrap_or_default();
     let defaults = config.defaults.unwrap_or_default();
 
     let model = opts

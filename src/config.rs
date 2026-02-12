@@ -46,10 +46,14 @@ const TEMPLATE: &str = r#"# Extra instructions appended to the system prompt.
 impl Config {
     pub fn load(repo_root: &Path) -> Result<Option<Config>> {
         let path = repo_root.join("communique.toml");
+        Self::load_from(&path)
+    }
+
+    pub fn load_from(path: &Path) -> Result<Option<Config>> {
         if !path.exists() {
             return Ok(None);
         }
-        let contents = xx::file::read_to_string(&path)?;
+        let contents = xx::file::read_to_string(path)?;
         let config: Config = toml::from_str(&contents).map_err(|e| {
             let span = e.span().map(|s| s.into()).unwrap_or((0, 0).into());
             crate::error::Error::Toml {

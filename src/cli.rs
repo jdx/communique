@@ -22,6 +22,10 @@ pub struct Cli {
     /// Suppress progress output
     #[arg(long, short, global = true)]
     pub quiet: bool,
+
+    /// Path to config file (default: communique.toml in repo root)
+    #[arg(long, short, global = true)]
+    pub config: Option<PathBuf>,
 }
 
 #[derive(Subcommand, Debug)]
