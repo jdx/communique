@@ -18,7 +18,7 @@ jobs:
       - uses: jdx/mise-action@v2
       - uses: taiki-e/install-action@cargo-audit
       - run: mise run lint
-      - run: cargo test
+      - run: mise x -- cargo test
       - run: cargo audit
 
   coverage:
@@ -29,8 +29,9 @@ jobs:
         with:
           components: llvm-tools-preview
       - uses: Swatinem/rust-cache@v2
+      - uses: jdx/mise-action@v2
       - uses: taiki-e/install-action@cargo-llvm-cov
-      - run: cargo llvm-cov --codecov --output-path codecov.json
+      - run: mise x -- cargo llvm-cov --codecov --output-path codecov.json
       - uses: codecov/codecov-action@v5
         with:
           files: codecov.json
