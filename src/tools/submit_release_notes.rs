@@ -11,7 +11,7 @@ pub fn definition() -> ToolDefinition {
             "properties": {
                 "changelog": {
                     "type": "string",
-                    "description": "Concise changelog entry using Keep a Changelog categories (### Added, ### Fixed, etc). No version header — just the categorized items."
+                    "description": "Concise changelog entry using Keep a Changelog categories (## Added, ## Fixed, etc). No version header — just the categorized items."
                 },
                 "release_title": {
                     "type": "string",
@@ -19,7 +19,7 @@ pub fn definition() -> ToolDefinition {
                 },
                 "release_body": {
                     "type": "string",
-                    "description": "Detailed GitHub release notes in markdown. Follow the template from the system prompt: narrative summary, optional Highlights, What's Changed, optional Breaking Changes, optional New Contributors, and a Full Changelog link."
+                    "description": "Detailed GitHub release notes in markdown. Follow the template from the system prompt: narrative summary, optional Highlights, categorized sections (Added, Fixed, Changed, etc.), optional Breaking Changes, optional New Contributors, and a Full Changelog link."
                 }
             },
             "required": ["changelog", "release_title", "release_body"]

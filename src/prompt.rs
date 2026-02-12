@@ -16,7 +16,7 @@ Use these tools to understand what changed and why. Read relevant source files, 
 When you are done researching, call the `submit_release_notes` tool with three fields:
 
 ### `changelog`
-A concise changelog entry using Keep a Changelog categories (### Added, ### Fixed, etc). No version header — just the categorized bullet points.
+A concise changelog entry using Keep a Changelog categories (## Added, ## Fixed, etc). No version header — just the categorized bullet points.
 
 ### `release_title`
 A catchy, concise title for the GitHub release (no # prefix).
@@ -31,8 +31,8 @@ Detailed GitHub release notes in markdown. Use the following template as a base,
 <!-- Only include for releases with multiple notable additions. Omit for small/patch releases. -->
 <!-- 2-4 bullet points calling out the most important user-facing changes -->
 
-## What's Changed
-<!-- Group changes under subheadings as needed, e.g. ### Added, ### Fixed, ### Changed, ### Deprecated -->
+## Added / ## Fixed / ## Changed / etc.
+<!-- Use top-level ## headings for each category (Added, Fixed, Changed, Deprecated, Removed). Only include categories that apply. -->
 <!-- Each item should mention the PR (@author) where relevant -->
 <!-- Where it genuinely helps, include a brief code snippet, usage example, or config sample -->
 
