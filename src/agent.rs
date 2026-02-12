@@ -347,6 +347,138 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_missing_changelog_field() {
+        let client = MockLlmClient::new(vec![TurnResponse {
+            tool_calls: vec![ToolCall {
+                id: "call_1".into(),
+                name: "submit_release_notes".into(),
+                input: json!({
+                    "release_title": "v1.0",
+                    "release_body": "body",
+                }),
+            }],
+            stop_reason: StopReason::ToolUse,
+            usage: fake_usage(),
+        }]);
+        let job = Arc::new(ProgressJobBuilder::new().build());
+        let tmp = std::env::temp_dir();
+        let ctx = AgentContext {
+            client: &client,
+            system: "",
+            user_message: "",
+            tool_defs: vec![],
+            repo_root: &tmp,
+            github: None,
+            verify_links: false,
+            job: &job,
+        };
+        let err = run(ctx).await.unwrap_err();
+        assert!(matches!(err, Error::Parse(_)));
+        assert!(err.to_string().contains("changelog"));
+    }
+
+    #[tokio::test]
+    async fn test_missing_release_title_field() {
+        let client = MockLlmClient::new(vec![TurnResponse {
+            tool_calls: vec![ToolCall {
+                id: "call_1".into(),
+                name: "submit_release_notes".into(),
+                input: json!({
+                    "changelog": "log",
+                    "release_body": "body",
+                }),
+            }],
+            stop_reason: StopReason::ToolUse,
+            usage: fake_usage(),
+        }]);
+        let job = Arc::new(ProgressJobBuilder::new().build());
+        let tmp = std::env::temp_dir();
+        let ctx = AgentContext {
+            client: &client,
+            system: "",
+            user_message: "",
+            tool_defs: vec![],
+            repo_root: &tmp,
+            github: None,
+            verify_links: false,
+            job: &job,
+        };
+        let err = run(ctx).await.unwrap_err();
+        assert!(matches!(err, Error::Parse(_)));
+        assert!(err.to_string().contains("release_title"));
+    }
+
+    #[tokio::test]
+    async fn test_missing_release_body_field() {
+        let client = MockLlmClient::new(vec![TurnResponse {
+            tool_calls: vec![ToolCall {
+                id: "call_1".into(),
+                name: "submit_release_notes".into(),
+                input: json!({
+                    "changelog": "log",
+                    "release_title": "v1.0",
+                }),
+            }],
+            stop_reason: StopReason::ToolUse,
+            usage: fake_usage(),
+        }]);
+        let job = Arc::new(ProgressJobBuilder::new().build());
+        let tmp = std::env::temp_dir();
+        let ctx = AgentContext {
+            client: &client,
+            system: "",
+            user_message: "",
+            tool_defs: vec![],
+            repo_root: &tmp,
+            github: None,
+            verify_links: false,
+            job: &job,
+        };
+        let err = run(ctx).await.unwrap_err();
+        assert!(matches!(err, Error::Parse(_)));
+        assert!(err.to_string().contains("release_body"));
+    }
+
+    #[tokio::test]
+    async fn test_verify_links_pass_on_first_try() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("HEAD"))
+            .respond_with(wiremock::ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+
+        let url = format!("{}/valid", server.uri());
+        let client = MockLlmClient::new(vec![TurnResponse {
+            tool_calls: vec![ToolCall {
+                id: "call_1".into(),
+                name: "submit_release_notes".into(),
+                input: json!({
+                    "changelog": "changes",
+                    "release_title": "v1.0",
+                    "release_body": format!("See {url}"),
+                }),
+            }],
+            stop_reason: StopReason::ToolUse,
+            usage: fake_usage(),
+        }]);
+        let job = Arc::new(ProgressJobBuilder::new().build());
+        let tmp = std::env::temp_dir();
+        let ctx = AgentContext {
+            client: &client,
+            system: "",
+            user_message: "",
+            tool_defs: vec![],
+            repo_root: &tmp,
+            github: None,
+            verify_links: true,
+            job: &job,
+        };
+        let result = run(ctx).await.unwrap();
+        assert_eq!(result.changelog, "changes");
+        assert_eq!(result.release_body, format!("See {url}"));
+    }
+
+    #[tokio::test]
     async fn test_verify_links_retry() {
         let server = wiremock::MockServer::start().await;
         wiremock::Mock::given(wiremock::matchers::method("HEAD"))

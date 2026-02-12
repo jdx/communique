@@ -115,4 +115,41 @@ mod tests {
         let broken = verify(&["no urls here"]).await;
         assert!(broken.is_empty());
     }
+
+    #[tokio::test]
+    async fn test_verify_405_fallback_to_get_ok() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("HEAD"))
+            .respond_with(wiremock::ResponseTemplate::new(405))
+            .mount(&server)
+            .await;
+        wiremock::Mock::given(wiremock::matchers::method("GET"))
+            .respond_with(wiremock::ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+
+        let url = format!("{}/page", server.uri());
+        let text = format!("Check {url}");
+        let broken = verify(&[&text]).await;
+        assert!(broken.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_verify_405_fallback_to_get_404() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("HEAD"))
+            .respond_with(wiremock::ResponseTemplate::new(405))
+            .mount(&server)
+            .await;
+        wiremock::Mock::given(wiremock::matchers::method("GET"))
+            .respond_with(wiremock::ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+
+        let url = format!("{}/broken", server.uri());
+        let text = format!("See {url}");
+        let broken = verify(&[&text]).await;
+        assert_eq!(broken.len(), 1);
+        assert!(broken[0].1.contains("404"));
+    }
 }
