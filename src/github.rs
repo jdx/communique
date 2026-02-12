@@ -30,6 +30,16 @@ pub struct PullRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct Issue {
+    pub number: u64,
+    pub title: String,
+    pub body: Option<String>,
+    pub state: String,
+    pub user: User,
+    pub labels: Vec<Label>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct User {
     pub login: String,
 }
@@ -137,6 +147,26 @@ impl GitHubClient {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
             return Err(Error::GitHub(format!("GET releases: {status} {body}")));
+        }
+        Ok(resp.json().await?)
+    }
+
+    pub async fn get_issue(&self, number: u64) -> Result<Issue> {
+        let url = self.api_url(&format!("/issues/{number}"));
+        let resp = crate::retry::retry_request("GitHub API", || {
+            self.client
+                .get(&url)
+                .bearer_auth(&self.token)
+                .header("Accept", "application/vnd.github+json")
+                .send()
+        })
+        .await?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(Error::GitHub(format!(
+                "GET issue #{number}: {status} {body}"
+            )));
         }
         Ok(resp.json().await?)
     }
@@ -328,5 +358,29 @@ mod tests {
         let diff = client.get_pr_diff(42).await.unwrap();
         assert!(diff.contains("[diff truncated at 50KB]"));
         assert!(diff.len() < 100_000);
+    }
+
+    #[tokio::test]
+    async fn test_get_issue() {
+        let (server, client) = setup().await;
+        Mock::given(method("GET"))
+            .and(path("/repos/owner/repo/issues/7"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "number": 7,
+                "title": "Bug report",
+                "body": "Something is broken",
+                "state": "open",
+                "user": {"login": "reporter"},
+                "labels": [{"name": "bug"}]
+            })))
+            .mount(&server)
+            .await;
+
+        let issue = client.get_issue(7).await.unwrap();
+        assert_eq!(issue.number, 7);
+        assert_eq!(issue.title, "Bug report");
+        assert_eq!(issue.state, "open");
+        assert_eq!(issue.user.login, "reporter");
+        assert_eq!(issue.labels[0].name, "bug");
     }
 }
