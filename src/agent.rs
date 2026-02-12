@@ -7,7 +7,7 @@ use log::info;
 use crate::error::{Error, Result};
 use crate::github::GitHubClient;
 use crate::links;
-use crate::llm::{LlmClient, StopReason, ToolDefinition, ToolResult};
+use crate::llm::{LlmClient, StopReason, ToolDefinition, ToolResult, Usage};
 use crate::output::{self, ParsedOutput};
 use crate::tools;
 
@@ -38,6 +38,7 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
 
     let mut conversation = client.new_conversation(user_message);
     let mut cache = tools::ToolCache::new();
+    let mut total_usage = Usage::default();
 
     for iteration in 0..MAX_ITERATIONS {
         info!("agent iteration {}", iteration + 1);
@@ -54,6 +55,7 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
             "usage: {} input, {} output tokens",
             response.usage.input_tokens, response.usage.output_tokens
         );
+        total_usage += response.usage.clone();
 
         // Check for submit_release_notes tool call — this is the final output
         let mut submit = None;
@@ -77,6 +79,7 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
                         changelog,
                         release_title,
                         release_body,
+                        usage: total_usage.clone(),
                     },
                 ));
             }

@@ -26,10 +26,17 @@ pub struct ToolDefinition {
     pub input_schema: Value,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Usage {
     pub input_tokens: u32,
     pub output_tokens: u32,
+}
+
+impl std::ops::AddAssign for Usage {
+    fn add_assign(&mut self, other: Self) {
+        self.input_tokens += other.input_tokens;
+        self.output_tokens += other.output_tokens;
+    }
 }
 
 /// Opaque conversation state — each provider stores messages in its native format.

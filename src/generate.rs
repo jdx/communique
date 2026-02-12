@@ -52,6 +52,14 @@ pub async fn run(opts: GenerateOptions) -> miette::Result<()> {
     job.prop("message", "Done");
     clx::progress::flush();
 
+    let u = &parsed.usage;
+    eprintln!(
+        "Tokens: {} input + {} output = {} total",
+        u.input_tokens,
+        u.output_tokens,
+        u.input_tokens + u.output_tokens
+    );
+
     let text = if opts.concise {
         parsed.changelog.clone()
     } else {
@@ -276,10 +284,13 @@ async fn publish(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::llm::{StopReason, TurnResponse};
-    use crate::test_helpers::{MockLlmClient, TempRepo, fake_usage, submit_tool_call};
+    use crate::llm::Usage;
+    use crate::llm::{StopReason, ToolCall, TurnResponse};
+    use crate::test_helpers::{
+        MockLlmClient, TempRepo, fake_usage, fake_usage_with, submit_tool_call,
+    };
     use serde_json::json;
-    use wiremock::matchers::{method, path};
+    use wiremock::matchers::{header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn test_opts(tag: &str) -> GenerateOptions {
@@ -443,6 +454,7 @@ mod tests {
             changelog: "changes".into(),
             release_title: "Title".into(),
             release_body: "Body".into(),
+            usage: Usage::default(),
         };
 
         let job = Arc::new(ProgressJobBuilder::new().build());
@@ -474,6 +486,7 @@ mod tests {
             changelog: "changes".into(),
             release_title: "Title".into(),
             release_body: "Body".into(),
+            usage: Usage::default(),
         };
 
         let job = Arc::new(ProgressJobBuilder::new().build());
@@ -515,6 +528,7 @@ mod tests {
             changelog: "changes".into(),
             release_title: "Title".into(),
             release_body: "Body".into(),
+            usage: Usage::default(),
         };
 
         let job = Arc::new(ProgressJobBuilder::new().build());
@@ -561,6 +575,416 @@ mod tests {
         .unwrap();
         let entry = read_changelog_entry(dir.path(), "v1.0.0").unwrap();
         assert!(entry.contains("### Changed"));
+    }
+
+    #[tokio::test]
+    async fn test_e2e_tool_use_then_submit() {
+        let repo = TempRepo::new();
+        repo.write_file("README.md", "# My Project\nA cool tool.");
+        repo.commit("initial commit");
+        repo.tag("v0.9.0");
+        repo.write_file("src/main.rs", "fn main() {}");
+        repo.commit("feat: add main");
+        repo.tag("v1.0.0");
+
+        let mock_client = MockLlmClient::new(vec![
+            // Turn 1: LLM asks to read a file — dispatched against real repo
+            TurnResponse {
+                tool_calls: vec![ToolCall {
+                    id: "call_1".into(),
+                    name: "read_file".into(),
+                    input: json!({"path": "README.md"}),
+                }],
+                text: None,
+                stop_reason: StopReason::ToolUse,
+                usage: fake_usage(),
+            },
+            // Turn 2: LLM submits release notes
+            TurnResponse {
+                tool_calls: vec![submit_tool_call(
+                    "### Added\n- Main function",
+                    "v1.0.0",
+                    "First release with main entry point.",
+                )],
+                text: None,
+                stop_reason: StopReason::ToolUse,
+                usage: fake_usage(),
+            },
+        ]);
+
+        let ctx = Context {
+            repo_root: repo.path().to_path_buf(),
+            owner_repo: "test/repo".into(),
+            tag: "v1.0.0".into(),
+            prev_tag: "v0.9.0".into(),
+            client: Box::new(mock_client),
+            defaults: Defaults {
+                verify_links: Some(false),
+                ..Defaults::default()
+            },
+            system_extra: None,
+            context: None,
+            github_client: None,
+        };
+
+        let job = Arc::new(ProgressJobBuilder::new().build());
+        let parsed = generate_notes(&ctx, false, &job).await.unwrap();
+        assert_eq!(parsed.release_title, "v1.0.0");
+        assert!(parsed.release_body.contains("main entry point"));
+    }
+
+    #[tokio::test]
+    async fn test_e2e_multiple_tools_then_submit() {
+        let repo = TempRepo::new();
+        repo.write_file("README.md", "# Project");
+        repo.write_file("src/main.rs", "fn main() { println!(\"hello\"); }");
+        repo.commit("initial");
+        repo.tag("v0.9.0");
+        repo.write_file("src/lib.rs", "pub fn greet() {}");
+        repo.commit("feat: add greeting lib");
+        repo.tag("v1.0.0");
+
+        let mock_client = MockLlmClient::new(vec![
+            // Turn 1: list_files + grep (concurrent tool dispatch)
+            TurnResponse {
+                tool_calls: vec![
+                    ToolCall {
+                        id: "call_1".into(),
+                        name: "list_files".into(),
+                        input: json!({}),
+                    },
+                    ToolCall {
+                        id: "call_2".into(),
+                        name: "grep".into(),
+                        input: json!({"pattern": "fn main"}),
+                    },
+                ],
+                text: None,
+                stop_reason: StopReason::ToolUse,
+                usage: fake_usage(),
+            },
+            // Turn 2: git_show + get_commits (concurrent tool dispatch)
+            TurnResponse {
+                tool_calls: vec![
+                    ToolCall {
+                        id: "call_3".into(),
+                        name: "git_show".into(),
+                        input: json!({"ref": "HEAD"}),
+                    },
+                    ToolCall {
+                        id: "call_4".into(),
+                        name: "get_commits".into(),
+                        input: json!({}),
+                    },
+                ],
+                text: None,
+                stop_reason: StopReason::ToolUse,
+                usage: fake_usage(),
+            },
+            // Turn 3: submit
+            TurnResponse {
+                tool_calls: vec![submit_tool_call(
+                    "### Added\n- Greeting library",
+                    "v1.0.0",
+                    "Added greeting functionality.",
+                )],
+                text: None,
+                stop_reason: StopReason::ToolUse,
+                usage: fake_usage(),
+            },
+        ]);
+
+        let ctx = Context {
+            repo_root: repo.path().to_path_buf(),
+            owner_repo: "test/repo".into(),
+            tag: "v1.0.0".into(),
+            prev_tag: "v0.9.0".into(),
+            client: Box::new(mock_client),
+            defaults: Defaults {
+                verify_links: Some(false),
+                ..Defaults::default()
+            },
+            system_extra: None,
+            context: None,
+            github_client: None,
+        };
+
+        let job = Arc::new(ProgressJobBuilder::new().build());
+        let parsed = generate_notes(&ctx, false, &job).await.unwrap();
+        assert_eq!(parsed.release_title, "v1.0.0");
+        assert!(parsed.release_body.contains("greeting"));
+    }
+
+    #[tokio::test]
+    async fn test_e2e_with_github() {
+        let repo = TempRepo::new();
+        repo.write_file("README.md", "# Hello");
+        repo.commit("initial");
+        repo.tag("v0.9.0");
+        repo.write_file("src/feature.rs", "pub fn feature() {}");
+        repo.commit("feat: add feature (#1)");
+        repo.tag("v1.0.0");
+
+        let server = MockServer::start().await;
+
+        // Release lookup
+        Mock::given(method("GET"))
+            .and(path("/repos/test/repo/releases/tags/v1.0.0"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": 1, "tag_name": "v1.0.0", "name": "v1.0.0",
+                "body": "Existing notes"
+            })))
+            .mount(&server)
+            .await;
+
+        // Release list for style matching
+        Mock::given(method("GET"))
+            .and(path("/repos/test/repo/releases"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+                {"id": 2, "tag_name": "v0.9.0", "name": "v0.9.0", "body": "Previous notes"}
+            ])))
+            .mount(&server)
+            .await;
+
+        // PR details (get_pr tool)
+        Mock::given(method("GET"))
+            .and(path("/repos/test/repo/pulls/1"))
+            .and(header("Accept", "application/vnd.github+json"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "number": 1,
+                "title": "Add feature",
+                "body": "Adds a new feature",
+                "user": {"login": "dev"},
+                "labels": [{"name": "enhancement"}]
+            })))
+            .mount(&server)
+            .await;
+
+        // PR diff (get_pr_diff tool)
+        Mock::given(method("GET"))
+            .and(path("/repos/test/repo/pulls/1"))
+            .and(header("Accept", "application/vnd.github.v3.diff"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                "diff --git a/src/feature.rs b/src/feature.rs\n+pub fn feature() {}",
+            ))
+            .mount(&server)
+            .await;
+
+        // Issue details (get_issue tool)
+        Mock::given(method("GET"))
+            .and(path("/repos/test/repo/issues/1"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "number": 1,
+                "title": "Feature request",
+                "body": "Please add this feature",
+                "state": "closed",
+                "user": {"login": "requester"},
+                "labels": [{"name": "enhancement"}]
+            })))
+            .mount(&server)
+            .await;
+
+        let gh =
+            github::GitHubClient::with_base_url("test-token".into(), "test/repo", server.uri())
+                .unwrap();
+
+        let mock_client = MockLlmClient::new(vec![
+            // Turn 1: get_pr + get_pr_diff (concurrent)
+            TurnResponse {
+                tool_calls: vec![
+                    ToolCall {
+                        id: "call_1".into(),
+                        name: "get_pr".into(),
+                        input: json!({"number": 1}),
+                    },
+                    ToolCall {
+                        id: "call_2".into(),
+                        name: "get_pr_diff".into(),
+                        input: json!({"number": 1}),
+                    },
+                ],
+                text: None,
+                stop_reason: StopReason::ToolUse,
+                usage: fake_usage(),
+            },
+            // Turn 2: get_issue
+            TurnResponse {
+                tool_calls: vec![ToolCall {
+                    id: "call_3".into(),
+                    name: "get_issue".into(),
+                    input: json!({"number": 1}),
+                }],
+                text: None,
+                stop_reason: StopReason::ToolUse,
+                usage: fake_usage(),
+            },
+            // Turn 3: submit
+            TurnResponse {
+                tool_calls: vec![submit_tool_call(
+                    "### Added\n- New feature (#1)",
+                    "v1.0.0 - Feature Release",
+                    "Added feature based on #1.",
+                )],
+                text: None,
+                stop_reason: StopReason::ToolUse,
+                usage: fake_usage(),
+            },
+        ]);
+
+        let ctx = Context {
+            repo_root: repo.path().to_path_buf(),
+            owner_repo: "test/repo".into(),
+            tag: "v1.0.0".into(),
+            prev_tag: "v0.9.0".into(),
+            client: Box::new(mock_client),
+            defaults: Defaults {
+                verify_links: Some(false),
+                ..Defaults::default()
+            },
+            system_extra: None,
+            context: None,
+            github_client: Some(gh),
+        };
+
+        let job = Arc::new(ProgressJobBuilder::new().build());
+        let parsed = generate_notes(&ctx, false, &job).await.unwrap();
+        assert_eq!(parsed.release_title, "v1.0.0 - Feature Release");
+        assert!(parsed.changelog.contains("feature"));
+    }
+
+    #[tokio::test]
+    async fn test_e2e_publish_github_release() {
+        let repo = TempRepo::new();
+        repo.write_file("README.md", "# Project");
+        repo.commit("initial");
+        repo.tag("v0.9.0");
+        repo.write_file("src/main.rs", "fn main() {}");
+        repo.commit("feat: initial release");
+        repo.tag("v1.0.0");
+
+        let server = MockServer::start().await;
+
+        // Release lookup (used by both generate_notes and publish)
+        Mock::given(method("GET"))
+            .and(path("/repos/test/repo/releases/tags/v1.0.0"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": 42, "tag_name": "v1.0.0", "name": "v1.0.0",
+                "body": "Draft release"
+            })))
+            .mount(&server)
+            .await;
+
+        // Release list for style matching
+        Mock::given(method("GET"))
+            .and(path("/repos/test/repo/releases"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+            .mount(&server)
+            .await;
+
+        // PATCH to update release — expect(1) verifies it's called
+        Mock::given(method("PATCH"))
+            .and(path("/repos/test/repo/releases/42"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"id": 42})))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let gh =
+            github::GitHubClient::with_base_url("test-token".into(), "test/repo", server.uri())
+                .unwrap();
+
+        let mock_client = MockLlmClient::new(vec![TurnResponse {
+            tool_calls: vec![submit_tool_call(
+                "### Added\n- Initial release",
+                "v1.0.0",
+                "First release.",
+            )],
+            text: None,
+            stop_reason: StopReason::ToolUse,
+            usage: fake_usage(),
+        }]);
+
+        let ctx = Context {
+            repo_root: repo.path().to_path_buf(),
+            owner_repo: "test/repo".into(),
+            tag: "v1.0.0".into(),
+            prev_tag: "v0.9.0".into(),
+            client: Box::new(mock_client),
+            defaults: Defaults {
+                verify_links: Some(false),
+                ..Defaults::default()
+            },
+            system_extra: None,
+            context: None,
+            github_client: Some(gh),
+        };
+
+        let opts = GenerateOptions {
+            github_release: true,
+            dry_run: false,
+            ..test_opts("v1.0.0")
+        };
+
+        let job = Arc::new(ProgressJobBuilder::new().build());
+        let parsed = generate_notes(&ctx, false, &job).await.unwrap();
+        publish(&opts, &ctx, &parsed, &job).await.unwrap();
+        // wiremock expect(1) verifies PATCH was called
+    }
+
+    #[tokio::test]
+    async fn test_e2e_usage_accumulation() {
+        let repo = TempRepo::new();
+        repo.write_file("README.md", "# Hello");
+        repo.commit("initial");
+        repo.tag("v0.9.0");
+        repo.write_file("src/main.rs", "fn main() {}");
+        repo.commit("feat: add main");
+        repo.tag("v1.0.0");
+
+        let mock_client = MockLlmClient::new(vec![
+            // Turn 1: read a file with non-zero usage
+            TurnResponse {
+                tool_calls: vec![ToolCall {
+                    id: "call_1".into(),
+                    name: "read_file".into(),
+                    input: json!({"path": "README.md"}),
+                }],
+                text: None,
+                stop_reason: StopReason::ToolUse,
+                usage: fake_usage_with(100, 50),
+            },
+            // Turn 2: submit with non-zero usage
+            TurnResponse {
+                tool_calls: vec![submit_tool_call(
+                    "### Added\n- Main function",
+                    "v1.0.0",
+                    "Release notes.",
+                )],
+                text: None,
+                stop_reason: StopReason::ToolUse,
+                usage: fake_usage_with(150, 75),
+            },
+        ]);
+
+        let ctx = Context {
+            repo_root: repo.path().to_path_buf(),
+            owner_repo: "test/repo".into(),
+            tag: "v1.0.0".into(),
+            prev_tag: "v0.9.0".into(),
+            client: Box::new(mock_client),
+            defaults: Defaults {
+                verify_links: Some(false),
+                ..Defaults::default()
+            },
+            system_extra: None,
+            context: None,
+            github_client: None,
+        };
+
+        let job = Arc::new(ProgressJobBuilder::new().build());
+        let parsed = generate_notes(&ctx, false, &job).await.unwrap();
+        assert_eq!(parsed.usage.input_tokens, 250);
+        assert_eq!(parsed.usage.output_tokens, 125);
     }
 }
 

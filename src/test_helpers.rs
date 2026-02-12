@@ -110,3 +110,10 @@ pub fn fake_usage() -> Usage {
         output_tokens: 0,
     }
 }
+
+pub fn fake_usage_with(input_tokens: u32, output_tokens: u32) -> Usage {
+    Usage {
+        input_tokens,
+        output_tokens,
+    }
+}
