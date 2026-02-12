@@ -11,6 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      tag: ${{ steps.release-plz.outputs.releases && fromJSON(steps.release-plz.outputs.releases)[0].tag || '' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -38,6 +40,15 @@ jobs:
           for release in $(echo '${{ steps.release-plz.outputs.releases }}' | jq -r '.[].tag'); do
             ./target/debug/communique generate "$release" --github-release
           done
+
+  upload-assets:
+    name: Upload assets
+    needs: release-plz-release
+    if: ${{ needs.release-plz-release.outputs.tag != '' }}
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.release-plz-release.outputs.tag }}
+    secrets: inherit
 
   release-plz-pr:
     name: Release-plz PR
