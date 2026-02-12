@@ -11,11 +11,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
       - uses: jdx/mise-action@v2
+      - run: rustup component add clippy rustfmt
       - uses: taiki-e/install-action@cargo-audit
       - run: mise run lint
       - run: mise x -- cargo test
@@ -25,11 +23,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: llvm-tools-preview
       - uses: Swatinem/rust-cache@v2
       - uses: jdx/mise-action@v2
+      - run: rustup component add llvm-tools-preview
       - uses: taiki-e/install-action@cargo-llvm-cov
       - run: mise x -- cargo llvm-cov --codecov --output-path codecov.json
       - uses: codecov/codecov-action@v5

@@ -21,6 +21,7 @@ run = "hk check --all"
 dir = "docs"
 run = "npm i && exec npm run docs:dev"
 
+# rust is managed by rustup, not mise
 [tools]
 hk = "latest"
 pkl = "latest"

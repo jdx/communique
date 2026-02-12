@@ -1,7 +1,7 @@
 use std::path::Path;
+use std::process::Command;
 
 use serde_json::json;
-use xx::process;
 
 use crate::error::{Error, Result};
 use crate::llm::ToolDefinition;
@@ -32,27 +32,26 @@ pub fn execute(repo_root: &Path, input: &serde_json::Value) -> Result<String> {
         .as_str()
         .ok_or_else(|| Error::Tool("grep: missing 'pattern' parameter".into()))?;
 
-    let mut cmd = process::cmd(
-        "rg",
-        [
-            "--no-config",
-            "--line-number",
-            "--no-heading",
-            "--max-count",
-            "50",
-        ],
-    )
+    let mut cmd = Command::new("rg");
+    cmd.args([
+        "--no-config",
+        "--line-number",
+        "--no-heading",
+        "--max-count",
+        "50",
+    ])
     .arg(pattern)
-    .cwd(repo_root)
-    .unchecked(); // rg returns exit code 1 for no matches
+    .current_dir(repo_root);
 
     if let Some(glob) = input.get("glob").and_then(|v| v.as_str()) {
-        cmd = cmd.args(["--glob", glob]);
+        cmd.args(["--glob", glob]);
     }
 
-    let output = cmd.stdout_capture().stderr_capture().run()?;
+    let output = cmd
+        .output()
+        .map_err(|e| Error::Tool(format!("grep: {e}")))?;
 
-    // Exit code 2+ is an actual error
+    // Exit code 2+ is an actual error; rg returns 1 for no matches
     if output.status.code().is_some_and(|c| c >= 2) {
         return Err(Error::Tool(format!(
             "grep: {}",
