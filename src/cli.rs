@@ -39,13 +39,21 @@ pub enum Command {
         #[arg(long)]
         repo: Option<String>,
 
-        /// Anthropic model to use
+        /// LLM model to use
         #[arg(long)]
         model: Option<String>,
 
         /// Max response tokens
         #[arg(long)]
         max_tokens: Option<u32>,
+
+        /// LLM provider (anthropic or openai, auto-detected from model if omitted)
+        #[arg(long)]
+        provider: Option<String>,
+
+        /// Base URL for the LLM API
+        #[arg(long)]
+        base_url: Option<String>,
     },
 
     /// Generate a communique.toml config file in the repo root

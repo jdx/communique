@@ -2,7 +2,7 @@
 name = "communique"
 version = "0.1.0"
 edition = "2024"
-description = "Editorialized release notes powered by Claude"
+description = "Editorialized release notes powered by AI"
 repository = "https://github.com/jdx/communique"
 license = "MIT"
 

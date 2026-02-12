@@ -118,6 +118,23 @@ impl GitHubClient {
         Ok(())
     }
 
+    pub async fn list_recent_releases(&self, count: u8) -> Result<Vec<Release>> {
+        let url = self.api_url(&format!("/releases?per_page={count}"));
+        let resp = self
+            .client
+            .get(&url)
+            .bearer_auth(&self.token)
+            .header("Accept", "application/vnd.github+json")
+            .send()
+            .await?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(Error::GitHub(format!("GET releases: {status} {body}")));
+        }
+        Ok(resp.json().await?)
+    }
+
     pub async fn get_pr(&self, number: u64) -> Result<PullRequest> {
         let url = self.api_url(&format!("/pulls/{number}"));
         let resp = self

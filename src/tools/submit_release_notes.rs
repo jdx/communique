@@ -1,6 +1,6 @@
 use serde_json::json;
 
-use crate::anthropic::ToolDefinition;
+use crate::llm::ToolDefinition;
 
 pub fn definition() -> ToolDefinition {
     ToolDefinition {

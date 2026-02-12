@@ -16,8 +16,11 @@ pub struct Defaults {
     pub model: Option<String>,
     pub max_tokens: Option<u32>,
     pub repo: Option<String>,
+    pub provider: Option<String>,
+    pub base_url: Option<String>,
     pub emoji: Option<bool>,
     pub verify_links: Option<bool>,
+    pub match_style: Option<bool>,
 }
 
 const TEMPLATE: &str = r#"# Extra instructions appended to the system prompt.
@@ -32,8 +35,11 @@ const TEMPLATE: &str = r#"# Extra instructions appended to the system prompt.
 #model = "claude-opus-4-6"
 #max_tokens = 4096
 #repo = "owner/repo"
+#provider = "anthropic"
+#base_url = ""
 #emoji = true
 #verify_links = true
+#match_style = true
 "#;
 
 impl Config {

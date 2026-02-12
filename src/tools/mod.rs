@@ -7,9 +7,9 @@ pub mod submit_release_notes;
 
 use std::path::Path;
 
-use crate::anthropic::ToolDefinition;
 use crate::error::Result;
 use crate::github::GitHubClient;
+use crate::llm::ToolDefinition;
 
 pub fn all_definitions(has_github: bool) -> Vec<ToolDefinition> {
     let mut defs = vec![

@@ -75,6 +75,7 @@ pub struct UserPromptContext<'a> {
     pub changelog_entry: Option<&'a str>,
     pub existing_release: Option<&'a str>,
     pub context: Option<&'a str>,
+    pub recent_releases: &'a [(String, String)],
 }
 
 pub fn user_prompt(ctx: &UserPromptContext) -> String {
@@ -87,6 +88,7 @@ pub fn user_prompt(ctx: &UserPromptContext) -> String {
         changelog_entry,
         existing_release,
         context,
+        recent_releases,
     } = ctx;
     let mut parts = Vec::new();
 
@@ -121,6 +123,21 @@ pub fn user_prompt(ctx: &UserPromptContext) -> String {
         parts.push(format!(
             "\n## Existing GitHub Release Body\nHere are the current auto-generated release notes — editorialize and improve them:\n```\n{body}\n```"
         ));
+    }
+
+    if !recent_releases.is_empty() {
+        let mut section = String::from(
+            "\n## Style Reference (Recent Releases)\nMatch the tone, structure, and formatting of these recent release notes:\n",
+        );
+        for (tag_name, body) in *recent_releases {
+            let truncated = if body.len() > 3072 {
+                format!("{}...\n[truncated]", &body[..3072])
+            } else {
+                body.clone()
+            };
+            section.push_str(&format!("\n### {tag_name}\n```\n{truncated}\n```\n"));
+        }
+        parts.push(section);
     }
 
     parts.push("\nBrowse the repository as needed to understand the changes, then call `submit_release_notes` with the final output.".into());

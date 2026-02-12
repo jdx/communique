@@ -5,8 +5,10 @@ use clx::progress::{ProgressJob, ProgressJobBuilder, ProgressStatus};
 use log::info;
 
 use crate::config::Defaults;
+use crate::llm::LlmClient;
 use crate::output::ParsedOutput;
-use crate::{agent, anthropic, config, git, github, prompt, tools};
+use crate::providers::{self, Provider};
+use crate::{agent, config, git, github, prompt, tools};
 
 pub struct GenerateOptions {
     pub tag: String,
@@ -17,6 +19,8 @@ pub struct GenerateOptions {
     pub repo: Option<String>,
     pub model: Option<String>,
     pub max_tokens: Option<u32>,
+    pub provider: Option<String>,
+    pub base_url: Option<String>,
 }
 
 struct Context {
@@ -25,9 +29,7 @@ struct Context {
     owner_repo: String,
     tag: String,
     prev_tag: String,
-    model: String,
-    max_tokens: u32,
-    api_key: String,
+    client: Box<dyn LlmClient>,
     defaults: Defaults,
     system_extra: Option<String>,
     context: Option<String>,
@@ -58,9 +60,6 @@ pub async fn run(opts: GenerateOptions) -> miette::Result<()> {
 }
 
 async fn gather_context(opts: &GenerateOptions, job: &Arc<ProgressJob>) -> miette::Result<Context> {
-    let api_key = std::env::var("ANTHROPIC_API_KEY")
-        .map_err(|_| crate::error::Error::Anthropic("ANTHROPIC_API_KEY not set".into()))?;
-
     let github_token = std::env::var("GITHUB_TOKEN").ok();
 
     if opts.github_release && github_token.is_none() {
@@ -87,6 +86,36 @@ async fn gather_context(opts: &GenerateOptions, job: &Arc<ProgressJob>) -> miett
     };
     info!("repo: {owner_repo}");
 
+    // Determine provider
+    let provider = match opts.provider.as_deref().or(defaults.provider.as_deref()) {
+        Some("anthropic") => Provider::Anthropic,
+        Some("openai") => Provider::OpenAI,
+        Some(other) => {
+            return Err(crate::error::Error::Config(format!(
+                "unknown provider: {other} (expected 'anthropic' or 'openai')"
+            )))?;
+        }
+        None => providers::detect_provider(&model),
+    };
+    info!("provider: {provider:?}, model: {model}");
+
+    // Resolve API key based on provider
+    let api_key = match &provider {
+        Provider::Anthropic => std::env::var("ANTHROPIC_API_KEY")
+            .map_err(|_| crate::error::Error::Llm("ANTHROPIC_API_KEY not set".into()))?,
+        Provider::OpenAI => std::env::var("OPENAI_API_KEY")
+            .or_else(|_| std::env::var("LLM_API_KEY"))
+            .unwrap_or_default(),
+    };
+
+    let base_url = opts
+        .base_url
+        .clone()
+        .or(defaults.base_url.clone())
+        .and_then(|u| if u.is_empty() { None } else { Some(u) });
+
+    let client = providers::build_client(&provider, api_key, model, max_tokens, base_url);
+
     let prev_tag = match &opts.prev_tag {
         Some(t) => t.clone(),
         None => git::previous_tag(&repo_root, &opts.tag)?,
@@ -108,9 +137,7 @@ async fn gather_context(opts: &GenerateOptions, job: &Arc<ProgressJob>) -> miett
         owner_repo,
         tag: opts.tag.clone(),
         prev_tag,
-        model,
-        max_tokens,
-        api_key,
+        client,
         defaults,
         system_extra: config.system_extra,
         context: config.context,
@@ -142,6 +169,34 @@ async fn generate_notes(
         None
     };
 
+    let recent_releases = if ctx.defaults.match_style.unwrap_or(true) {
+        if let Some(gh) = &ctx.github_client {
+            match gh.list_recent_releases(3).await {
+                Ok(releases) => releases
+                    .into_iter()
+                    .filter(|r| r.tag_name != ctx.tag)
+                    .filter_map(|r| {
+                        let body = r.body.unwrap_or_default();
+                        if body.is_empty() {
+                            None
+                        } else {
+                            Some((r.tag_name, body))
+                        }
+                    })
+                    .take(2)
+                    .collect(),
+                Err(e) => {
+                    info!("failed to fetch recent releases for style matching: {e}");
+                    vec![]
+                }
+            }
+        } else {
+            vec![]
+        }
+    } else {
+        vec![]
+    };
+
     let emoji = ctx.defaults.emoji.unwrap_or(true);
     let system = prompt::system_prompt(ctx.system_extra.as_deref(), emoji);
     let user_msg = prompt::user_prompt(&prompt::UserPromptContext {
@@ -153,17 +208,16 @@ async fn generate_notes(
         changelog_entry: changelog_entry.as_deref(),
         existing_release: existing_release.as_deref(),
         context: ctx.context.as_deref(),
+        recent_releases: &recent_releases,
     });
 
     job.prop("message", "Generating release notes...");
-    let anthropic =
-        anthropic::AnthropicClient::new(ctx.api_key.clone(), ctx.model.clone(), ctx.max_tokens);
     let tool_defs = tools::all_definitions(ctx.github_client.is_some());
 
     let verify_links = !dry_run && ctx.defaults.verify_links.unwrap_or(true);
 
     agent::run(agent::AgentContext {
-        client: &anthropic,
+        client: &*ctx.client,
         system: &system,
         user_message: &user_msg,
         tool_defs,

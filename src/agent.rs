@@ -4,17 +4,17 @@ use std::sync::Arc;
 use clx::progress::ProgressJob;
 use log::info;
 
-use crate::anthropic::{AnthropicClient, ContentBlock, Message, MessagesRequest, ToolDefinition};
 use crate::error::{Error, Result};
 use crate::github::GitHubClient;
 use crate::links;
+use crate::llm::{LlmClient, StopReason, ToolDefinition, ToolResult};
 use crate::output::ParsedOutput;
 use crate::tools;
 
 const MAX_ITERATIONS: usize = 25;
 
 pub struct AgentContext<'a> {
-    pub client: &'a AnthropicClient,
+    pub client: &'a dyn LlmClient,
     pub system: &'a str,
     pub user_message: &'a str,
     pub tool_defs: Vec<ToolDefinition>,
@@ -35,12 +35,8 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
         verify_links,
         job,
     } = ctx;
-    let mut messages = vec![Message {
-        role: "user".into(),
-        content: vec![ContentBlock::Text {
-            text: user_message.into(),
-        }],
-    }];
+
+    let mut conversation = client.new_conversation(user_message);
 
     for iteration in 0..MAX_ITERATIONS {
         info!("agent iteration {}", iteration + 1);
@@ -49,57 +45,33 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
             &format!("Thinking... (iteration {})", iteration + 1),
         );
 
-        let request = MessagesRequest {
-            model: client.model.clone(),
-            max_tokens: client.max_tokens,
-            system: system.into(),
-            messages: messages.clone(),
-            tools: tool_defs.clone(),
-        };
-
-        let response = client.send(&request).await?;
+        let response = client
+            .send_turn(system, &mut conversation, &tool_defs)
+            .await?;
 
         info!(
             "usage: {} input, {} output tokens",
             response.usage.input_tokens, response.usage.output_tokens
         );
 
-        // Collect tool calls from the response
-        let tool_calls: Vec<_> = response
-            .content
-            .iter()
-            .filter_map(|block| match block {
-                ContentBlock::ToolUse { id, name, input } => {
-                    Some((id.clone(), name.clone(), input.clone()))
-                }
-                _ => None,
-            })
-            .collect();
-
-        // Add assistant message to history
-        messages.push(Message {
-            role: "assistant".into(),
-            content: response.content.clone(),
-        });
-
         // Check for submit_release_notes tool call — this is the final output
         let mut submit = None;
-        for (id, name, input) in &tool_calls {
-            if name == "submit_release_notes" {
-                let changelog = input["changelog"]
+        for tc in &response.tool_calls {
+            if tc.name == "submit_release_notes" {
+                let changelog = tc.input["changelog"]
                     .as_str()
                     .ok_or_else(|| Error::Parse("missing changelog in submission".into()))?
                     .to_string();
-                let release_title = input["release_title"]
+                let release_title = tc.input["release_title"]
                     .as_str()
                     .ok_or_else(|| Error::Parse("missing release_title in submission".into()))?
                     .to_string();
-                let release_body = input["release_body"]
+                let release_body = tc.input["release_body"]
                     .as_str()
                     .ok_or_else(|| Error::Parse("missing release_body in submission".into()))?
                     .to_string();
                 submit = Some((
-                    id.clone(),
+                    tc.id.clone(),
                     ParsedOutput {
                         changelog,
                         release_title,
@@ -109,7 +81,7 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
             }
         }
 
-        if let Some((tool_use_id, parsed)) = submit {
+        if let Some((tool_call_id, parsed)) = submit {
             if verify_links {
                 job.prop("message", "Verifying links...");
                 let broken = links::verify(&[&parsed.changelog, &parsed.release_body]).await;
@@ -120,64 +92,59 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
                         .collect::<Vec<_>>()
                         .join("\n");
                     info!("broken links found, asking model to fix: {summary}");
-                    messages.push(Message {
-                        role: "user".into(),
-                        content: vec![ContentBlock::ToolResult {
-                            tool_use_id,
+                    client.append_tool_results(
+                        &mut conversation,
+                        &[ToolResult {
+                            tool_call_id,
                             content: format!(
                                 "The following links are broken:\n{summary}\n\n\
                                  Please fix or remove these URLs and call submit_release_notes again."
                             ),
-                            is_error: Some(true),
+                            is_error: true,
                         }],
-                    });
+                    );
                     continue;
                 }
             }
             return Ok(parsed);
         }
 
-        let stop_reason = response.stop_reason.as_deref().unwrap_or("unknown");
-
-        if tool_calls.is_empty() || stop_reason == "end_turn" {
-            return Err(Error::Anthropic(
+        if response.tool_calls.is_empty() || response.stop_reason == StopReason::EndTurn {
+            return Err(Error::Llm(
                 "model finished without calling submit_release_notes".into(),
             ));
         }
 
         // Execute tools and build results
         let mut results = Vec::new();
-        for (id, name, input) in &tool_calls {
-            let detail = tool_detail(name, input);
+        for tc in &response.tool_calls {
+            let detail = tool_detail(&tc.name, &tc.input);
             info!("calling tool: {detail}");
             job.prop("message", &format!("Running tool: {detail}..."));
-            match tools::dispatch(name, input, repo_root, github).await {
+            match tools::dispatch(&tc.name, &tc.input, repo_root, github).await {
                 Ok(output) => {
-                    info!("tool {name}: {} bytes", output.len());
-                    results.push(ContentBlock::ToolResult {
-                        tool_use_id: id.clone(),
+                    info!("tool {}: {} bytes", tc.name, output.len());
+                    results.push(ToolResult {
+                        tool_call_id: tc.id.clone(),
                         content: output,
-                        is_error: None,
+                        is_error: false,
                     });
                 }
                 Err(e) => {
-                    info!("tool {name} error: {e}");
-                    results.push(ContentBlock::ToolResult {
-                        tool_use_id: id.clone(),
+                    info!("tool {} error: {e}", tc.name);
+                    results.push(ToolResult {
+                        tool_call_id: tc.id.clone(),
                         content: format!("Error: {e}"),
-                        is_error: Some(true),
+                        is_error: true,
                     });
                 }
             }
         }
 
-        messages.push(Message {
-            role: "user".into(),
-            content: results,
-        });
+        client.append_tool_results(&mut conversation, &results);
     }
 
-    Err(Error::Anthropic(format!(
+    Err(Error::Llm(format!(
         "agent loop exceeded {MAX_ITERATIONS} iterations"
     )))
 }

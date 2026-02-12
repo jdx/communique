@@ -3,8 +3,8 @@ use std::path::Path;
 use serde_json::json;
 use xx::process;
 
-use crate::anthropic::ToolDefinition;
 use crate::error::{Error, Result};
+use crate::llm::ToolDefinition;
 
 pub fn definition() -> ToolDefinition {
     ToolDefinition {

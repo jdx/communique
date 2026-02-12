@@ -1,5 +1,4 @@
 mod agent;
-mod anthropic;
 mod cli;
 mod config;
 mod error;
@@ -7,8 +6,10 @@ mod generate;
 mod git;
 mod github;
 mod links;
+mod llm;
 mod output;
 mod prompt;
+mod providers;
 mod tools;
 mod usage;
 
@@ -42,6 +43,8 @@ async fn main() -> miette::Result<()> {
             repo,
             model,
             max_tokens,
+            provider,
+            base_url,
         } => {
             generate::run(generate::GenerateOptions {
                 tag,
@@ -52,6 +55,8 @@ async fn main() -> miette::Result<()> {
                 repo,
                 model,
                 max_tokens,
+                provider,
+                base_url,
             })
             .await
         }
