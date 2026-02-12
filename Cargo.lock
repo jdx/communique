@@ -310,6 +310,7 @@ dependencies = [
  "clx",
  "console",
  "env_logger",
+ "futures-util",
  "log",
  "miette",
  "regex",
