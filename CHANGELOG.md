@@ -9,18 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.1](https://github.com/jdx/communique/compare/v0.1.0...v0.1.1) - 2026-02-12
 
-### Other
+Now I have a comprehensive understanding of the project and all the changes. Let me compile the release notes.
 
-- Add hk for pre-commit hooks, lint CI, miette TOML errors, and resolve_ref fallback
-- Use debug builds and add Rust cache to release-plz workflow
-- Build communique from main before checking out PR branch
-- Fix previous_tag to fall back to root commit when no tags exist
-- Support non-tag refs and integrate communique into release-plz workflow
-- Add usage-lib for auto-generated CLI reference docs
-- Add progress indication via clx
-- Add README with roadmap
-- Add VitePress docs site with vaporwave theme
-- release v0.1.0 ([#3](https://github.com/jdx/communique/pull/3))
+### Added
+- VitePress documentation site with vaporwave theme, including getting-started guide, configuration reference, and CLI reference pages
+- Progress indication via `clx` for better UX during agent execution
+- Pre-commit hooks via `hk`, lint CI, miette-powered TOML error reporting, and `resolve_ref` fallback for robustness
+- `usage-lib` integration for auto-generated CLI reference documentation
+- README with project roadmap
+- Renovate configuration for automated dependency updates
+- `communique.toml` configuration file support with `init` and `generate` subcommands
+- `release-plz` integration for automated releases
+
+### Fixed
+- `previous_tag` now falls back to root commit when no tags exist
+- Support for non-tag refs in git range resolution
+- Debug builds and Rust cache added to release-plz workflow for faster CI
 
 ## [0.1.0](https://github.com/jdx/communique/releases/tag/v0.1.0) - 2026-02-11
 
