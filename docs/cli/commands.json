@@ -316,7 +316,7 @@
   "config": {
     "props": {}
   },
-  "version": "0.1.5",
+  "version": "0.1.6",
   "usage": "Usage: communique [OPTIONS] <COMMAND>",
   "complete": {},
   "about": "Editorialized release notes powered by AI"
