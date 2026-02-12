@@ -140,7 +140,7 @@ Use `--changelog` to update `CHANGELOG.md` with AI-generated notes and update th
           NOTES=$(communique generate "$TAG" --changelog)
 
           # Update PR title and body
-          PR_TITLE="$TAG: $(echo "$NOTES" | head -1 | sed 's/^# //')"
+          PR_TITLE=$(echo "$NOTES" | head -1 | sed 's/^# //')
           PR_BODY=$(echo "$NOTES" | tail -n +3)
           gh pr edit "$PR_NUMBER" --title "$PR_TITLE" --body "$PR_BODY"
 
