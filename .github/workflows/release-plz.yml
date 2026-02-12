@@ -31,6 +31,20 @@ jobs:
       - name: Fetch new tags
         if: steps.release-plz.outputs.releases_created == 'true'
         run: git fetch --tags
+      - name: Fix draft release tags
+        if: steps.release-plz.outputs.releases_created == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
+        run: |
+          # Draft releases created before the tag exists get an "untagged-*" tag_name.
+          # Patch each draft release to use the correct tag.
+          for tag in $(echo '${{ steps.release-plz.outputs.releases }}' | jq -r '.[].tag'); do
+            release_id=$(gh api repos/${{ github.repository }}/releases --jq ".[] | select(.draft and (.tag_name | startswith(\"untagged-\"))) | select(.name | startswith(\"${tag}\")) | .id" 2>/dev/null || true)
+            if [ -n "$release_id" ]; then
+              echo "Fixing draft release $release_id: setting tag_name to $tag"
+              gh api repos/${{ github.repository }}/releases/$release_id --method PATCH --field tag_name="$tag"
+            fi
+          done
       - name: Enhance GitHub release with communique
         if: steps.release-plz.outputs.releases_created == 'true'
         continue-on-error: true
