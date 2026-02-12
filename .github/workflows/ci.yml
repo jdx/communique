@@ -16,8 +16,10 @@ jobs:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
       - uses: jdx/mise-action@v2
+      - uses: taiki-e/install-action@cargo-audit
       - run: mise run lint
       - run: cargo test
+      - run: cargo audit
 
   coverage:
     runs-on: ubuntu-latest

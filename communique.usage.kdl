@@ -2,7 +2,7 @@ name communique
 bin communique
 version "0.1.0"
 about "Editorialized release notes powered by AI"
-usage "Usage: communique <COMMAND>"
+usage "Usage: communique [OPTIONS] <COMMAND>"
 flag "-v --verbose" help="Enable verbose logging output" global=#true
 flag "-q --quiet" help="Suppress progress output" global=#true
 flag "-c --config" help="Path to config file (default: communique.toml in repo root)" global=#true {
