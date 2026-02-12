@@ -19,6 +19,7 @@ jobs:
           token: ${{ secrets.RELEASE_PLZ_TOKEN }}
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - name: Run release-plz
         id: release-plz
         uses: release-plz/action@main
@@ -33,9 +34,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          cargo install --path .
+          cargo build
           for release in $(echo '${{ steps.release-plz.outputs.releases }}' | jq -r '.[].tag'); do
-            communique generate "$release" --github-release
+            ./target/debug/communique generate "$release" --github-release
           done
 
   release-plz-pr:
@@ -55,6 +56,7 @@ jobs:
           token: ${{ secrets.RELEASE_PLZ_TOKEN }}
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - name: Run release-plz
         id: release-plz
         uses: release-plz/action@main
@@ -64,14 +66,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
       - name: Build communique from main
         if: steps.release-plz.outputs.prs_created == 'true'
-        run: cargo build --release
+        run: cargo build
       - name: Update PR with communique release notes
         if: steps.release-plz.outputs.prs_created == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          COMMUNIQUE="$(pwd)/target/release/communique"
+          COMMUNIQUE="$(pwd)/target/debug/communique"
           PR_NUMBER=$(echo '${{ steps.release-plz.outputs.pr }}' | jq -r '.number')
           gh pr checkout "$PR_NUMBER"
 
