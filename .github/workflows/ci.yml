@@ -1,4 +1,4 @@
-name: Lint
+name: CI
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 jobs:
-  lint:
+  ci:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -17,3 +17,4 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: jdx/mise-action@v2
       - run: mise run lint
+      - run: cargo test
