@@ -9,25 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.1](https://github.com/jdx/communique/compare/v0.1.0...v0.1.1) - 2026-02-12
 
-### Other
+### Added
+- Multi-model LLM support: use OpenAI-compatible providers in addition to Anthropic/Claude, with auto-detection from model name
+- New `--provider` and `--base-url` CLI flags for specifying LLM provider and endpoint
+- Dry-run mode (`--dry-run` / `-n`) to preview release notes without publishing or verifying links
+- Automatic link verification that detects broken URLs in generated notes and asks the model to fix them
+- Progress indication with spinner and status messages during generation
+- Emoji toggle via `emoji` config option in `communique.toml`
+- Style matching: fetches recent GitHub releases to match tone and formatting
+- Structured tool-call output (`submit_release_notes`) for more reliable results
+- VitePress documentation site and auto-generated CLI reference
+- New `communique.toml` config options: `provider`, `base_url`, `emoji`, `verify_links`, `match_style`
 
-- Add mock LlmClient agent loop tests
-- Add multi-model LLM support with OpenAI-compatible provider
-- Add release body template, dry-run mode, and link verification in agent loop
-- Add link verification, emoji toggle, tool details, and prompt improvements
-- Add pkl to mise tools for hk config parsing in CI
-- Add hk to mise tools so it's available in CI
-- Use structured tool call for release notes output
-- Add hk for pre-commit hooks, lint CI, miette TOML errors, and resolve_ref fallback
-- Use debug builds and add Rust cache to release-plz workflow
-- Build communique from main before checking out PR branch
-- Fix previous_tag to fall back to root commit when no tags exist
-- Support non-tag refs and integrate communique into release-plz workflow
-- Add usage-lib for auto-generated CLI reference docs
-- Add progress indication via clx
-- Add README with roadmap
-- Add VitePress docs site with vaporwave theme
-- release v0.1.0 ([#3](https://github.com/jdx/communique/pull/3))
+### Fixed
+- `previous_tag` now falls back to the root commit when no previous tags exist
+- `resolve_ref` falls back to HEAD when a ref doesn't exist (e.g., a tag not yet created)
+- Support for non-tag refs (branches, commit SHAs) in version ranges
 
 ## [0.1.0](https://github.com/jdx/communique/releases/tag/v0.1.0) - 2026-02-11
 
