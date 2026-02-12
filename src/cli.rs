@@ -31,6 +31,10 @@ pub enum Command {
         #[arg(long)]
         concise: bool,
 
+        /// Generate notes without updating GitHub or verifying links
+        #[arg(long, short = 'n')]
+        dry_run: bool,
+
         /// GitHub repo in owner/repo format (auto-detected from git remote)
         #[arg(long)]
         repo: Option<String>,

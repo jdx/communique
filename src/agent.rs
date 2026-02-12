@@ -7,20 +7,34 @@ use log::info;
 use crate::anthropic::{AnthropicClient, ContentBlock, Message, MessagesRequest, ToolDefinition};
 use crate::error::{Error, Result};
 use crate::github::GitHubClient;
+use crate::links;
 use crate::output::ParsedOutput;
 use crate::tools;
 
 const MAX_ITERATIONS: usize = 25;
 
-pub async fn run(
-    client: &AnthropicClient,
-    system: &str,
-    user_message: &str,
-    tool_defs: Vec<ToolDefinition>,
-    repo_root: &Path,
-    github: Option<&GitHubClient>,
-    job: &Arc<ProgressJob>,
-) -> Result<ParsedOutput> {
+pub struct AgentContext<'a> {
+    pub client: &'a AnthropicClient,
+    pub system: &'a str,
+    pub user_message: &'a str,
+    pub tool_defs: Vec<ToolDefinition>,
+    pub repo_root: &'a Path,
+    pub github: Option<&'a GitHubClient>,
+    pub verify_links: bool,
+    pub job: &'a Arc<ProgressJob>,
+}
+
+pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
+    let AgentContext {
+        client,
+        system,
+        user_message,
+        tool_defs,
+        repo_root,
+        github,
+        verify_links,
+        job,
+    } = ctx;
     let mut messages = vec![Message {
         role: "user".into(),
         content: vec![ContentBlock::Text {
@@ -69,7 +83,8 @@ pub async fn run(
         });
 
         // Check for submit_release_notes tool call — this is the final output
-        for (_, name, input) in &tool_calls {
+        let mut submit = None;
+        for (id, name, input) in &tool_calls {
             if name == "submit_release_notes" {
                 let changelog = input["changelog"]
                     .as_str()
@@ -83,12 +98,43 @@ pub async fn run(
                     .as_str()
                     .ok_or_else(|| Error::Parse("missing release_body in submission".into()))?
                     .to_string();
-                return Ok(ParsedOutput {
-                    changelog,
-                    release_title,
-                    release_body,
-                });
+                submit = Some((
+                    id.clone(),
+                    ParsedOutput {
+                        changelog,
+                        release_title,
+                        release_body,
+                    },
+                ));
             }
+        }
+
+        if let Some((tool_use_id, parsed)) = submit {
+            if verify_links {
+                job.prop("message", "Verifying links...");
+                let broken = links::verify(&[&parsed.changelog, &parsed.release_body]).await;
+                if !broken.is_empty() {
+                    let summary = broken
+                        .iter()
+                        .map(|(url, reason)| format!("  {url} ({reason})"))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    info!("broken links found, asking model to fix: {summary}");
+                    messages.push(Message {
+                        role: "user".into(),
+                        content: vec![ContentBlock::ToolResult {
+                            tool_use_id,
+                            content: format!(
+                                "The following links are broken:\n{summary}\n\n\
+                                 Please fix or remove these URLs and call submit_release_notes again."
+                            ),
+                            is_error: Some(true),
+                        }],
+                    });
+                    continue;
+                }
+            }
+            return Ok(parsed);
         }
 
         let stop_reason = response.stop_reason.as_deref().unwrap_or("unknown");

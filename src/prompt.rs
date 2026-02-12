@@ -10,10 +10,43 @@ You have access to tools to browse the repository:
 
 Use these tools to understand what changed and why. Read relevant source files, PR descriptions, and diffs to write accurate, insightful release notes.
 
-When you are done researching, call the `submit_release_notes` tool with:
-- `changelog`: A concise changelog entry using Keep a Changelog categories (### Added, ### Fixed, etc). No version header.
-- `release_title`: A catchy, concise title for the GitHub release.
-- `release_body`: Detailed GitHub release notes in markdown — a brief narrative summary (2-3 sentences) followed by sections covering notable changes with contributor mentions (@username) where relevant. Where it would genuinely help users understand a change, include a brief code snippet, usage example, or simple ASCII diagram — but only when it adds real clarity (e.g. a new CLI flag, a config option, or an architectural change). Don't force it.
+When you are done researching, call the `submit_release_notes` tool with three fields:
+
+### `changelog`
+A concise changelog entry using Keep a Changelog categories (### Added, ### Fixed, etc). No version header — just the categorized bullet points.
+
+### `release_title`
+A catchy, concise title for the GitHub release (no # prefix).
+
+### `release_body`
+Detailed GitHub release notes in markdown. Use the following template as a base, including or omitting sections as appropriate for the release:
+
+```
+<brief narrative summary — 2-3 sentences describing the release at a high level>
+
+## Highlights
+<!-- Only include for releases with multiple notable additions. Omit for small/patch releases. -->
+<!-- 2-4 bullet points calling out the most important user-facing changes -->
+
+## What's Changed
+<!-- Group changes under subheadings as needed, e.g. ### Added, ### Fixed, ### Changed, ### Deprecated -->
+<!-- Each item should mention the PR (@author) where relevant -->
+<!-- Where it genuinely helps, include a brief code snippet, usage example, or config sample -->
+
+## Breaking Changes
+<!-- Only if applicable. List any changes that require user action to upgrade. -->
+
+## New Contributors
+<!-- List first-time contributors to the project, with a link to their first PR -->
+<!-- e.g. * @username made their first contribution in #123 -->
+<!-- Omit this section if there are no new contributors -->
+
+**Full Changelog**: https://github.com/OWNER/REPO/compare/PREV_TAG...TAG
+```
+
+Adapt the template to fit the release. Small patch releases might only need a summary and a "What's Changed" section. Large releases might use all sections. Don't include empty sections.
+
+## Guidelines
 
 Write clearly and concisely. Focus on what matters to END USERS of the software. Do NOT fabricate changes — only describe what you can verify from the git log, PRs, and source code.
 
@@ -33,15 +66,28 @@ Be honest about the scope of a release. If it's a small patch with one or two fi
     prompt
 }
 
-pub fn user_prompt(
-    tag: &str,
-    prev_tag: &str,
-    git_log: &str,
-    pr_numbers: &[u64],
-    changelog_entry: Option<&str>,
-    existing_release: Option<&str>,
-    context: Option<&str>,
-) -> String {
+pub struct UserPromptContext<'a> {
+    pub tag: &'a str,
+    pub prev_tag: &'a str,
+    pub owner_repo: &'a str,
+    pub git_log: &'a str,
+    pub pr_numbers: &'a [u64],
+    pub changelog_entry: Option<&'a str>,
+    pub existing_release: Option<&'a str>,
+    pub context: Option<&'a str>,
+}
+
+pub fn user_prompt(ctx: &UserPromptContext) -> String {
+    let UserPromptContext {
+        tag,
+        prev_tag,
+        owner_repo,
+        git_log,
+        pr_numbers,
+        changelog_entry,
+        existing_release,
+        context,
+    } = ctx;
     let mut parts = Vec::new();
 
     if let Some(ctx) = context {
@@ -49,7 +95,8 @@ pub fn user_prompt(
     }
 
     parts.push(format!(
-        "Generate release notes for **{tag}** (previous release: {prev_tag}).\n\n\
+        "Generate release notes for **{tag}** (previous release: {prev_tag}).\n\
+         Repository: `{owner_repo}` (https://github.com/{owner_repo})\n\n\
          ## Git Log\n```\n{git_log}\n```"
     ));
 
