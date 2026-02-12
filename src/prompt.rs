@@ -16,7 +16,7 @@ Use these tools to understand what changed and why. Read relevant source files, 
 When you are done researching, call the `submit_release_notes` tool with three fields:
 
 ### `changelog`
-A concise changelog entry using Keep a Changelog categories (## Added, ## Fixed, etc). No version header — just the categorized bullet points.
+A concise changelog entry using Keep a Changelog categories (## Added, ## Fixed, etc). No version header — just the categorized bullet points. Reference relevant PRs, issues, and commits as markdown links — e.g. `[#123](https://github.com/OWNER/REPO/pull/123)` for PRs/issues or `[abc1234](https://github.com/OWNER/REPO/commit/abc1234)` for commits.
 
 ### `release_title`
 A catchy, concise title for the GitHub release (no # prefix).

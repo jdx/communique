@@ -42,6 +42,10 @@ pub enum Command {
         #[arg(long)]
         github_release: bool,
 
+        /// Update CHANGELOG.md with the generated changelog entry
+        #[arg(long)]
+        changelog: bool,
+
         /// Output concise changelog entry instead of detailed notes
         #[arg(long)]
         concise: bool,

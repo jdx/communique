@@ -14,6 +14,7 @@ pub struct GenerateOptions {
     pub tag: String,
     pub prev_tag: Option<String>,
     pub github_release: bool,
+    pub changelog: bool,
     pub concise: bool,
     pub dry_run: bool,
     pub repo: Option<String>,
@@ -47,6 +48,10 @@ pub async fn run(opts: GenerateOptions) -> miette::Result<()> {
     let ctx = gather_context(&opts, &job).await?;
     let parsed = generate_notes(&ctx, opts.dry_run, &job).await?;
     publish(&opts, &ctx, &parsed, &job).await?;
+
+    if opts.changelog {
+        update_changelog(&ctx, &parsed, opts.dry_run, &job).await?;
+    }
 
     job.set_status(ProgressStatus::Done);
     job.prop("message", "Done");
@@ -298,6 +303,7 @@ mod tests {
             tag: tag.into(),
             prev_tag: None,
             github_release: false,
+            changelog: false,
             concise: false,
             dry_run: false,
             repo: None,
@@ -986,6 +992,441 @@ mod tests {
         assert_eq!(parsed.usage.input_tokens, 250);
         assert_eq!(parsed.usage.output_tokens, 125);
     }
+
+    #[test]
+    fn test_split_changelog_small() {
+        let content =
+            "# Changelog\n\n## [Unreleased]\n\n## [1.0.0] - 2025-01-01\n### Added\n- Feature\n";
+        let (head, tail) = split_changelog(content, 3);
+        assert_eq!(head, content);
+        assert_eq!(tail, "");
+    }
+
+    #[test]
+    fn test_split_changelog_large() {
+        let content = "\
+# Changelog
+
+## [Unreleased]
+
+## [3.0.0] - 2025-03-01
+### Added
+- Three
+
+## [2.0.0] - 2025-02-01
+### Added
+- Two
+
+## [1.0.0] - 2025-01-01
+### Added
+- One
+
+## [0.9.0] - 2024-12-01
+### Fixed
+- Zero nine
+";
+        let (head, tail) = split_changelog(content, 3);
+        assert!(head.contains("[3.0.0]"));
+        assert!(head.contains("[2.0.0]"));
+        assert!(head.contains("[1.0.0]"));
+        assert!(!head.contains("[0.9.0]"));
+        assert!(tail.contains("[0.9.0]"));
+    }
+
+    #[tokio::test]
+    async fn test_update_changelog_insert() {
+        let repo = TempRepo::new();
+        repo.write_file(
+            "CHANGELOG.md",
+            "# Changelog\n\n## [Unreleased]\n\n## [0.9.0] - 2025-01-01\n### Fixed\n- Bug\n",
+        );
+        repo.commit("initial");
+        repo.tag("v0.9.0");
+        repo.write_file("src/main.rs", "fn main() {}");
+        repo.commit("feat: add main");
+        repo.tag("v1.0.0");
+
+        let updated_head = "\
+# Changelog
+
+## [Unreleased]
+
+## [1.0.0] - 2025-02-12
+### Added
+- Main function
+
+## [0.9.0] - 2025-01-01
+### Fixed
+- Bug
+";
+
+        let mock_client = MockLlmClient::new(vec![TurnResponse {
+            tool_calls: vec![],
+            text: Some(updated_head.to_string()),
+            stop_reason: StopReason::EndTurn,
+            usage: fake_usage_with(200, 100),
+        }]);
+
+        let ctx = Context {
+            repo_root: repo.path().to_path_buf(),
+            owner_repo: "test/repo".into(),
+            tag: "v1.0.0".into(),
+            prev_tag: "v0.9.0".into(),
+            client: Box::new(mock_client),
+            defaults: Defaults::default(),
+            system_extra: None,
+            context: None,
+            github_client: None,
+        };
+
+        let parsed = ParsedOutput {
+            changelog: "### Added\n- Main function".into(),
+            release_title: "v1.0.0".into(),
+            release_body: "Release notes.".into(),
+            usage: Usage::default(),
+        };
+
+        let job = Arc::new(ProgressJobBuilder::new().build());
+        update_changelog(&ctx, &parsed, false, &job).await.unwrap();
+
+        let result = std::fs::read_to_string(repo.path().join("CHANGELOG.md")).unwrap();
+        assert!(result.contains("[1.0.0]"));
+        assert!(result.contains("Main function"));
+        assert!(result.contains("[0.9.0]"));
+    }
+
+    #[tokio::test]
+    async fn test_update_changelog_new_file() {
+        let repo = TempRepo::new();
+        repo.write_file("README.md", "# Hello");
+        repo.commit("initial");
+        repo.tag("v0.9.0");
+        repo.write_file("src/main.rs", "fn main() {}");
+        repo.commit("feat: add main");
+        repo.tag("v1.0.0");
+
+        // No CHANGELOG.md exists
+        let updated = "\
+# Changelog
+
+## [Unreleased]
+
+## [1.0.0] - 2025-02-12
+### Added
+- Main function
+";
+
+        let mock_client = MockLlmClient::new(vec![TurnResponse {
+            tool_calls: vec![],
+            text: Some(updated.to_string()),
+            stop_reason: StopReason::EndTurn,
+            usage: fake_usage(),
+        }]);
+
+        let ctx = Context {
+            repo_root: repo.path().to_path_buf(),
+            owner_repo: "test/repo".into(),
+            tag: "v1.0.0".into(),
+            prev_tag: "v0.9.0".into(),
+            client: Box::new(mock_client),
+            defaults: Defaults::default(),
+            system_extra: None,
+            context: None,
+            github_client: None,
+        };
+
+        let parsed = ParsedOutput {
+            changelog: "### Added\n- Main function".into(),
+            release_title: "v1.0.0".into(),
+            release_body: "Body.".into(),
+            usage: Usage::default(),
+        };
+
+        let job = Arc::new(ProgressJobBuilder::new().build());
+        update_changelog(&ctx, &parsed, false, &job).await.unwrap();
+
+        let result = std::fs::read_to_string(repo.path().join("CHANGELOG.md")).unwrap();
+        assert!(result.contains("[1.0.0]"));
+        assert!(result.contains("Main function"));
+    }
+
+    #[tokio::test]
+    async fn test_update_changelog_dry_run() {
+        let repo = TempRepo::new();
+        let original = "# Changelog\n\n## [Unreleased]\n";
+        repo.write_file("CHANGELOG.md", original);
+        repo.commit("initial");
+        repo.tag("v0.9.0");
+        repo.write_file("src/main.rs", "fn main() {}");
+        repo.commit("feat: add main");
+        repo.tag("v1.0.0");
+
+        let mock_client = MockLlmClient::new(vec![TurnResponse {
+            tool_calls: vec![],
+            text: Some("# Changelog\n\n## [Unreleased]\n\n## [1.0.0]\n### Added\n- Stuff\n".into()),
+            stop_reason: StopReason::EndTurn,
+            usage: fake_usage(),
+        }]);
+
+        let ctx = Context {
+            repo_root: repo.path().to_path_buf(),
+            owner_repo: "test/repo".into(),
+            tag: "v1.0.0".into(),
+            prev_tag: "v0.9.0".into(),
+            client: Box::new(mock_client),
+            defaults: Defaults::default(),
+            system_extra: None,
+            context: None,
+            github_client: None,
+        };
+
+        let parsed = ParsedOutput {
+            changelog: "### Added\n- Stuff".into(),
+            release_title: "v1.0.0".into(),
+            release_body: "Body.".into(),
+            usage: Usage::default(),
+        };
+
+        let job = Arc::new(ProgressJobBuilder::new().build());
+        update_changelog(&ctx, &parsed, true, &job).await.unwrap();
+
+        // File should be unchanged
+        let result = std::fs::read_to_string(repo.path().join("CHANGELOG.md")).unwrap();
+        assert_eq!(result, original);
+    }
+
+    #[tokio::test]
+    async fn test_update_changelog_with_tail() {
+        let repo = TempRepo::new();
+        let content = "\
+# Changelog
+
+## [Unreleased]
+
+## [3.0.0] - 2025-03-01
+### Added
+- Three
+
+## [2.0.0] - 2025-02-01
+### Added
+- Two
+
+## [1.0.0] - 2025-01-01
+### Added
+- One
+
+## [0.9.0] - 2024-12-01
+### Fixed
+- Zero nine
+";
+        repo.write_file("CHANGELOG.md", content);
+        repo.commit("initial");
+        repo.tag("v3.0.0");
+        repo.write_file("src/main.rs", "fn main() {}");
+        repo.commit("feat: new feature");
+        repo.tag("v4.0.0");
+
+        // LLM returns updated head with new version inserted
+        let updated_head = "\
+# Changelog
+
+## [Unreleased]
+
+## [4.0.0] - 2025-04-01
+### Added
+- New feature
+
+## [3.0.0] - 2025-03-01
+### Added
+- Three
+
+## [2.0.0] - 2025-02-01
+### Added
+- Two
+
+## [1.0.0] - 2025-01-01
+### Added
+- One
+";
+
+        let mock_client = MockLlmClient::new(vec![TurnResponse {
+            tool_calls: vec![],
+            text: Some(updated_head.to_string()),
+            stop_reason: StopReason::EndTurn,
+            usage: fake_usage(),
+        }]);
+
+        let ctx = Context {
+            repo_root: repo.path().to_path_buf(),
+            owner_repo: "test/repo".into(),
+            tag: "v4.0.0".into(),
+            prev_tag: "v3.0.0".into(),
+            client: Box::new(mock_client),
+            defaults: Defaults::default(),
+            system_extra: None,
+            context: None,
+            github_client: None,
+        };
+
+        let parsed = ParsedOutput {
+            changelog: "### Added\n- New feature".into(),
+            release_title: "v4.0.0".into(),
+            release_body: "Body.".into(),
+            usage: Usage::default(),
+        };
+
+        let job = Arc::new(ProgressJobBuilder::new().build());
+        update_changelog(&ctx, &parsed, false, &job).await.unwrap();
+
+        let result = std::fs::read_to_string(repo.path().join("CHANGELOG.md")).unwrap();
+        // Should contain the new version from LLM
+        assert!(result.contains("[4.0.0]"));
+        assert!(result.contains("New feature"));
+        // Should preserve the tail (0.9.0)
+        assert!(result.contains("[0.9.0]"));
+        assert!(result.contains("Zero nine"));
+    }
+
+    #[test]
+    fn test_today_iso() {
+        let date = today_iso();
+        // Should be YYYY-MM-DD format
+        assert_eq!(date.len(), 10);
+        assert_eq!(date.as_bytes()[4], b'-');
+        assert_eq!(date.as_bytes()[7], b'-');
+    }
+}
+
+/// Split changelog content into (head, tail) keeping at most `max_versions` versioned sections
+/// in the head. This limits tokens sent to the LLM for large changelogs.
+fn split_changelog(content: &str, max_versions: usize) -> (&str, &str) {
+    let mut version_count = 0;
+    let mut search_start = 0;
+
+    loop {
+        let rest = &content[search_start..];
+        let Some(pos) = rest.find("\n## ") else {
+            break;
+        };
+        let abs_pos = search_start + pos;
+        let header_start = abs_pos + 1; // skip the \n
+
+        // Check if this is [Unreleased] — don't count it
+        let header_line = &content[header_start..];
+        let is_unreleased = header_line.strip_prefix("## ").is_some_and(|s| {
+            s.trim_start().starts_with("[Unreleased]") || s.trim_start().starts_with("Unreleased")
+        });
+
+        if !is_unreleased {
+            version_count += 1;
+        }
+
+        if version_count >= max_versions {
+            // Find the next ## after this one to split there
+            let after = &content[header_start + 3..];
+            if let Some(next) = after.find("\n## ") {
+                let split_at = header_start + 3 + next + 1; // +1 to include the \n
+                return (&content[..split_at], &content[split_at..]);
+            }
+            break;
+        }
+
+        search_start = abs_pos + 4; // skip past "\n## "
+    }
+
+    (content, "")
+}
+
+/// Returns today's date as YYYY-MM-DD using std only.
+fn today_iso() -> String {
+    // Use UNIX_EPOCH + SystemTime to get days, then Hinnant civil_from_days
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let days = (secs / 86400) as i64;
+
+    // Hinnant's civil_from_days (epoch = 1970-01-01 = day 0)
+    let z = days + 719468;
+    let era = (if z >= 0 { z } else { z - 146096 }) / 146097;
+    let doe = (z - era * 146097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = (yoe as i64) + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
+async fn update_changelog(
+    ctx: &Context,
+    parsed: &ParsedOutput,
+    dry_run: bool,
+    job: &Arc<ProgressJob>,
+) -> miette::Result<()> {
+    job.prop("message", "Updating CHANGELOG.md...");
+
+    let changelog_path = ctx.repo_root.join("CHANGELOG.md");
+    let existing = xx::file::read_to_string(&changelog_path)
+        .unwrap_or_else(|_| "# Changelog\n\n## [Unreleased]\n".to_string());
+
+    let (head, tail) = split_changelog(&existing, 3);
+
+    let date = today_iso();
+    let release_url = format!(
+        "https://github.com/{}/releases/tag/{}",
+        ctx.owner_repo, ctx.tag
+    );
+
+    let system = "\
+You are a precise CHANGELOG.md editor. Given the top portion of an existing \
+CHANGELOG.md and a new version entry, produce the updated content.
+
+Rules:
+- Match the formatting conventions of the existing file (header style, spacing, link patterns)
+- Insert the new version section after any [Unreleased] section, before existing version entries
+- If an entry for this exact version already exists, replace it with the new content
+- Use the date and release URL provided to format the version header
+- If the file uses linked headers like ## [X.Y.Z](url) - date, follow that pattern
+- If the file uses plain headers like ## X.Y.Z, follow that pattern
+- Preserve the [Unreleased] section header (keep it even if empty)
+- Preserve all other existing entries exactly as-is
+- Output ONLY the raw markdown content — no code fences, no explanations";
+
+    let user_msg = format!(
+        "Version: {tag}\nDate: {date}\nRelease URL: {release_url}\n\n\
+         New changelog entry:\n{changelog}\n\n\
+         Current CHANGELOG.md (top portion):\n{head}",
+        tag = ctx.tag,
+        changelog = parsed.changelog,
+        head = head,
+    );
+
+    let mut conv = ctx.client.new_conversation(&user_msg);
+    let response = ctx.client.send_turn(system, &mut conv, &[]).await?;
+
+    let updated_head = response.text.unwrap_or_default();
+
+    info!(
+        "changelog update tokens: {} input + {} output",
+        response.usage.input_tokens, response.usage.output_tokens
+    );
+
+    if !dry_run {
+        let full = if tail.is_empty() {
+            updated_head
+        } else {
+            format!("{updated_head}{tail}")
+        };
+        let content = format!("{}\n", full.trim_end());
+        xx::file::write(&changelog_path, content)?;
+        info!("wrote {}", changelog_path.display());
+    }
+
+    Ok(())
 }
 
 fn read_changelog_entry(repo_root: &Path, tag: &str) -> Option<String> {

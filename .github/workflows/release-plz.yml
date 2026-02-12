@@ -91,25 +91,10 @@ jobs:
           VERSION=$(cargo metadata --format-version=1 --no-deps | jq -r '.packages[0].version')
           TAG="v${VERSION}"
 
-          # Update CHANGELOG.md with concise notes
-          CONCISE_NOTES=$($COMMUNIQUE generate "$TAG" --concise)
-          if [ -f CHANGELOG.md ]; then
-            # Find and replace the changelog entry for this version
-            python3 -c "
-          import re, sys
-          changelog = open('CHANGELOG.md').read()
-          version = '${VERSION}'
-          notes = sys.stdin.read()
-          # Match ## [version] or ## version header and its content up to next ## header
-          pattern = r'(## \[?' + re.escape(version) + r'\]?[^\n]*\n).*?(?=\n## |\Z)'
-          replacement = r'\1\n' + notes
-          result = re.sub(pattern, replacement, changelog, count=1, flags=re.DOTALL)
-          open('CHANGELOG.md', 'w').write(result)
-          " <<< "$CONCISE_NOTES"
-          fi
+          # Generate release notes and update CHANGELOG.md in one pass
+          FULL_NOTES=$($COMMUNIQUE generate "$TAG" --changelog)
 
           # Update PR title and body with full release notes
-          FULL_NOTES=$($COMMUNIQUE generate "$TAG")
           PR_TITLE="$TAG: $(echo "$FULL_NOTES" | head -1 | sed 's/^# //')"
           PR_BODY=$(echo "$FULL_NOTES" | tail -n +3)
           gh pr edit "$PR_NUMBER" --title "$PR_TITLE" --body "$PR_BODY"
