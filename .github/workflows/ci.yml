@@ -16,12 +16,6 @@ jobs:
       - run: rustup component add clippy rustfmt
       - uses: taiki-e/install-action@cargo-audit
       - run: mise run lint
-      - name: Debug rg
-        run: |
-          which rg
-          rg --version
-          echo "hello world" > /tmp/rg-test.txt
-          rg hello /tmp/rg-test.txt
       - run: mise x -- cargo test
       - run: cargo audit
 

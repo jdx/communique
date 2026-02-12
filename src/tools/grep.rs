@@ -80,19 +80,6 @@ mod tests {
         repo.write_file("hello.txt", "hello world\nfoo bar");
         repo.commit("init");
 
-        // Debug: verify file exists and rg is available
-        let dir = repo.path();
-        let content = std::fs::read_to_string(dir.join("hello.txt")).unwrap();
-        eprintln!("repo_root: {}", dir.display());
-        eprintln!("hello.txt content: {content:?}");
-        let rg_version = std::process::Command::new("rg").arg("--version").output();
-        eprintln!("rg --version: {rg_version:?}");
-        let rg_direct = std::process::Command::new("rg")
-            .args(["--no-config", "hello"])
-            .current_dir(dir)
-            .output();
-        eprintln!("rg hello (direct): {rg_direct:?}");
-
         let result = execute(repo.path(), &json!({"pattern": "hello"})).unwrap();
         assert!(
             result.contains("hello world"),
