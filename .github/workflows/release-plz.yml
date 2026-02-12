@@ -62,17 +62,18 @@ jobs:
           command: release-pr
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
+      - name: Build communique from main
+        if: steps.release-plz.outputs.prs_created == 'true'
+        run: cargo build --release
       - name: Update PR with communique release notes
         if: steps.release-plz.outputs.prs_created == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
+          COMMUNIQUE="$(pwd)/target/release/communique"
           PR_NUMBER=$(echo '${{ steps.release-plz.outputs.pr }}' | jq -r '.number')
           gh pr checkout "$PR_NUMBER"
-
-          cargo build --release
-          COMMUNIQUE="./target/release/communique"
 
           VERSION=$(cargo metadata --format-version=1 --no-deps | jq -r '.packages[0].version')
           TAG="v${VERSION}"
