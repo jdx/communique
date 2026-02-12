@@ -5,6 +5,7 @@ mod config;
 mod error;
 mod git;
 mod github;
+mod links;
 mod output;
 mod prompt;
 mod tools;
@@ -158,7 +159,8 @@ async fn cmd_generate(
     };
 
     // Build prompts
-    let system = prompt::system_prompt(config.system_extra.as_deref());
+    let emoji = defaults.emoji.unwrap_or(true);
+    let system = prompt::system_prompt(config.system_extra.as_deref(), emoji);
     let user_msg = prompt::user_prompt(
         &tag,
         &prev_tag,
@@ -184,6 +186,19 @@ async fn cmd_generate(
         &job,
     )
     .await?;
+
+    // Verify links
+    let verify_links = defaults.verify_links.unwrap_or(true);
+    if verify_links {
+        job.prop("message", "Verifying links...");
+        let broken = links::verify(&[&parsed.changelog, &parsed.release_body]).await;
+        if !broken.is_empty() {
+            job.set_status(ProgressStatus::Warn);
+            for (url, reason) in &broken {
+                eprintln!("warning: broken link: {url} ({reason})");
+            }
+        }
+    }
 
     // Update GitHub release if requested
     if github_release {

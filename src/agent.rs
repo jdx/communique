@@ -102,8 +102,9 @@ pub async fn run(
         // Execute tools and build results
         let mut results = Vec::new();
         for (id, name, input) in &tool_calls {
-            info!("calling tool: {name}");
-            job.prop("message", &format!("Running tool: {name}..."));
+            let detail = tool_detail(name, input);
+            info!("calling tool: {detail}");
+            job.prop("message", &format!("Running tool: {detail}..."));
             match tools::dispatch(name, input, repo_root, github).await {
                 Ok(output) => {
                     info!("tool {name}: {} bytes", output.len());
@@ -133,4 +134,30 @@ pub async fn run(
     Err(Error::Anthropic(format!(
         "agent loop exceeded {MAX_ITERATIONS} iterations"
     )))
+}
+
+fn tool_detail(name: &str, input: &serde_json::Value) -> String {
+    match name {
+        "read_file" => {
+            let path = input["path"].as_str().unwrap_or("?");
+            format!("read_file({path})")
+        }
+        "list_files" => match input["glob"].as_str() {
+            Some(glob) => format!("list_files({glob})"),
+            None => "list_files".into(),
+        },
+        "grep" => {
+            let pattern = input["pattern"].as_str().unwrap_or("?");
+            format!("grep({pattern})")
+        }
+        "get_pr" => {
+            let number = &input["number"];
+            format!("get_pr(#{number})")
+        }
+        "get_pr_diff" => {
+            let number = &input["number"];
+            format!("get_pr_diff(#{number})")
+        }
+        _ => name.to_string(),
+    }
 }

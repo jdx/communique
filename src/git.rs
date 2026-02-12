@@ -84,8 +84,9 @@ fn root_commit(repo_root: &Path) -> Result<String> {
 /// Resolve a ref to a commit, falling back to HEAD if the ref doesn't exist
 /// (e.g. a version tag that hasn't been created yet).
 pub fn resolve_ref(repo_root: &Path, git_ref: &str) -> Result<String> {
-    let result = process::cmd("git", ["rev-parse", "--verify", git_ref])
+    let result = process::cmd("git", ["rev-parse", "--verify", "--quiet", git_ref])
         .cwd(repo_root)
+        .stderr_capture()
         .read();
     match result {
         Ok(sha) => Ok(sha.trim().to_string()),
