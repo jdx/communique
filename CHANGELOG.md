@@ -7,12 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.3](https://github.com/jdx/communique/compare/v0.1.2...v0.1.3) - 2026-02-12
+## [0.1.3](https://github.com/jdx/communique/releases/tag/v0.1.3) - 2026-02-12
 
-### Other
+### Fixed
 
-- Remove macOS x86_64 from release matrix
-- Fix draft release lookup and update docs
+- Draft releases are now found correctly — `get_release_by_tag` falls back to listing releases when the `/releases/tags` endpoint returns 404, since GitHub's tag endpoint doesn't return drafts
+
+### Changed
+
+- Updated GitHub Actions documentation to show `--changelog` usage and the required `git fetch --tags` step
+- macOS x86_64 pre-built binaries are no longer published; use the aarch64 binary with Rosetta 2 on Intel Macs
 
 ## [0.1.2](https://github.com/jdx/communique/compare/v0.1.1...v0.1.2) - 2026-02-12
 
@@ -20,9 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Prefix release titles with tag and use draft releases
 
-## [0.1.1](https://github.com/jdx/communique/compare/v0.1.0...v0.1.1) - 2026-02-12
-
-## Added
+## [0.1.1](https://github.com/jdx/communique/compare/v0.1.0...v0.1.1)## Added
 - Multi-model LLM support with OpenAI-compatible provider — use GPT-4, Groq, Together, Ollama, or any OpenAI-compatible API via `--provider` and `--base-url` flags
 - `--dry-run` (`-n`) flag to preview release notes without updating GitHub or verifying links
 - `--verbose` (`-v`) and `--quiet` (`-q`) flags for controlling output verbosity
