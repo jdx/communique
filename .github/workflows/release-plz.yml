@@ -50,6 +50,19 @@ jobs:
       tag: ${{ needs.release-plz-release.outputs.tag }}
     secrets: inherit
 
+  publish-release:
+    name: Publish release
+    needs: [release-plz-release, upload-assets]
+    if: ${{ needs.release-plz-release.outputs.tag != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Publish GitHub release
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
+        run: gh release edit "${{ needs.release-plz-release.outputs.tag }}" --repo jdx/communique --draft=false
+
   release-plz-pr:
     name: Release-plz PR
     runs-on: ubuntu-latest

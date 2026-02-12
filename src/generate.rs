@@ -46,7 +46,13 @@ pub async fn run(opts: GenerateOptions) -> miette::Result<()> {
         .start();
 
     let ctx = gather_context(&opts, &job).await?;
-    let parsed = generate_notes(&ctx, opts.dry_run, &job).await?;
+    let mut parsed = generate_notes(&ctx, opts.dry_run, &job).await?;
+
+    // Ensure the release title is prefixed with the tag
+    if !parsed.release_title.starts_with(&ctx.tag) {
+        parsed.release_title = format!("{}: {}", ctx.tag, parsed.release_title);
+    }
+
     publish(&opts, &ctx, &parsed, &job).await?;
 
     if opts.changelog {
