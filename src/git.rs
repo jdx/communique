@@ -81,7 +81,26 @@ fn root_commit(repo_root: &Path) -> Result<String> {
         .ok_or_else(|| Error::Git("no commits found".into()))
 }
 
+/// Resolve a ref to a commit, falling back to HEAD if the ref doesn't exist
+/// (e.g. a version tag that hasn't been created yet).
+pub fn resolve_ref(repo_root: &Path, git_ref: &str) -> Result<String> {
+    let result = process::cmd("git", ["rev-parse", "--verify", git_ref])
+        .cwd(repo_root)
+        .read();
+    match result {
+        Ok(sha) => Ok(sha.trim().to_string()),
+        Err(_) => {
+            let sha = process::cmd("git", ["rev-parse", "HEAD"])
+                .cwd(repo_root)
+                .read()?;
+            Ok(sha.trim().to_string())
+        }
+    }
+}
+
 pub fn log_between(repo_root: &Path, from: &str, to: &str) -> Result<String> {
+    let from = resolve_ref(repo_root, from)?;
+    let to = resolve_ref(repo_root, to)?;
     let range = format!("{from}..{to}");
     let output = process::cmd("git", ["log", &range, "--pretty=format:%h %s", "--reverse"])
         .cwd(repo_root)
@@ -118,7 +137,8 @@ mod tests {
 
     #[test]
     fn test_extract_pr_numbers() {
-        let log = "abc1234 feat: add feature (#123)\ndef5678 fix: bug (#456)\nghi9012 chore: update deps";
+        let log =
+            "abc1234 feat: add feature (#123)\ndef5678 fix: bug (#456)\nghi9012 chore: update deps";
         assert_eq!(extract_pr_numbers(log), vec![123, 456]);
     }
 }

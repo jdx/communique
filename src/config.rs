@@ -39,8 +39,14 @@ impl Config {
             return Ok(None);
         }
         let contents = xx::file::read_to_string(&path)?;
-        let config: Config = toml::from_str(&contents)
-            .map_err(|e| crate::error::Error::Config(format!("invalid communique.toml: {e}")))?;
+        let config: Config = toml::from_str(&contents).map_err(|e| {
+            let span = e.span().map(|s| s.into()).unwrap_or((0, 0).into());
+            crate::error::Error::Toml {
+                message: e.message().to_string(),
+                src: miette::NamedSource::new(path.display().to_string(), contents.clone()),
+                span,
+            }
+        })?;
         Ok(Some(config))
     }
 

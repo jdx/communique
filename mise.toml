@@ -14,6 +14,9 @@ run = [
   "git add communique.usage.kdl docs/cli",
 ]
 
+[tasks.lint]
+run = "hk check --all"
+
 [tasks.docs]
 dir = "docs"
 run = "npm i && exec npm run docs:dev"

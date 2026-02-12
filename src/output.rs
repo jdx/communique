@@ -20,7 +20,10 @@ pub fn parse(raw: &str) -> Result<ParsedOutput> {
     // Extract title from first H1 line
     let (title, body) = if let Some(rest) = release_raw.strip_prefix("# ") {
         match rest.find('\n') {
-            Some(pos) => (rest[..pos].trim().to_string(), rest[pos + 1..].trim().to_string()),
+            Some(pos) => (
+                rest[..pos].trim().to_string(),
+                rest[pos + 1..].trim().to_string(),
+            ),
             None => (rest.trim().to_string(), String::new()),
         }
     } else {

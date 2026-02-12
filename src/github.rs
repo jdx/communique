@@ -12,7 +12,9 @@ pub struct GitHubClient {
 #[derive(Debug, Deserialize)]
 pub struct Release {
     pub id: u64,
+    #[allow(dead_code)]
     pub tag_name: String,
+    #[allow(dead_code)]
     pub name: Option<String>,
     pub body: Option<String>,
 }
@@ -152,7 +154,10 @@ impl GitHubClient {
         let diff = resp.text().await?;
         // Truncate very large diffs to avoid blowing up context
         if diff.len() > 50_000 {
-            Ok(format!("{}...\n\n[diff truncated at 50KB]", &diff[..50_000]))
+            Ok(format!(
+                "{}...\n\n[diff truncated at 50KB]",
+                &diff[..50_000]
+            ))
         } else {
             Ok(diff)
         }

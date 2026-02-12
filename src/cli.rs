@@ -3,7 +3,11 @@ use clap::{Parser, Subcommand};
 use crate::usage;
 
 #[derive(Parser, Debug)]
-#[command(name = "communique", version, about = "Editorialized release notes powered by AI")]
+#[command(
+    name = "communique",
+    version,
+    about = "Editorialized release notes powered by AI"
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Command,

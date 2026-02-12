@@ -1,3 +1,5 @@
+#![allow(unused_assignments)]
+
 use miette::Diagnostic;
 use thiserror::Error;
 
@@ -20,6 +22,16 @@ pub enum Error {
 
     #[error("config error: {0}")]
     Config(String),
+
+    #[error("{message}")]
+    #[diagnostic()]
+    Toml {
+        message: String,
+        #[source_code]
+        src: miette::NamedSource<String>,
+        #[label("{message}")]
+        span: miette::SourceSpan,
+    },
 
     #[error(transparent)]
     Reqwest(#[from] reqwest::Error),

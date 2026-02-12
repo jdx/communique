@@ -9,7 +9,9 @@ use crate::error::Result;
 pub fn definition() -> ToolDefinition {
     ToolDefinition {
         name: "list_files".into(),
-        description: "List files tracked by git in the repository. Optionally filter by a glob pattern.".into(),
+        description:
+            "List files tracked by git in the repository. Optionally filter by a glob pattern."
+                .into(),
         input_schema: json!({
             "type": "object",
             "properties": {

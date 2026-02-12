@@ -8,7 +8,9 @@ use crate::error::{Error, Result};
 pub fn definition() -> ToolDefinition {
     ToolDefinition {
         name: "read_file".into(),
-        description: "Read the contents of a file in the repository. Path is relative to the repo root.".into(),
+        description:
+            "Read the contents of a file in the repository. Path is relative to the repo root."
+                .into(),
         input_schema: json!({
             "type": "object",
             "properties": {

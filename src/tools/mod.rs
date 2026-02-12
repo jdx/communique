@@ -45,8 +45,6 @@ pub async fn dispatch(
             })?;
             get_pr_diff::execute(gh, input).await
         }
-        _ => Err(crate::error::Error::Tool(format!(
-            "unknown tool: {name}"
-        ))),
+        _ => Err(crate::error::Error::Tool(format!("unknown tool: {name}"))),
     }
 }
