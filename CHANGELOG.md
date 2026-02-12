@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1](https://github.com/jdx/communique/compare/v0.1.0...v0.1.1) - 2026-02-12
+
+### Other
+
+- Add hk to mise tools so it's available in CI
+- Use structured tool call for release notes output
+- Add hk for pre-commit hooks, lint CI, miette TOML errors, and resolve_ref fallback
+- Use debug builds and add Rust cache to release-plz workflow
+- Build communique from main before checking out PR branch
+- Fix previous_tag to fall back to root commit when no tags exist
+- Support non-tag refs and integrate communique into release-plz workflow
+- Add usage-lib for auto-generated CLI reference docs
+- Add progress indication via clx
+- Add README with roadmap
+- Add VitePress docs site with vaporwave theme
+- release v0.1.0 ([#3](https://github.com/jdx/communique/pull/3))
+
 ## [0.1.0](https://github.com/jdx/communique/releases/tag/v0.1.0) - 2026-02-11
 
 ### Other
