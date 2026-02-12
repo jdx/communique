@@ -20,12 +20,23 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
       - name: Run release-plz
+        id: release-plz
         uses: release-plz/action@main
         with:
           command: release
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      - name: Enhance GitHub release with communique
+        if: steps.release-plz.outputs.releases_created == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          cargo install --path .
+          for release in $(echo '${{ steps.release-plz.outputs.releases }}' | jq -r '.[].tag'); do
+            communique generate "$release" --github-release
+          done
 
   release-plz-pr:
     name: Release-plz PR
@@ -45,8 +56,51 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
       - name: Run release-plz
+        id: release-plz
         uses: release-plz/action@main
         with:
           command: release-pr
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
+      - name: Update PR with communique release notes
+        if: steps.release-plz.outputs.prs_created == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          PR_NUMBER=$(echo '${{ steps.release-plz.outputs.pr }}' | jq -r '.number')
+          gh pr checkout "$PR_NUMBER"
+
+          cargo build --release
+          COMMUNIQUE="./target/release/communique"
+
+          VERSION=$(cargo metadata --format-version=1 --no-deps | jq -r '.packages[0].version')
+          TAG="v${VERSION}"
+
+          # Update CHANGELOG.md with concise notes
+          CONCISE_NOTES=$($COMMUNIQUE generate "$TAG" --concise)
+          if [ -f CHANGELOG.md ]; then
+            # Find and replace the changelog entry for this version
+            python3 -c "
+          import re, sys
+          changelog = open('CHANGELOG.md').read()
+          version = '${VERSION}'
+          notes = sys.stdin.read()
+          # Match ## [version] or ## version header and its content up to next ## header
+          pattern = r'(## \[?' + re.escape(version) + r'\]?[^\n]*\n).*?(?=\n## |\Z)'
+          replacement = r'\1\n' + notes
+          result = re.sub(pattern, replacement, changelog, count=1, flags=re.DOTALL)
+          open('CHANGELOG.md', 'w').write(result)
+          " <<< "$CONCISE_NOTES"
+          fi
+
+          # Update PR body with full release notes
+          FULL_NOTES=$($COMMUNIQUE generate "$TAG")
+          gh pr edit "$PR_NUMBER" --body "$FULL_NOTES"
+
+          # Commit and push changelog changes
+          if ! git diff --quiet CHANGELOG.md 2>/dev/null; then
+            git add CHANGELOG.md
+            git commit -m "chore: update changelog with communique release notes"
+            git push
+          fi

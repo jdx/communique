@@ -43,18 +43,35 @@ pub fn previous_tag(repo_root: &Path, current_tag: &str) -> Result<String> {
         .cwd(repo_root)
         .read()?;
 
+    let tags: Vec<&str> = stdout
+        .lines()
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .collect();
+
+    // If current_tag is in the tag list, return the one after it (next oldest)
     let mut found = false;
-    for tag in stdout.lines().map(str::trim).filter(|t| !t.is_empty()) {
+    for tag in &tags {
         if found {
             return Ok(tag.to_string());
         }
-        if tag == current_tag {
+        if *tag == current_tag {
             found = true;
         }
     }
-    Err(Error::Git(format!(
-        "no previous tag found before {current_tag}"
-    )))
+
+    // If current_tag was found but there's no previous tag
+    if found {
+        return Err(Error::Git(format!(
+            "no previous tag found before {current_tag}"
+        )));
+    }
+
+    // current_tag is not in the tag list (e.g. HEAD, branch, commit SHA, or
+    // a version that isn't tagged yet). Fall back to the most recent tag.
+    tags.first()
+        .map(|t| t.to_string())
+        .ok_or_else(|| Error::Git(format!("no previous tag found before {current_tag}")))
 }
 
 pub fn log_between(repo_root: &Path, from: &str, to: &str) -> Result<String> {
