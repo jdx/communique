@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.4](https://github.com/jdx/communique/compare/v0.1.3...v0.1.4) - 2026-02-12
+
+### Other
+
+- Increase retry patience and make communique non-fatal in CI ([#41](https://github.com/jdx/communique/pull/41))
+
 ## [0.1.3](https://github.com/jdx/communique/releases/tag/v0.1.3) - 2026-02-12
 
 ### Fixed
