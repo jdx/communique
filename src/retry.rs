@@ -3,9 +3,9 @@ use std::time::{Duration, SystemTime};
 
 use crate::error::Result;
 
-const MAX_RETRIES: u32 = 5;
-const INITIAL_DELAY_MS: u64 = 500;
-const MAX_DELAY_MS: u64 = 30_000;
+const MAX_RETRIES: u32 = 10;
+const INITIAL_DELAY_MS: u64 = 1_000;
+const MAX_DELAY_MS: u64 = 60_000;
 
 pub struct RetryConfig {
     pub max_retries: u32,
