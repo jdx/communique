@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.5](https://github.com/jdx/communique/releases/tag/v0.1.5) - 2026-02-12
+
+### Changed
+- Regenerated CLI documentation to reflect flags and options added in prior releases ([#43](https://github.com/jdx/communique/pull/43))
+
 ## [0.1.4](https://github.com/jdx/communique/releases/tag/v0.1.4) - 2026-02-12
 
 ### Changed
@@ -25,9 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated GitHub Actions documentation to show `--changelog` usage, the required `git fetch --tags` step, and simplified workflow examples ([f201231](https://github.com/jdx/communique/commit/f2012318af310105f0a2517b2c6ad03ce684f176))
 
 ### Removed
-- macOS x86_64 pre-built binaries are no longer published; only aarch64 (Apple Silicon) binaries are provided for macOS ([2861482](https://github.com/jdx/communique/commit/28614828b1561ae198943e9f290b4c27be4c8a38))
-
-## [0.1.2](https://github.com/jdx/communique/compare/v0.1.1...v0.1.2) - 2026-02-12
+- macOS x86_64 pre-built binaries are no longer published; only aarch64 (Apple Silicon) binaries are provided for macOS ([2861482](https://github.com/jdx/communique/commit/28614828b1561ae198943e9f290b4c27be4c8a38))## [0.1.2](https://github.com/jdx/communique/compare/v0.1.1...v0.1.2) - 2026-02-12
 
 ### Other
 
