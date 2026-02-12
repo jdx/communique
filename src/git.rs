@@ -60,18 +60,25 @@ pub fn previous_tag(repo_root: &Path, current_tag: &str) -> Result<String> {
         }
     }
 
-    // If current_tag was found but there's no previous tag
-    if found {
-        return Err(Error::Git(format!(
-            "no previous tag found before {current_tag}"
-        )));
+    // If current_tag was found but there's no previous tag, or if there are
+    // no tags at all, fall back to the root commit so we capture all history.
+    if found || tags.is_empty() {
+        return root_commit(repo_root);
     }
 
     // current_tag is not in the tag list (e.g. HEAD, branch, commit SHA, or
     // a version that isn't tagged yet). Fall back to the most recent tag.
-    tags.first()
-        .map(|t| t.to_string())
-        .ok_or_else(|| Error::Git(format!("no previous tag found before {current_tag}")))
+    Ok(tags[0].to_string())
+}
+
+fn root_commit(repo_root: &Path) -> Result<String> {
+    let sha = process::cmd("git", ["rev-list", "--max-parents=0", "HEAD"])
+        .cwd(repo_root)
+        .read()?;
+    sha.lines()
+        .next()
+        .map(|s| s.trim().to_string())
+        .ok_or_else(|| Error::Git("no commits found".into()))
 }
 
 pub fn log_between(repo_root: &Path, from: &str, to: &str) -> Result<String> {
