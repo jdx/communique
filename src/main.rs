@@ -8,6 +8,7 @@ mod github;
 mod output;
 mod prompt;
 mod tools;
+mod usage;
 
 use std::time::Duration;
 
@@ -30,6 +31,7 @@ async fn main() -> miette::Result<()> {
     let cli = Cli::parse();
 
     let result = match cli.command {
+        Command::Usage(usage) => usage.run(),
         Command::Init { force } => cmd_init(force),
         Command::Generate {
             tag,

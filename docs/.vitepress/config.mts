@@ -1,5 +1,26 @@
 import { defineConfig } from "vitepress";
 
+import spec from "../cli/commands.json";
+
+interface Cmd {
+  name: string;
+  full_cmd: string[];
+  subcommands: Record<string, Cmd>;
+  hide?: boolean;
+}
+
+function getCommands(cmd: Cmd): string[][] {
+  const commands: string[][] = [];
+  for (const [name, sub] of Object.entries(cmd.subcommands)) {
+    if (sub.hide) continue;
+    commands.push(sub.full_cmd);
+    commands.push(...getCommands(sub));
+  }
+  return commands;
+}
+
+const commands = getCommands(spec.cmd);
+
 export default defineConfig({
   title: "communiqué",
   description: "Editorialized release notes powered by AI",
@@ -40,11 +61,12 @@ export default defineConfig({
       },
       {
         text: "CLI Reference",
-        items: [
-          { text: "Overview", link: "/cli/" },
-          { text: "generate", link: "/cli/generate" },
-          { text: "init", link: "/cli/init" },
-        ],
+        link: "/cli/",
+        collapsed: true,
+        items: commands.map((cmd) => ({
+          text: cmd.join(" "),
+          link: `/cli/${cmd.join("/")}`,
+        })),
       },
     ],
 

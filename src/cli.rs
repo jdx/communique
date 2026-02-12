@@ -1,7 +1,9 @@
 use clap::{Parser, Subcommand};
 
+use crate::usage;
+
 #[derive(Parser, Debug)]
-#[command(name = "communique", version, about = "Editorialized release notes powered by Claude")]
+#[command(name = "communique", version, about = "Editorialized release notes powered by AI")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Command,
@@ -44,4 +46,6 @@ pub enum Command {
         #[arg(long)]
         force: bool,
     },
+
+    Usage(usage::Usage),
 }

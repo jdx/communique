@@ -1,0 +1,27 @@
+name communique
+bin communique
+version "0.1.0"
+about "Editorialized release notes powered by AI"
+usage "Usage: communique <COMMAND>"
+cmd generate help="Generate release notes for a git tag" {
+    flag --github-release help="Push editorialized notes to the GitHub release"
+    flag --concise help="Output concise changelog entry instead of detailed notes"
+    flag --repo help="GitHub repo in owner/repo format (auto-detected from git remote)" {
+        arg <REPO>
+    }
+    flag --model help="Anthropic model to use" {
+        arg <MODEL>
+    }
+    flag --max-tokens help="Max response tokens" {
+        arg <MAX_TOKENS>
+    }
+    arg <TAG> help="Git tag to generate release notes for"
+    arg "[PREV_TAG]" help="Previous tag (auto-detected if omitted)" required=#false
+}
+cmd init help="Generate a communique.toml config file in the repo root" {
+    flag --force help="Overwrite existing config file"
+}
+cmd usage hide=#true help="Generates a usage spec for the CLI" {
+    long_help "Generates a usage spec for the CLI\n\nhttps://usage.jdx.dev"
+}
+

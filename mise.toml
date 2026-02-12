@@ -1,0 +1,22 @@
+[env]
+_.path = "target/debug"
+
+[tasks.build]
+run = "cargo build"
+
+[tasks.render]
+depends = ["build"]
+run = [
+  "communique usage > communique.usage.kdl",
+  "rm -rf docs/cli && mkdir -p docs/cli",
+  "usage g markdown -mf communique.usage.kdl --out-dir docs/cli --url-prefix /cli",
+  "usage g json -f communique.usage.kdl > docs/cli/commands.json",
+  "git add communique.usage.kdl docs/cli",
+]
+
+[tasks.docs]
+dir = "docs"
+run = "npm i && exec npm run docs:dev"
+
+[tools]
+usage = "latest"
