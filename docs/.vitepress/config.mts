@@ -57,6 +57,7 @@ export default defineConfig({
         items: [
           { text: "Getting Started", link: "/guide/getting-started" },
           { text: "Configuration", link: "/guide/configuration" },
+          { text: "GitHub Actions", link: "/guide/github-actions" },
         ],
       },
       {
