@@ -1,0 +1,348 @@
+/* ═══════════════════════════════════════════
+   communiqué — v a p o r w a v e  theme
+   ═══════════════════════════════════════════ */
+
+@import url("https://fonts.googleapis.com/css2?family=Monoton&family=Orbitron:wght@400;700;900&display=swap");
+
+:root {
+  /* ── vaporwave palette ── */
+  --vp-c-brand-1: #ff71ce;
+  --vp-c-brand-2: #b967ff;
+  --vp-c-brand-3: #01cdfe;
+  --vp-c-brand-soft: rgba(185, 103, 255, 0.14);
+
+  --vapor-pink: #ff71ce;
+  --vapor-purple: #b967ff;
+  --vapor-cyan: #01cdfe;
+  --vapor-blue: #6b5bff;
+  --vapor-magenta: #ff00aa;
+  --vapor-bg-deep: #0a0015;
+  --vapor-bg: #120025;
+  --vapor-bg-soft: #1a0035;
+  --vapor-bg-mute: #22004a;
+  --vapor-glow-pink: rgba(255, 113, 206, 0.35);
+  --vapor-glow-purple: rgba(185, 103, 255, 0.35);
+  --vapor-glow-cyan: rgba(1, 205, 254, 0.25);
+
+  --vp-c-tip-1: var(--vapor-cyan);
+  --vp-c-tip-2: rgba(1, 205, 254, 0.16);
+  --vp-c-tip-3: rgba(1, 205, 254, 0.12);
+  --vp-c-tip-soft: rgba(1, 205, 254, 0.14);
+}
+
+.dark {
+  --vp-c-bg: var(--vapor-bg-deep);
+  --vp-c-bg-soft: var(--vapor-bg);
+  --vp-c-bg-mute: var(--vapor-bg-soft);
+  --vp-c-bg-alt: var(--vapor-bg);
+
+  --vp-c-text-1: #e8d5f5;
+  --vp-c-text-2: #c9a8e8;
+  --vp-c-text-3: #9b78b8;
+
+  --vp-c-divider: rgba(185, 103, 255, 0.15);
+  --vp-c-gutter: rgba(185, 103, 255, 0.08);
+
+  --vp-code-block-bg: rgba(10, 0, 30, 0.8);
+
+  --vp-c-default-1: var(--vp-c-text-1);
+  --vp-c-default-2: var(--vp-c-text-2);
+  --vp-c-default-3: var(--vp-c-text-3);
+  --vp-c-default-soft: rgba(185, 103, 255, 0.08);
+}
+
+/* ── typography ── */
+
+.VPHero .name {
+  font-family: "Monoton", cursive !important;
+  background: linear-gradient(
+    135deg,
+    var(--vapor-pink) 0%,
+    var(--vapor-purple) 40%,
+    var(--vapor-cyan) 100%
+  ) !important;
+  background-clip: text !important;
+  -webkit-background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  filter: drop-shadow(0 0 20px var(--vapor-glow-pink))
+    drop-shadow(0 0 40px var(--vapor-glow-purple));
+  animation: neonPulse 3s ease-in-out infinite;
+}
+
+.VPHero .text {
+  font-family: "Orbitron", sans-serif !important;
+  background: linear-gradient(90deg, var(--vapor-cyan), var(--vapor-purple)) !important;
+  background-clip: text !important;
+  -webkit-background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+}
+
+.VPHero .tagline {
+  color: var(--vapor-purple) !important;
+  text-shadow: 0 0 15px var(--vapor-glow-purple);
+}
+
+h1,
+h2,
+h3 {
+  font-family: "Orbitron", sans-serif !important;
+}
+
+/* ── neon glow animation ── */
+
+@keyframes neonPulse {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 20px var(--vapor-glow-pink))
+      drop-shadow(0 0 40px var(--vapor-glow-purple));
+  }
+  50% {
+    filter: drop-shadow(0 0 30px var(--vapor-glow-pink))
+      drop-shadow(0 0 60px var(--vapor-glow-purple))
+      drop-shadow(0 0 80px var(--vapor-glow-cyan));
+  }
+}
+
+@keyframes gridScroll {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 0 50px;
+  }
+}
+
+/* ── hero background ── */
+
+.VPHero {
+  position: relative;
+}
+
+.VPHero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+      180deg,
+      transparent 0%,
+      rgba(185, 103, 255, 0.04) 50%,
+      transparent 100%
+    ),
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 49px,
+      rgba(185, 103, 255, 0.08) 49px,
+      rgba(185, 103, 255, 0.08) 50px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      transparent,
+      transparent 49px,
+      rgba(185, 103, 255, 0.08) 49px,
+      rgba(185, 103, 255, 0.08) 50px
+    );
+  animation: gridScroll 4s linear infinite;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── navbar ── */
+
+.VPNav {
+  border-bottom: 1px solid rgba(185, 103, 255, 0.15) !important;
+  backdrop-filter: blur(16px) saturate(1.2);
+}
+
+.VPNavBar .title {
+  font-family: "Orbitron", sans-serif !important;
+  font-weight: 700;
+  background: linear-gradient(90deg, var(--vapor-pink), var(--vapor-cyan));
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* ── links ── */
+
+.vp-doc a {
+  color: var(--vapor-cyan) !important;
+  text-decoration: none;
+  transition: all 0.3s ease;
+}
+
+.vp-doc a:hover {
+  color: var(--vapor-pink) !important;
+  text-shadow: 0 0 10px var(--vapor-glow-pink);
+}
+
+/* ── sidebar ── */
+
+.VPSidebar .is-active > .indicator {
+  background-color: var(--vapor-pink) !important;
+}
+
+.VPSidebarItem.level-1.is-active > .item > .indicator,
+.VPSidebarItem.level-2.is-active > .item > .indicator {
+  background-color: var(--vapor-pink) !important;
+}
+
+.VPSidebar {
+  border-right: 1px solid rgba(185, 103, 255, 0.1) !important;
+}
+
+/* ── feature cards ── */
+
+.VPFeature {
+  background: linear-gradient(
+    135deg,
+    rgba(185, 103, 255, 0.06),
+    rgba(1, 205, 254, 0.04)
+  ) !important;
+  border: 1px solid rgba(185, 103, 255, 0.12) !important;
+  border-radius: 12px !important;
+  transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.VPFeature:hover {
+  border-color: var(--vapor-pink) !important;
+  box-shadow: 0 0 20px var(--vapor-glow-pink),
+    0 0 40px var(--vapor-glow-purple),
+    inset 0 0 20px rgba(255, 113, 206, 0.03);
+  transform: translateY(-2px);
+}
+
+.VPFeature .title {
+  font-family: "Orbitron", sans-serif !important;
+  color: var(--vapor-cyan) !important;
+}
+
+.VPFeature .details {
+  color: var(--vp-c-text-2) !important;
+}
+
+/* ── buttons ── */
+
+.VPButton.brand {
+  background: linear-gradient(
+    135deg,
+    var(--vapor-pink),
+    var(--vapor-purple)
+  ) !important;
+  border: none !important;
+  color: #fff !important;
+  font-family: "Orbitron", sans-serif !important;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  transition: all 0.3s ease;
+  box-shadow: 0 0 15px var(--vapor-glow-pink);
+}
+
+.VPButton.brand:hover {
+  box-shadow: 0 0 25px var(--vapor-glow-pink),
+    0 0 50px var(--vapor-glow-purple);
+  transform: translateY(-1px);
+}
+
+.VPButton.alt {
+  border: 1px solid var(--vapor-cyan) !important;
+  color: var(--vapor-cyan) !important;
+  font-family: "Orbitron", sans-serif !important;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: transparent !important;
+  transition: all 0.3s ease;
+}
+
+.VPButton.alt:hover {
+  background: rgba(1, 205, 254, 0.1) !important;
+  box-shadow: 0 0 20px var(--vapor-glow-cyan);
+  transform: translateY(-1px);
+}
+
+/* ── code blocks ── */
+
+.vp-doc div[class*="language-"] {
+  border: 1px solid rgba(185, 103, 255, 0.12);
+  border-radius: 8px;
+}
+
+.vp-doc div[class*="language-"]:hover {
+  border-color: rgba(185, 103, 255, 0.25);
+}
+
+/* ── content dividers ── */
+
+.vp-doc hr {
+  border-color: rgba(185, 103, 255, 0.15);
+  box-shadow: 0 0 8px var(--vapor-glow-purple);
+}
+
+/* ── scrollbar ── */
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--vapor-bg-deep);
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(
+    180deg,
+    var(--vapor-pink),
+    var(--vapor-purple)
+  );
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(
+    180deg,
+    var(--vapor-cyan),
+    var(--vapor-pink)
+  );
+}
+
+/* ── footer ── */
+
+.VPFooter {
+  border-top: 1px solid rgba(185, 103, 255, 0.12) !important;
+}
+
+.VPFooter .message,
+.VPFooter .copyright {
+  color: var(--vp-c-text-3) !important;
+}
+
+/* ── search ── */
+
+.DocSearch {
+  --docsearch-primary-color: var(--vapor-pink) !important;
+  --docsearch-highlight-color: var(--vapor-cyan) !important;
+}
+
+/* ── custom containers ── */
+
+.vp-doc .custom-block.tip {
+  border-color: var(--vapor-cyan);
+}
+
+.vp-doc .custom-block.warning {
+  border-color: var(--vapor-pink);
+}
+
+.vp-doc .custom-block.danger {
+  border-color: var(--vapor-magenta);
+}
+
+/* ── selection ── */
+
+::selection {
+  background: rgba(185, 103, 255, 0.3);
+  color: #fff;
+}
