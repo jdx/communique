@@ -9,7 +9,10 @@ mod output;
 mod prompt;
 mod tools;
 
+use std::time::Duration;
+
 use clap::Parser;
+use clx::progress::{ProgressJobBuilder, ProgressStatus};
 use log::info;
 use miette::IntoDiagnostic;
 
@@ -19,9 +22,14 @@ use config::Config;
 #[tokio::main]
 async fn main() -> miette::Result<()> {
     env_logger::init();
+    clx::progress::set_interval(Duration::from_millis(100));
+    if !console::user_attended_stderr() {
+        clx::progress::set_output(clx::progress::ProgressOutput::Text);
+    }
+
     let cli = Cli::parse();
 
-    match cli.command {
+    let result = match cli.command {
         Command::Init { force } => cmd_init(force),
         Command::Generate {
             tag,
@@ -43,7 +51,10 @@ async fn main() -> miette::Result<()> {
             )
             .await
         }
-    }
+    };
+
+    clx::progress::flush();
+    result
 }
 
 fn cmd_init(force: bool) -> miette::Result<()> {
@@ -85,6 +96,11 @@ async fn cmd_generate(
         .into_diagnostic();
     }
 
+    let job = ProgressJobBuilder::new()
+        .body("{{spinner()}} {{message | flex}}")
+        .prop("message", "Discovering repository...")
+        .start();
+
     // Discover repo
     let repo_root = git::repo_root()?;
     info!("repo root: {}", repo_root.display());
@@ -112,6 +128,7 @@ async fn cmd_generate(
     info!("range: {prev_tag}..{tag}");
 
     // Get git log and extract PR numbers
+    job.prop("message", &format!("Reading git log {prev_tag}..{tag}..."));
     let git_log = git::log_between(&repo_root, &prev_tag, &tag)?;
     let pr_numbers = git::extract_pr_numbers(&git_log);
     info!(
@@ -127,6 +144,7 @@ async fn cmd_generate(
         .transpose()?;
 
     // Fetch existing context
+    job.prop("message", "Fetching existing release context...");
     let changelog_entry = read_changelog_entry(&repo_root, &tag);
     let existing_release = if let Some(gh) = &github_client {
         match gh.get_release_by_tag(&tag).await? {
@@ -150,6 +168,7 @@ async fn cmd_generate(
     );
 
     // Run agent
+    job.prop("message", "Generating release notes...");
     let anthropic = anthropic::AnthropicClient::new(api_key, model, max_tokens);
     let tool_defs = tools::all_definitions(github_client.is_some());
 
@@ -160,21 +179,16 @@ async fn cmd_generate(
         tool_defs,
         &repo_root,
         github_client.as_ref(),
+        &job,
     )
     .await?;
 
     // Parse output
     let parsed = output::parse(&raw)?;
 
-    // Output
-    if concise {
-        println!("{}", parsed.changelog);
-    } else {
-        println!("# {}\n\n{}", parsed.release_title, parsed.release_body);
-    }
-
     // Update GitHub release if requested
     if github_release {
+        job.prop("message", &format!("Updating GitHub release for {tag}..."));
         let gh = github_client.as_ref().unwrap();
         match gh.get_release_by_tag(&tag).await? {
             Some(release) => {
@@ -184,12 +198,28 @@ async fn cmd_generate(
                     Some(&parsed.release_body),
                 )
                 .await?;
-                eprintln!("Updated GitHub release for {tag}");
             }
             None => {
-                eprintln!("Warning: no GitHub release found for {tag} — skipping update");
+                job.set_status(ProgressStatus::Warn);
+                job.prop(
+                    "message",
+                    &format!("No GitHub release found for {tag} — skipping update"),
+                );
+                clx::progress::flush();
+                return Ok(());
             }
         }
+    }
+
+    job.set_status(ProgressStatus::Done);
+    job.prop("message", "Done");
+    clx::progress::flush();
+
+    // Output
+    if concise {
+        println!("{}", parsed.changelog);
+    } else {
+        println!("# {}\n\n{}", parsed.release_title, parsed.release_body);
     }
 
     Ok(())

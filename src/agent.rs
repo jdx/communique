@@ -1,5 +1,7 @@
 use std::path::Path;
+use std::sync::Arc;
 
+use clx::progress::ProgressJob;
 use log::info;
 
 use crate::anthropic::{AnthropicClient, ContentBlock, Message, MessagesRequest, ToolDefinition};
@@ -16,6 +18,7 @@ pub async fn run(
     tool_defs: Vec<ToolDefinition>,
     repo_root: &Path,
     github: Option<&GitHubClient>,
+    job: &Arc<ProgressJob>,
 ) -> Result<String> {
     let mut messages = vec![Message {
         role: "user".into(),
@@ -26,6 +29,10 @@ pub async fn run(
 
     for iteration in 0..MAX_ITERATIONS {
         info!("agent iteration {}", iteration + 1);
+        job.prop(
+            "message",
+            &format!("Thinking... (iteration {})", iteration + 1),
+        );
 
         let request = MessagesRequest {
             model: client.model.clone(),
@@ -84,6 +91,7 @@ pub async fn run(
         let mut results = Vec::new();
         for (id, name, input) in &tool_calls {
             info!("calling tool: {name}");
+            job.prop("message", &format!("Running tool: {name}..."));
             match tools::dispatch(name, input, repo_root, github).await {
                 Ok(output) => {
                     info!("tool {name}: {} bytes", output.len());

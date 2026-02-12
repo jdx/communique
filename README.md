@@ -27,7 +27,7 @@ communique generate v1.0.0 --github-release  # generate and publish
 
 - [ ] Multi-provider LLM support (abstract behind a trait, add OpenAI/etc.)
 - [ ] Dry-run mode — preview before publishing to GitHub
-- [ ] Progress indication (spinner/status while fetching PRs and waiting on LLM)
+- [x] Progress indication (spinner/status while fetching PRs and waiting on LLM)
 - [ ] Output to file (`--output <path>`)
 - [ ] `--verbose`/`--quiet` flags instead of requiring `RUST_LOG`
 - [ ] Non-GitHub forge support (GitLab, Gitea)
