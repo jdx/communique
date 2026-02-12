@@ -32,10 +32,19 @@ pub fn execute(repo_root: &Path, input: &serde_json::Value) -> Result<String> {
         .as_str()
         .ok_or_else(|| Error::Tool("grep: missing 'pattern' parameter".into()))?;
 
-    let mut cmd = process::cmd("rg", ["--line-number", "--no-heading", "--max-count", "50"])
-        .arg(pattern)
-        .cwd(repo_root)
-        .unchecked(); // rg returns exit code 1 for no matches
+    let mut cmd = process::cmd(
+        "rg",
+        [
+            "--no-config",
+            "--line-number",
+            "--no-heading",
+            "--max-count",
+            "50",
+        ],
+    )
+    .arg(pattern)
+    .cwd(repo_root)
+    .unchecked(); // rg returns exit code 1 for no matches
 
     if let Some(glob) = input.get("glob").and_then(|v| v.as_str()) {
         cmd = cmd.args(["--glob", glob]);
@@ -72,7 +81,10 @@ mod tests {
         repo.commit("init");
 
         let result = execute(repo.path(), &json!({"pattern": "hello"})).unwrap();
-        assert!(result.contains("hello world"));
+        assert!(
+            result.contains("hello world"),
+            "expected 'hello world' in: {result:?}"
+        );
     }
 
     #[test]
@@ -93,8 +105,11 @@ mod tests {
         repo.commit("init");
 
         let result = execute(repo.path(), &json!({"pattern": "fn main", "glob": "*.rs"})).unwrap();
-        assert!(result.contains("a.rs"));
-        assert!(!result.contains("b.txt"));
+        assert!(result.contains("a.rs"), "expected 'a.rs' in: {result:?}");
+        assert!(
+            !result.contains("b.txt"),
+            "unexpected 'b.txt' in: {result:?}"
+        );
     }
 
     #[test]

@@ -75,18 +75,21 @@ jobs:
           command: release-pr
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
-      - name: Build communique from main
-        if: steps.release-plz.outputs.prs_created == 'true'
-        run: cargo build
-      - name: Update PR with communique release notes
+      - name: Update release PR
         if: steps.release-plz.outputs.prs_created == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          COMMUNIQUE="$(pwd)/target/debug/communique"
           PR_NUMBER=$(echo '${{ steps.release-plz.outputs.pr }}' | jq -r '.number')
           gh pr checkout "$PR_NUMBER"
+
+          # Rebuild from PR branch (has bumped version)
+          cargo build
+          COMMUNIQUE="$(pwd)/target/debug/communique"
+
+          # Regenerate usage spec for bumped version
+          $COMMUNIQUE usage > communique.usage.kdl
 
           VERSION=$(cargo metadata --format-version=1 --no-deps | jq -r '.packages[0].version')
           TAG="v${VERSION}"
@@ -99,9 +102,9 @@ jobs:
           PR_BODY=$(echo "$FULL_NOTES" | tail -n +3)
           gh pr edit "$PR_NUMBER" --title "$PR_TITLE" --body "$PR_BODY"
 
-          # Commit and push changelog changes
-          if ! git diff --quiet CHANGELOG.md 2>/dev/null; then
-            git add CHANGELOG.md
-            git commit -m "chore: update changelog with communique release notes"
+          # Commit and push generated file changes
+          git add CHANGELOG.md communique.usage.kdl
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: update changelog and usage spec"
             git push
           fi
