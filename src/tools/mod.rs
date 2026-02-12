@@ -50,3 +50,47 @@ pub async fn dispatch(
         _ => Err(crate::error::Error::Tool(format!("unknown tool: {name}"))),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_all_definitions_without_github() {
+        let defs = all_definitions(false);
+        assert_eq!(defs.len(), 4);
+        let names: Vec<&str> = defs.iter().map(|d| d.name.as_str()).collect();
+        assert!(names.contains(&"read_file"));
+        assert!(names.contains(&"list_files"));
+        assert!(names.contains(&"grep"));
+        assert!(names.contains(&"submit_release_notes"));
+    }
+
+    #[test]
+    fn test_all_definitions_with_github() {
+        let defs = all_definitions(true);
+        assert_eq!(defs.len(), 6);
+        let names: Vec<&str> = defs.iter().map(|d| d.name.as_str()).collect();
+        assert!(names.contains(&"get_pr"));
+        assert!(names.contains(&"get_pr_diff"));
+    }
+
+    #[tokio::test]
+    async fn test_dispatch_unknown_tool() {
+        let tmp = std::env::temp_dir();
+        let err = dispatch("nonexistent_tool", &json!({}), &tmp, None)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("unknown tool"));
+    }
+
+    #[tokio::test]
+    async fn test_dispatch_get_pr_without_github() {
+        let tmp = std::env::temp_dir();
+        let err = dispatch("get_pr", &json!({"number": 1}), &tmp, None)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("GITHUB_TOKEN"));
+    }
+}

@@ -13,6 +13,9 @@ mod providers;
 mod tools;
 mod usage;
 
+#[cfg(test)]
+mod test_helpers;
+
 use std::time::Duration;
 
 use clap::Parser;

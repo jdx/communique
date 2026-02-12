@@ -57,3 +57,44 @@ pub fn execute(repo_root: &Path, input: &serde_json::Value) -> Result<String> {
         Ok(contents)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_read_file_normal() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("hello.txt"), "world").unwrap();
+        let result = execute(dir.path(), &json!({"path": "hello.txt"})).unwrap();
+        assert_eq!(result, "world");
+    }
+
+    #[test]
+    fn test_read_file_path_traversal() {
+        let outer = tempfile::tempdir().unwrap();
+        let inner = outer.path().join("repo");
+        std::fs::create_dir(&inner).unwrap();
+        std::fs::write(outer.path().join("secret.txt"), "sensitive").unwrap();
+
+        let err = execute(&inner, &json!({"path": "../secret.txt"})).unwrap_err();
+        assert!(err.to_string().contains("escapes repo root"));
+    }
+
+    #[test]
+    fn test_read_file_truncation() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("big.txt"), "x".repeat(200_000)).unwrap();
+        let result = execute(dir.path(), &json!({"path": "big.txt"})).unwrap();
+        assert!(result.contains("[file truncated at 100KB]"));
+        assert!(result.len() < 200_000);
+    }
+
+    #[test]
+    fn test_read_file_missing_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let err = execute(dir.path(), &json!({})).unwrap_err();
+        assert!(err.to_string().contains("missing 'path'"));
+    }
+}

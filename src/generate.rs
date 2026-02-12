@@ -264,6 +264,52 @@ async fn publish(
     Ok(())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_read_changelog_entry_found() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("CHANGELOG.md"),
+            "## [1.0.0]\n### Added\n- Feature\n\n## [0.9.0]\n### Fixed\n- Bug\n",
+        )
+        .unwrap();
+        let entry = read_changelog_entry(dir.path(), "v1.0.0").unwrap();
+        assert!(entry.contains("### Added"));
+        assert!(entry.contains("Feature"));
+        assert!(!entry.contains("0.9.0"));
+    }
+
+    #[test]
+    fn test_read_changelog_entry_not_found() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("CHANGELOG.md"), "## [0.9.0]\n- old\n").unwrap();
+        let entry = read_changelog_entry(dir.path(), "v2.0.0");
+        assert!(entry.is_none());
+    }
+
+    #[test]
+    fn test_read_changelog_entry_no_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let entry = read_changelog_entry(dir.path(), "v1.0.0");
+        assert!(entry.is_none());
+    }
+
+    #[test]
+    fn test_read_changelog_entry_alt_format() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("CHANGELOG.md"),
+            "## 1.0.0\n### Changed\n- Something\n",
+        )
+        .unwrap();
+        let entry = read_changelog_entry(dir.path(), "v1.0.0").unwrap();
+        assert!(entry.contains("### Changed"));
+    }
+}
+
 fn read_changelog_entry(repo_root: &Path, tag: &str) -> Option<String> {
     let path = repo_root.join("CHANGELOG.md");
     let contents = xx::file::read_to_string(&path).ok()?;

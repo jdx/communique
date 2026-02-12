@@ -210,3 +210,129 @@ impl LlmClient for AnthropicProvider {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::llm::{LlmClient, ToolResult};
+    use serde_json::json;
+
+    fn make_provider(base_url: &str) -> AnthropicProvider {
+        AnthropicProvider::new("test-key".into(), "claude-3".into(), 1024, base_url.into())
+    }
+
+    #[test]
+    fn test_new_conversation_format() {
+        let provider = make_provider("http://localhost");
+        let conv = provider.new_conversation("Hello");
+        assert_eq!(conv.messages.len(), 1);
+        assert_eq!(conv.messages[0]["role"], "user");
+        assert_eq!(conv.messages[0]["content"][0]["type"], "text");
+        assert_eq!(conv.messages[0]["content"][0]["text"], "Hello");
+    }
+
+    #[test]
+    fn test_append_tool_results_format() {
+        let provider = make_provider("http://localhost");
+        let mut conv = provider.new_conversation("Hello");
+        provider.append_tool_results(
+            &mut conv,
+            &[ToolResult {
+                tool_call_id: "tc_1".into(),
+                content: "result text".into(),
+                is_error: false,
+            }],
+        );
+        assert_eq!(conv.messages.len(), 2);
+        let msg = &conv.messages[1];
+        assert_eq!(msg["role"], "user");
+        assert_eq!(msg["content"][0]["type"], "tool_result");
+        assert_eq!(msg["content"][0]["tool_use_id"], "tc_1");
+        assert_eq!(msg["content"][0]["content"], "result text");
+        assert!(msg["content"][0].get("is_error").is_none());
+    }
+
+    #[test]
+    fn test_append_tool_results_error_flag() {
+        let provider = make_provider("http://localhost");
+        let mut conv = provider.new_conversation("Hello");
+        provider.append_tool_results(
+            &mut conv,
+            &[ToolResult {
+                tool_call_id: "tc_1".into(),
+                content: "error msg".into(),
+                is_error: true,
+            }],
+        );
+        let msg = &conv.messages[1];
+        assert_eq!(msg["content"][0]["is_error"], true);
+    }
+
+    #[tokio::test]
+    async fn test_send_turn_end_turn() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/v1/messages"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
+                "content": [{"type": "text", "text": "Hello!"}],
+                "stop_reason": "end_turn",
+                "usage": {"input_tokens": 10, "output_tokens": 5}
+            })))
+            .mount(&server)
+            .await;
+
+        let provider = make_provider(&server.uri());
+        let mut conv = provider.new_conversation("Hi");
+        let resp = provider.send_turn("system", &mut conv, &[]).await.unwrap();
+        assert_eq!(resp.stop_reason, StopReason::EndTurn);
+        assert!(resp.tool_calls.is_empty());
+        assert_eq!(resp.usage.input_tokens, 10);
+        assert_eq!(resp.usage.output_tokens, 5);
+        assert_eq!(conv.messages.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_send_turn_tool_use() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/v1/messages"))
+            .respond_with(
+                wiremock::ResponseTemplate::new(200).set_body_json(json!({
+                    "content": [
+                        {"type": "text", "text": "Let me read that."},
+                        {"type": "tool_use", "id": "tc_1", "name": "read_file", "input": {"path": "README.md"}}
+                    ],
+                    "stop_reason": "tool_use",
+                    "usage": {"input_tokens": 20, "output_tokens": 15}
+                })),
+            )
+            .mount(&server)
+            .await;
+
+        let provider = make_provider(&server.uri());
+        let mut conv = provider.new_conversation("Read the readme");
+        let resp = provider.send_turn("system", &mut conv, &[]).await.unwrap();
+        assert_eq!(resp.stop_reason, StopReason::ToolUse);
+        assert_eq!(resp.tool_calls.len(), 1);
+        assert_eq!(resp.tool_calls[0].name, "read_file");
+        assert_eq!(resp.tool_calls[0].input["path"], "README.md");
+    }
+
+    #[tokio::test]
+    async fn test_send_turn_api_error() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/v1/messages"))
+            .respond_with(wiremock::ResponseTemplate::new(429).set_body_string("rate limited"))
+            .mount(&server)
+            .await;
+
+        let provider = make_provider(&server.uri());
+        let mut conv = provider.new_conversation("Hi");
+        let err = provider
+            .send_turn("system", &mut conv, &[])
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("429"));
+    }
+}

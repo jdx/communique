@@ -347,6 +347,53 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_verify_links_retry() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("HEAD"))
+            .respond_with(wiremock::ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+
+        let broken_url = format!("{}/broken", server.uri());
+        let client = MockLlmClient::new(vec![
+            // First: submit with broken link
+            TurnResponse {
+                tool_calls: vec![ToolCall {
+                    id: "call_1".into(),
+                    name: "submit_release_notes".into(),
+                    input: json!({
+                        "changelog": "changes",
+                        "release_title": "v1.0",
+                        "release_body": format!("See {broken_url}"),
+                    }),
+                }],
+                stop_reason: StopReason::ToolUse,
+                usage: fake_usage(),
+            },
+            // Second: submit without broken link
+            TurnResponse {
+                tool_calls: vec![submit_tool_call("changes", "v1.0", "Fixed notes")],
+                stop_reason: StopReason::ToolUse,
+                usage: fake_usage(),
+            },
+        ]);
+        let job = Arc::new(ProgressJobBuilder::new().build());
+        let tmp = std::env::temp_dir();
+        let ctx = AgentContext {
+            client: &client,
+            system: "",
+            user_message: "",
+            tool_defs: vec![],
+            repo_root: &tmp,
+            github: None,
+            verify_links: true,
+            job: &job,
+        };
+        let result = run(ctx).await.unwrap();
+        assert_eq!(result.release_body, "Fixed notes");
+    }
+
+    #[tokio::test]
     async fn test_max_iterations_exceeded() {
         let responses: Vec<TurnResponse> = (0..MAX_ITERATIONS + 1)
             .map(|i| TurnResponse {

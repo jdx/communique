@@ -80,4 +80,39 @@ mod tests {
         let urls = extract_urls(text);
         assert_eq!(urls.len(), 1);
     }
+
+    #[tokio::test]
+    async fn test_verify_all_ok() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("HEAD"))
+            .respond_with(wiremock::ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+
+        let url = format!("{}/page", server.uri());
+        let text = format!("Check {url}");
+        let broken = verify(&[&text]).await;
+        assert!(broken.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_verify_broken_404() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("HEAD"))
+            .respond_with(wiremock::ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+
+        let url = format!("{}/broken", server.uri());
+        let text = format!("See {url}");
+        let broken = verify(&[&text]).await;
+        assert_eq!(broken.len(), 1);
+        assert!(broken[0].1.contains("404"));
+    }
+
+    #[tokio::test]
+    async fn test_verify_empty_text() {
+        let broken = verify(&["no urls here"]).await;
+        assert!(broken.is_empty());
+    }
 }

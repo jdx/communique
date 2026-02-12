@@ -220,3 +220,126 @@ impl LlmClient for OpenAIProvider {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::llm::{LlmClient, ToolResult};
+    use serde_json::json;
+
+    fn make_provider(base_url: &str) -> OpenAIProvider {
+        OpenAIProvider::new("test-key".into(), "gpt-4".into(), 1024, base_url.into())
+    }
+
+    #[test]
+    fn test_new_conversation_format() {
+        let provider = make_provider("http://localhost");
+        let conv = provider.new_conversation("Hello");
+        assert_eq!(conv.messages.len(), 1);
+        assert_eq!(conv.messages[0]["role"], "user");
+        assert_eq!(conv.messages[0]["content"], "Hello");
+    }
+
+    #[test]
+    fn test_append_tool_results_format() {
+        let provider = make_provider("http://localhost");
+        let mut conv = provider.new_conversation("Hello");
+        provider.append_tool_results(
+            &mut conv,
+            &[
+                ToolResult {
+                    tool_call_id: "tc_1".into(),
+                    content: "result 1".into(),
+                    is_error: false,
+                },
+                ToolResult {
+                    tool_call_id: "tc_2".into(),
+                    content: "result 2".into(),
+                    is_error: false,
+                },
+            ],
+        );
+        // OpenAI adds one message per tool result
+        assert_eq!(conv.messages.len(), 3);
+        assert_eq!(conv.messages[1]["role"], "tool");
+        assert_eq!(conv.messages[1]["tool_call_id"], "tc_1");
+        assert_eq!(conv.messages[2]["role"], "tool");
+        assert_eq!(conv.messages[2]["tool_call_id"], "tc_2");
+    }
+
+    #[tokio::test]
+    async fn test_send_turn_end_turn() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/chat/completions"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
+                "choices": [{
+                    "message": {"content": "Hello!", "tool_calls": null},
+                    "finish_reason": "stop"
+                }],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5}
+            })))
+            .mount(&server)
+            .await;
+
+        let provider = make_provider(&server.uri());
+        let mut conv = provider.new_conversation("Hi");
+        let resp = provider.send_turn("system", &mut conv, &[]).await.unwrap();
+        assert_eq!(resp.stop_reason, StopReason::EndTurn);
+        assert!(resp.tool_calls.is_empty());
+        assert_eq!(resp.usage.input_tokens, 10);
+        assert_eq!(resp.usage.output_tokens, 5);
+    }
+
+    #[tokio::test]
+    async fn test_send_turn_tool_calls() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/chat/completions"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
+                "choices": [{
+                    "message": {
+                        "content": null,
+                        "tool_calls": [{
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "read_file",
+                                "arguments": "{\"path\":\"README.md\"}"
+                            }
+                        }]
+                    },
+                    "finish_reason": "tool_calls"
+                }],
+                "usage": {"prompt_tokens": 20, "completion_tokens": 10}
+            })))
+            .mount(&server)
+            .await;
+
+        let provider = make_provider(&server.uri());
+        let mut conv = provider.new_conversation("Read the readme");
+        let resp = provider.send_turn("system", &mut conv, &[]).await.unwrap();
+        assert_eq!(resp.stop_reason, StopReason::ToolUse);
+        assert_eq!(resp.tool_calls.len(), 1);
+        assert_eq!(resp.tool_calls[0].name, "read_file");
+        assert_eq!(resp.tool_calls[0].input["path"], "README.md");
+    }
+
+    #[tokio::test]
+    async fn test_send_turn_api_error() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/chat/completions"))
+            .respond_with(wiremock::ResponseTemplate::new(500).set_body_string("internal error"))
+            .mount(&server)
+            .await;
+
+        let provider = make_provider(&server.uri());
+        let mut conv = provider.new_conversation("Hi");
+        let err = provider
+            .send_turn("system", &mut conv, &[])
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("500"));
+    }
+}

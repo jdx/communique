@@ -58,3 +58,49 @@ pub fn execute(repo_root: &Path, input: &serde_json::Value) -> Result<String> {
         Ok(result.to_string())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_helpers::TempRepo;
+    use serde_json::json;
+
+    #[test]
+    fn test_grep_basic() {
+        let repo = TempRepo::new();
+        repo.write_file("hello.txt", "hello world\nfoo bar");
+        repo.commit("init");
+
+        let result = execute(repo.path(), &json!({"pattern": "hello"})).unwrap();
+        assert!(result.contains("hello world"));
+    }
+
+    #[test]
+    fn test_grep_no_matches() {
+        let repo = TempRepo::new();
+        repo.write_file("hello.txt", "hello world");
+        repo.commit("init");
+
+        let result = execute(repo.path(), &json!({"pattern": "zzzzz"})).unwrap();
+        assert_eq!(result, "No matches found.");
+    }
+
+    #[test]
+    fn test_grep_with_glob() {
+        let repo = TempRepo::new();
+        repo.write_file("a.rs", "fn main() {}");
+        repo.write_file("b.txt", "fn main() {}");
+        repo.commit("init");
+
+        let result = execute(repo.path(), &json!({"pattern": "fn main", "glob": "*.rs"})).unwrap();
+        assert!(result.contains("a.rs"));
+        assert!(!result.contains("b.txt"));
+    }
+
+    #[test]
+    fn test_grep_missing_pattern() {
+        let repo = TempRepo::new();
+        let err = execute(repo.path(), &json!({})).unwrap_err();
+        assert!(err.to_string().contains("missing 'pattern'"));
+    }
+}

@@ -144,3 +144,109 @@ pub fn user_prompt(ctx: &UserPromptContext) -> String {
 
     parts.join("\n")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_system_prompt_default() {
+        let prompt = system_prompt(None, true);
+        assert!(prompt.contains("submit_release_notes"));
+        assert!(prompt.contains("Keep a Changelog"));
+        assert!(!prompt.contains("Do NOT use emoji"));
+    }
+
+    #[test]
+    fn test_system_prompt_no_emoji() {
+        let prompt = system_prompt(None, false);
+        assert!(prompt.contains("Do NOT use emoji"));
+    }
+
+    #[test]
+    fn test_system_prompt_with_extra() {
+        let prompt = system_prompt(Some("Always mention cats"), true);
+        assert!(prompt.contains("Always mention cats"));
+    }
+
+    #[test]
+    fn test_user_prompt_minimal() {
+        let prompt = user_prompt(&UserPromptContext {
+            tag: "v1.0.0",
+            prev_tag: "v0.9.0",
+            owner_repo: "jdx/communique",
+            git_log: "abc1234 feat: add feature",
+            pr_numbers: &[],
+            changelog_entry: None,
+            existing_release: None,
+            context: None,
+            recent_releases: &[],
+        });
+        assert!(prompt.contains("v1.0.0"));
+        assert!(prompt.contains("v0.9.0"));
+        assert!(prompt.contains("jdx/communique"));
+        assert!(prompt.contains("abc1234 feat: add feature"));
+        assert!(!prompt.contains("Referenced PRs"));
+        assert!(!prompt.contains("CHANGELOG.md"));
+        assert!(!prompt.contains("Style Reference"));
+    }
+
+    #[test]
+    fn test_user_prompt_with_prs() {
+        let prompt = user_prompt(&UserPromptContext {
+            tag: "v1.0.0",
+            prev_tag: "v0.9.0",
+            owner_repo: "jdx/communique",
+            git_log: "abc1234 feat (#42)",
+            pr_numbers: &[42, 99],
+            changelog_entry: None,
+            existing_release: None,
+            context: None,
+            recent_releases: &[],
+        });
+        assert!(prompt.contains("Referenced PRs"));
+        assert!(prompt.contains("#42"));
+        assert!(prompt.contains("#99"));
+        assert!(prompt.contains("get_pr"));
+    }
+
+    #[test]
+    fn test_user_prompt_full() {
+        let prompt = user_prompt(&UserPromptContext {
+            tag: "v2.0.0",
+            prev_tag: "v1.0.0",
+            owner_repo: "jdx/communique",
+            git_log: "def5678 fix: bug",
+            pr_numbers: &[10],
+            changelog_entry: Some("### Fixed\n- Bug fix"),
+            existing_release: Some("Previous release body"),
+            context: Some("This is a CLI tool for release notes."),
+            recent_releases: &[("v1.0.0".into(), "Release 1.0 notes".into())],
+        });
+        assert!(prompt.contains("Project Context"));
+        assert!(prompt.contains("CLI tool for release notes"));
+        assert!(prompt.contains("CHANGELOG.md Entry"));
+        assert!(prompt.contains("Bug fix"));
+        assert!(prompt.contains("Existing GitHub Release Body"));
+        assert!(prompt.contains("Previous release body"));
+        assert!(prompt.contains("Style Reference"));
+        assert!(prompt.contains("Release 1.0 notes"));
+    }
+
+    #[test]
+    fn test_user_prompt_recent_releases_truncation() {
+        let long_body = "x".repeat(5000);
+        let prompt = user_prompt(&UserPromptContext {
+            tag: "v2.0.0",
+            prev_tag: "v1.0.0",
+            owner_repo: "test/repo",
+            git_log: "abc init",
+            pr_numbers: &[],
+            changelog_entry: None,
+            existing_release: None,
+            context: None,
+            recent_releases: &[("v1.0.0".into(), long_body)],
+        });
+        assert!(prompt.contains("[truncated]"));
+    }
+}

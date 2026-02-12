@@ -142,4 +142,67 @@ mod tests {
             "abc1234 feat: add feature (#123)\ndef5678 fix: bug (#456)\nghi9012 chore: update deps";
         assert_eq!(extract_pr_numbers(log), vec![123, 456]);
     }
+
+    #[test]
+    fn test_resolve_ref_existing() {
+        let repo = crate::test_helpers::TempRepo::new();
+        repo.write_file("f.txt", "a");
+        repo.commit("first");
+        repo.tag("v1.0.0");
+
+        let sha = resolve_ref(repo.path(), "v1.0.0").unwrap();
+        assert!(!sha.is_empty());
+        assert_eq!(sha.len(), 40);
+    }
+
+    #[test]
+    fn test_resolve_ref_fallback_to_head() {
+        let repo = crate::test_helpers::TempRepo::new();
+        repo.write_file("f.txt", "a");
+        repo.commit("first");
+
+        let sha = resolve_ref(repo.path(), "nonexistent-tag").unwrap();
+        assert_eq!(sha.len(), 40);
+    }
+
+    #[test]
+    fn test_previous_tag() {
+        let repo = crate::test_helpers::TempRepo::new();
+        repo.write_file("f.txt", "a");
+        repo.commit("first");
+        repo.tag("v1.0.0");
+        repo.write_file("f.txt", "b");
+        repo.commit("second");
+        repo.tag("v2.0.0");
+
+        let prev = previous_tag(repo.path(), "v2.0.0").unwrap();
+        assert_eq!(prev, "v1.0.0");
+    }
+
+    #[test]
+    fn test_previous_tag_first_release() {
+        let repo = crate::test_helpers::TempRepo::new();
+        repo.write_file("f.txt", "a");
+        repo.commit("first");
+        repo.tag("v1.0.0");
+
+        // No previous tag — should fall back to root commit SHA
+        let prev = previous_tag(repo.path(), "v1.0.0").unwrap();
+        assert_eq!(prev.len(), 40);
+    }
+
+    #[test]
+    fn test_log_between() {
+        let repo = crate::test_helpers::TempRepo::new();
+        repo.write_file("f.txt", "a");
+        repo.commit("first commit");
+        repo.tag("v1.0.0");
+        repo.write_file("f.txt", "b");
+        repo.commit("second commit");
+        repo.tag("v2.0.0");
+
+        let log = log_between(repo.path(), "v1.0.0", "v2.0.0").unwrap();
+        assert!(log.contains("second commit"));
+        assert!(!log.contains("first commit"));
+    }
 }

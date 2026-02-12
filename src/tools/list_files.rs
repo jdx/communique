@@ -33,3 +33,34 @@ pub fn execute(repo_root: &Path, input: &serde_json::Value) -> Result<String> {
 
     Ok(cmd.read()?)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_helpers::TempRepo;
+    use serde_json::json;
+
+    #[test]
+    fn test_list_files() {
+        let repo = TempRepo::new();
+        repo.write_file("src/main.rs", "fn main() {}");
+        repo.write_file("README.md", "# Hello");
+        repo.commit("init");
+
+        let result = execute(repo.path(), &json!({})).unwrap();
+        assert!(result.contains("README.md"));
+        assert!(result.contains("src/main.rs"));
+    }
+
+    #[test]
+    fn test_list_files_with_pattern() {
+        let repo = TempRepo::new();
+        repo.write_file("src/main.rs", "fn main() {}");
+        repo.write_file("README.md", "# Hello");
+        repo.commit("init");
+
+        let result = execute(repo.path(), &json!({"pattern": "*.rs"})).unwrap();
+        assert!(result.contains("main.rs"));
+        assert!(!result.contains("README.md"));
+    }
+}

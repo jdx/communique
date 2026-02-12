@@ -33,6 +33,7 @@ pub struct Usage {
 }
 
 /// Opaque conversation state — each provider stores messages in its native format.
+#[derive(Debug)]
 pub struct Conversation {
     pub messages: Vec<Value>,
 }
@@ -45,6 +46,7 @@ pub enum StopReason {
     Unknown,
 }
 
+#[derive(Debug)]
 pub struct TurnResponse {
     pub tool_calls: Vec<ToolCall>,
     pub stop_reason: StopReason,

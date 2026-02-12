@@ -18,6 +18,26 @@ pub fn detect_provider(model: &str) -> Provider {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_detect_provider_claude() {
+        assert_eq!(detect_provider("claude-opus-4-6"), Provider::Anthropic);
+        assert_eq!(
+            detect_provider("claude-sonnet-4-5-20250929"),
+            Provider::Anthropic
+        );
+    }
+
+    #[test]
+    fn test_detect_provider_non_claude() {
+        assert_eq!(detect_provider("gpt-4"), Provider::OpenAI);
+        assert_eq!(detect_provider("llama-3"), Provider::OpenAI);
+    }
+}
+
 pub fn build_client(
     provider: &Provider,
     api_key: String,
