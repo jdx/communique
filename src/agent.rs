@@ -37,6 +37,7 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
     } = ctx;
 
     let mut conversation = client.new_conversation(user_message);
+    let mut cache = tools::ToolCache::new();
 
     for iteration in 0..MAX_ITERATIONS {
         info!("agent iteration {}", iteration + 1);
@@ -122,7 +123,7 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
             ));
         }
 
-        // Execute tools concurrently and build results
+        // Execute tools: use cache for repeated calls, dispatch uncached concurrently
         let details: Vec<_> = response
             .tool_calls
             .iter()
@@ -131,41 +132,83 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
         for detail in &details {
             info!("calling tool: {detail}");
         }
-        job.prop(
-            "message",
-            &format!(
-                "Running {} tool{}...",
-                details.len(),
-                if details.len() == 1 { "" } else { "s" }
-            ),
-        );
 
-        let futures: Vec<_> = response
+        // Snapshot cache hits before dispatching
+        let cache_hits: Vec<Option<String>> = response
             .tool_calls
             .iter()
-            .map(|tc| tools::dispatch(&tc.name, &tc.input, repo_root, github))
+            .map(|tc| cache.get(&tc.name, &tc.input).map(|s| s.to_string()))
             .collect();
-        let outcomes = futures_util::future::join_all(futures).await;
+        let hit_count = cache_hits.iter().filter(|c| c.is_some()).count();
+        let dispatch_count = response.tool_calls.len() - hit_count;
 
+        if hit_count > 0 {
+            info!("{hit_count} tool call(s) served from cache");
+        }
+        if dispatch_count > 0 {
+            job.prop(
+                "message",
+                &format!(
+                    "Running {} tool{}...{}",
+                    dispatch_count,
+                    if dispatch_count == 1 { "" } else { "s" },
+                    if hit_count > 0 {
+                        format!(" ({hit_count} cached)")
+                    } else {
+                        String::new()
+                    }
+                ),
+            );
+        }
+
+        // Dispatch only uncached tool calls concurrently
+        let dispatch_indices: Vec<usize> = cache_hits
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| c.is_none())
+            .map(|(i, _)| i)
+            .collect();
+        let futures: Vec<_> = dispatch_indices
+            .iter()
+            .map(|&i| {
+                let tc = &response.tool_calls[i];
+                tools::dispatch(&tc.name, &tc.input, repo_root, github)
+            })
+            .collect();
+        let dispatch_outcomes = futures_util::future::join_all(futures).await;
+
+        // Merge cached + dispatched results in original order
+        let mut dispatch_iter = dispatch_outcomes.into_iter();
         let results: Vec<_> = response
             .tool_calls
             .iter()
-            .zip(outcomes)
-            .map(|(tc, outcome)| match outcome {
-                Ok(output) => {
-                    info!("tool {}: {} bytes", tc.name, output.len());
+            .zip(cache_hits)
+            .map(|(tc, cached)| {
+                if let Some(content) = cached {
                     ToolResult {
                         tool_call_id: tc.id.clone(),
-                        content: output,
+                        content,
                         is_error: false,
                     }
-                }
-                Err(e) => {
-                    info!("tool {} error: {e}", tc.name);
-                    ToolResult {
-                        tool_call_id: tc.id.clone(),
-                        content: format!("Error: {e}"),
-                        is_error: true,
+                } else {
+                    match dispatch_iter.next().unwrap() {
+                        Ok(output) => {
+                            info!("tool {}: {} bytes", tc.name, output.len());
+                            cache.insert(&tc.name, &tc.input, output.clone());
+                            ToolResult {
+                                tool_call_id: tc.id.clone(),
+                                content: output,
+                                is_error: false,
+                            }
+                        }
+                        Err(e) => {
+                            info!("tool {} error: {e}", tc.name);
+                            ToolResult {
+                                tool_call_id: tc.id.clone(),
+                                content: format!("Error: {e}"),
+                                is_error: true,
+                            }
+                        }
                     }
                 }
             })

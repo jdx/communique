@@ -8,11 +8,41 @@ pub mod list_files;
 pub mod read_file;
 pub mod submit_release_notes;
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use crate::error::Result;
 use crate::github::GitHubClient;
 use crate::llm::ToolDefinition;
+
+/// In-memory cache for tool call results, keyed by (tool_name, input_json).
+/// Only successful results are cached. Avoids redundant file reads, git
+/// operations, and GitHub API calls when the LLM calls the same tool with
+/// identical arguments across iterations.
+#[derive(Default)]
+pub struct ToolCache {
+    entries: HashMap<String, String>,
+}
+
+impl ToolCache {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn get(&self, name: &str, input: &serde_json::Value) -> Option<&str> {
+        self.entries
+            .get(&Self::key(name, input))
+            .map(|s| s.as_str())
+    }
+
+    pub fn insert(&mut self, name: &str, input: &serde_json::Value, result: String) {
+        self.entries.insert(Self::key(name, input), result);
+    }
+
+    fn key(name: &str, input: &serde_json::Value) -> String {
+        format!("{name}\0{input}")
+    }
+}
 
 pub fn all_definitions(has_github: bool) -> Vec<ToolDefinition> {
     let mut defs = vec![
@@ -118,5 +148,36 @@ mod tests {
             .await
             .unwrap_err();
         assert!(err.to_string().contains("GITHUB_TOKEN"));
+    }
+
+    #[test]
+    fn test_tool_cache_miss_and_hit() {
+        let mut cache = ToolCache::new();
+        let input = json!({"path": "README.md"});
+        assert!(cache.get("read_file", &input).is_none());
+
+        cache.insert("read_file", &input, "file contents".into());
+        assert_eq!(cache.get("read_file", &input), Some("file contents"));
+    }
+
+    #[test]
+    fn test_tool_cache_different_args() {
+        let mut cache = ToolCache::new();
+        let input_a = json!({"path": "a.txt"});
+        let input_b = json!({"path": "b.txt"});
+
+        cache.insert("read_file", &input_a, "aaa".into());
+        assert_eq!(cache.get("read_file", &input_a), Some("aaa"));
+        assert!(cache.get("read_file", &input_b).is_none());
+    }
+
+    #[test]
+    fn test_tool_cache_different_tools_same_args() {
+        let mut cache = ToolCache::new();
+        let input = json!({"pattern": "foo"});
+
+        cache.insert("grep", &input, "grep result".into());
+        assert_eq!(cache.get("grep", &input), Some("grep result"));
+        assert!(cache.get("list_files", &input).is_none());
     }
 }
