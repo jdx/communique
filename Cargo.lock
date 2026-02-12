@@ -310,6 +310,7 @@ dependencies = [
  "clap_usage",
  "clx",
  "console",
+ "futures-util",
  "log",
  "miette",
  "regex",

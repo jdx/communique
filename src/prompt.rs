@@ -7,6 +7,9 @@ You have access to tools to browse the repository:
 - grep: Search file contents with ripgrep
 - get_pr: Fetch GitHub PR details (title, body, labels, author)
 - get_pr_diff: Fetch the diff for a GitHub PR
+- get_issue: Fetch GitHub issue details (title, body, labels, state)
+- git_show: Show full details of a commit (message, author, diff)
+- get_commits: List commits between refs or for a specific file path
 
 Use these tools to understand what changed and why. Read relevant source files, PR descriptions, and diffs to write accurate, insightful release notes.
 

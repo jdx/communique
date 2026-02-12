@@ -22,6 +22,7 @@ console = "0.16"
 toml = "0.8"
 xx = "2"
 strum = { version = "0.27.2", features = ["derive"] }
+futures-util = { version = "0.3.31", default-features = false }
 
 [dev-dependencies]
 wiremock = "0.6"

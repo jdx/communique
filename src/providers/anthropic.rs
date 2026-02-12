@@ -150,14 +150,15 @@ impl LlmClient for AnthropicProvider {
                 tools: tool_defs,
             };
 
-            let resp = self
-                .client
-                .post(format!("{}/v1/messages", self.base_url))
-                .header("x-api-key", &self.api_key)
-                .header("anthropic-version", "2023-06-01")
-                .json(&request)
-                .send()
-                .await?;
+            let resp = crate::retry::retry_request("Anthropic API", || {
+                self.client
+                    .post(format!("{}/v1/messages", self.base_url))
+                    .header("x-api-key", &self.api_key)
+                    .header("anthropic-version", "2023-06-01")
+                    .json(&request)
+                    .send()
+            })
+            .await?;
 
             if !resp.status().is_success() {
                 let status = resp.status();
@@ -333,7 +334,7 @@ mod tests {
         let server = wiremock::MockServer::start().await;
         wiremock::Mock::given(wiremock::matchers::method("POST"))
             .and(wiremock::matchers::path("/v1/messages"))
-            .respond_with(wiremock::ResponseTemplate::new(429).set_body_string("rate limited"))
+            .respond_with(wiremock::ResponseTemplate::new(401).set_body_string("unauthorized"))
             .mount(&server)
             .await;
 
@@ -343,6 +344,6 @@ mod tests {
             .send_turn("system", &mut conv, &[])
             .await
             .unwrap_err();
-        assert!(err.to_string().contains("429"));
+        assert!(err.to_string().contains("401"));
     }
 }

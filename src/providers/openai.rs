@@ -129,16 +129,17 @@ impl LlmClient for OpenAIProvider {
                 body["tools"] = json!(tool_defs);
             }
 
-            let mut req = self
-                .client
-                .post(format!("{}/chat/completions", self.base_url))
-                .json(&body);
-
-            if !self.api_key.is_empty() {
-                req = req.header("Authorization", format!("Bearer {}", self.api_key));
-            }
-
-            let resp = req.send().await?;
+            let resp = crate::retry::retry_request("OpenAI API", || {
+                let mut req = self
+                    .client
+                    .post(format!("{}/chat/completions", self.base_url))
+                    .json(&body);
+                if !self.api_key.is_empty() {
+                    req = req.header("Authorization", format!("Bearer {}", self.api_key));
+                }
+                req.send()
+            })
+            .await?;
 
             if !resp.status().is_success() {
                 let status = resp.status();
@@ -331,7 +332,7 @@ mod tests {
         let server = wiremock::MockServer::start().await;
         wiremock::Mock::given(wiremock::matchers::method("POST"))
             .and(wiremock::matchers::path("/chat/completions"))
-            .respond_with(wiremock::ResponseTemplate::new(500).set_body_string("internal error"))
+            .respond_with(wiremock::ResponseTemplate::new(400).set_body_string("bad request"))
             .mount(&server)
             .await;
 
@@ -341,6 +342,6 @@ mod tests {
             .send_turn("system", &mut conv, &[])
             .await
             .unwrap_err();
-        assert!(err.to_string().contains("500"));
+        assert!(err.to_string().contains("400"));
     }
 }

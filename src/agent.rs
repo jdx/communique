@@ -122,31 +122,54 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
             ));
         }
 
-        // Execute tools and build results
-        let mut results = Vec::new();
-        for tc in &response.tool_calls {
-            let detail = tool_detail(&tc.name, &tc.input);
+        // Execute tools concurrently and build results
+        let details: Vec<_> = response
+            .tool_calls
+            .iter()
+            .map(|tc| tool_detail(&tc.name, &tc.input))
+            .collect();
+        for detail in &details {
             info!("calling tool: {detail}");
-            job.prop("message", &format!("Running tool: {detail}..."));
-            match tools::dispatch(&tc.name, &tc.input, repo_root, github).await {
+        }
+        job.prop(
+            "message",
+            &format!(
+                "Running {} tool{}...",
+                details.len(),
+                if details.len() == 1 { "" } else { "s" }
+            ),
+        );
+
+        let futures: Vec<_> = response
+            .tool_calls
+            .iter()
+            .map(|tc| tools::dispatch(&tc.name, &tc.input, repo_root, github))
+            .collect();
+        let outcomes = futures_util::future::join_all(futures).await;
+
+        let results: Vec<_> = response
+            .tool_calls
+            .iter()
+            .zip(outcomes)
+            .map(|(tc, outcome)| match outcome {
                 Ok(output) => {
                     info!("tool {}: {} bytes", tc.name, output.len());
-                    results.push(ToolResult {
+                    ToolResult {
                         tool_call_id: tc.id.clone(),
                         content: output,
                         is_error: false,
-                    });
+                    }
                 }
                 Err(e) => {
                     info!("tool {} error: {e}", tc.name);
-                    results.push(ToolResult {
+                    ToolResult {
                         tool_call_id: tc.id.clone(),
                         content: format!("Error: {e}"),
                         is_error: true,
-                    });
+                    }
                 }
-            }
-        }
+            })
+            .collect();
 
         client.append_tool_results(&mut conversation, &results);
     }
@@ -184,66 +207,14 @@ fn tool_detail(name: &str, input: &serde_json::Value) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::future::Future;
-    use std::pin::Pin;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
 
     use clx::progress::ProgressJobBuilder;
     use serde_json::json;
 
     use super::*;
-    use crate::llm::{Conversation, StopReason, ToolCall, TurnResponse, Usage};
-
-    struct MockLlmClient {
-        responses: Mutex<Vec<TurnResponse>>,
-    }
-
-    impl MockLlmClient {
-        fn new(responses: Vec<TurnResponse>) -> Self {
-            Self {
-                responses: Mutex::new(responses),
-            }
-        }
-    }
-
-    impl LlmClient for MockLlmClient {
-        fn new_conversation(&self, _user_message: &str) -> Conversation {
-            Conversation {
-                messages: Vec::new(),
-            }
-        }
-
-        fn append_tool_results(&self, _conversation: &mut Conversation, _results: &[ToolResult]) {}
-
-        fn send_turn<'a>(
-            &'a self,
-            _system: &'a str,
-            _conversation: &'a mut Conversation,
-            _tools: &'a [ToolDefinition],
-        ) -> Pin<Box<dyn Future<Output = Result<TurnResponse>> + Send + 'a>> {
-            let resp = self.responses.lock().unwrap().remove(0);
-            Box::pin(async move { Ok(resp) })
-        }
-    }
-
-    fn submit_tool_call(changelog: &str, title: &str, body: &str) -> ToolCall {
-        ToolCall {
-            id: "call_1".into(),
-            name: "submit_release_notes".into(),
-            input: json!({
-                "changelog": changelog,
-                "release_title": title,
-                "release_body": body,
-            }),
-        }
-    }
-
-    fn fake_usage() -> Usage {
-        Usage {
-            input_tokens: 0,
-            output_tokens: 0,
-        }
-    }
+    use crate::llm::{StopReason, ToolCall, TurnResponse};
+    use crate::test_helpers::{MockLlmClient, fake_usage, submit_tool_call};
 
     #[tokio::test]
     async fn test_direct_submission() {
