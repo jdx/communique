@@ -513,6 +513,12 @@ mod tests {
             .respond_with(ResponseTemplate::new(404))
             .mount(&server)
             .await;
+        // Fallback list endpoint also returns nothing matching
+        Mock::given(method("GET"))
+            .and(path("/repos/test/repo/releases"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+            .mount(&server)
+            .await;
 
         let gh =
             github::GitHubClient::with_base_url("test-token".into(), "test/repo", server.uri())

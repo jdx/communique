@@ -53,6 +53,10 @@ jobs:
 
 [release-plz](https://release-plz.ieni.dev/) automates versioning, changelogs, and crate publishing. communiqué can enhance the release notes it creates.
 
+### Enhancing release notes
+
+After release-plz creates a release, communiqué replaces the auto-generated notes with editorialized ones:
+
 ```yaml
 name: Release-plz
 
@@ -79,6 +83,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      - name: Fetch new tags
+        if: steps.release-plz.outputs.releases_created == 'true'
+        run: git fetch --tags
       - name: Enhance release notes
         if: steps.release-plz.outputs.releases_created == 'true'
         env:
@@ -91,11 +98,11 @@ jobs:
           done
 ```
 
-This replaces the auto-generated release-plz notes with editorialized ones while keeping the automated publish workflow.
+> **Note:** The `git fetch --tags` step is required because release-plz creates tags via the GitHub API, so they're not present in the local checkout.
 
-## Updating release PR descriptions
+### Updating release PRs and CHANGELOG.md
 
-You can also use communiqué to preview release notes in the PR itself, so reviewers see what the release will look like before merging:
+Use `--changelog` to update `CHANGELOG.md` with AI-generated notes and update the PR title/body for reviewers:
 
 ```yaml
   release-pr:
@@ -129,23 +136,23 @@ You can also use communiqué to preview release notes in the PR itself, so revie
           VERSION=$(cargo metadata --format-version=1 --no-deps | jq -r '.packages[0].version')
           TAG="v${VERSION}"
 
-          NOTES=$(communique generate "$TAG")
+          # Generate release notes and update CHANGELOG.md in one pass
+          NOTES=$(communique generate "$TAG" --changelog)
+
+          # Update PR title and body
           PR_TITLE="$TAG: $(echo "$NOTES" | head -1 | sed 's/^# //')"
           PR_BODY=$(echo "$NOTES" | tail -n +3)
           gh pr edit "$PR_NUMBER" --title "$PR_TITLE" --body "$PR_BODY"
+
+          # Commit and push changelog changes
+          if ! git diff --quiet CHANGELOG.md 2>/dev/null; then
+            git add CHANGELOG.md
+            git commit -m "chore: update changelog with communique release notes"
+            git push
+          fi
 ```
 
-## Using `--concise` for changelogs
-
-The `--concise` flag outputs just the changelog portion (no release title or narrative). This is useful for updating `CHANGELOG.md` in a PR:
-
-```yaml
-      - name: Update CHANGELOG.md
-        run: |
-          CONCISE=$(communique generate "$TAG" --concise)
-          # Replace the release-plz generated entry with editorialized notes
-          # (your replacement logic here)
-```
+The `--changelog` flag makes a single LLM call to intelligently insert or update the entry in `CHANGELOG.md`, matching the existing file's formatting conventions.
 
 ## Dry run in PRs
 

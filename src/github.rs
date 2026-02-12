@@ -83,6 +83,7 @@ impl GitHubClient {
     }
 
     pub async fn get_release_by_tag(&self, tag: &str) -> Result<Option<Release>> {
+        // Try the direct endpoint first (works for published releases)
         let url = self.api_url(&format!("/releases/tags/{tag}"));
         let resp = crate::retry::retry_request("GitHub API", || {
             self.client
@@ -92,15 +93,21 @@ impl GitHubClient {
                 .send()
         })
         .await?;
-        if resp.status() == reqwest::StatusCode::NOT_FOUND {
-            return Ok(None);
+        if resp.status().is_success() {
+            return Ok(Some(resp.json().await?));
         }
-        if !resp.status().is_success() {
+        if resp.status() != reqwest::StatusCode::NOT_FOUND {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
             return Err(Error::GitHub(format!("GET release {tag}: {status} {body}")));
         }
-        Ok(Some(resp.json().await?))
+
+        // Fall back to listing releases — the /releases/tags endpoint
+        // doesn't return draft releases, but the list endpoint does.
+        match self.list_recent_releases(10).await {
+            Ok(releases) => Ok(releases.into_iter().find(|r| r.tag_name == tag)),
+            Err(_) => Ok(None),
+        }
     }
 
     pub async fn update_release(
@@ -271,6 +278,12 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/repos/owner/repo/releases/tags/v9.9.9"))
             .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+        // Fallback list endpoint also returns nothing matching
+        Mock::given(method("GET"))
+            .and(path("/repos/owner/repo/releases"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
             .mount(&server)
             .await;
 
