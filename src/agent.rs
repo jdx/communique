@@ -115,31 +115,54 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
             ));
         }
 
-        // Execute tools and build results
-        let mut results = Vec::new();
-        for tc in &response.tool_calls {
-            let detail = tool_detail(&tc.name, &tc.input);
+        // Execute tools concurrently and build results
+        let details: Vec<_> = response
+            .tool_calls
+            .iter()
+            .map(|tc| tool_detail(&tc.name, &tc.input))
+            .collect();
+        for detail in &details {
             info!("calling tool: {detail}");
-            job.prop("message", &format!("Running tool: {detail}..."));
-            match tools::dispatch(&tc.name, &tc.input, repo_root, github).await {
+        }
+        job.prop(
+            "message",
+            &format!(
+                "Running {} tool{}...",
+                details.len(),
+                if details.len() == 1 { "" } else { "s" }
+            ),
+        );
+
+        let futures: Vec<_> = response
+            .tool_calls
+            .iter()
+            .map(|tc| tools::dispatch(&tc.name, &tc.input, repo_root, github))
+            .collect();
+        let outcomes = futures_util::future::join_all(futures).await;
+
+        let results: Vec<_> = response
+            .tool_calls
+            .iter()
+            .zip(outcomes)
+            .map(|(tc, outcome)| match outcome {
                 Ok(output) => {
                     info!("tool {}: {} bytes", tc.name, output.len());
-                    results.push(ToolResult {
+                    ToolResult {
                         tool_call_id: tc.id.clone(),
                         content: output,
                         is_error: false,
-                    });
+                    }
                 }
                 Err(e) => {
                     info!("tool {} error: {e}", tc.name);
-                    results.push(ToolResult {
+                    ToolResult {
                         tool_call_id: tc.id.clone(),
                         content: format!("Error: {e}"),
                         is_error: true,
-                    });
+                    }
                 }
-            }
-        }
+            })
+            .collect();
 
         client.append_tool_results(&mut conversation, &results);
     }
