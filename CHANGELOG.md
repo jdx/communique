@@ -7,11 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.2](https://github.com/jdx/communique/compare/v0.1.1...v0.1.2) - 2026-02-12
+## [0.1.2](https://github.com/jdx/communique/releases/tag/v0.1.2) - 2026-02-12
 
-### Other
-
-- Prefix release titles with tag and use draft releases
+### Changed
+- Release titles are now automatically prefixed with the version tag (e.g. `v0.1.2: My Release Title`) if not already present
 
 ## [0.1.1](https://github.com/jdx/communique/compare/v0.1.0...v0.1.1) - 2026-02-12
 
@@ -30,9 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Style matching: fetches recent releases to guide the LLM on tone and formatting
 - Parallel tool dispatch in the agent loop for faster multi-tool iterations
 - Parallel fetching of existing release and recent releases during context gathering
-- Progress indication showing detailed tool call info (e.g. `read_file(src/main.rs)`)
-
-## Changed
+- Progress indication showing detailed tool call info (e.g. `read_file(src/main.rs)`)## Changed
 - Provider is auto-detected from model name (`claude*` → Anthropic, everything else → OpenAI)
 - Link verification now runs inside the agent loop so the LLM can fix broken URLs and resubmit
 - Release body template updated with structured sections (Highlights, Breaking Changes, New Contributors, Full Changelog)
