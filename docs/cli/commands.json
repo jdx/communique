@@ -3,7 +3,7 @@
   "bin": "communique",
   "cmd": {
     "full_cmd": [],
-    "usage": "<SUBCOMMAND>",
+    "usage": "[FLAGS] <SUBCOMMAND>",
     "subcommands": {
       "generate": {
         "full_cmd": [
@@ -45,6 +45,18 @@
             "global": false
           },
           {
+            "name": "changelog",
+            "usage": "--changelog",
+            "help": "Update CHANGELOG.md with the generated changelog entry",
+            "help_first_line": "Update CHANGELOG.md with the generated changelog entry",
+            "short": [],
+            "long": [
+              "changelog"
+            ],
+            "hide": false,
+            "global": false
+          },
+          {
             "name": "concise",
             "usage": "--concise",
             "help": "Output concise changelog entry instead of detailed notes",
@@ -52,6 +64,20 @@
             "short": [],
             "long": [
               "concise"
+            ],
+            "hide": false,
+            "global": false
+          },
+          {
+            "name": "dry-run",
+            "usage": "-n --dry-run",
+            "help": "Generate notes without updating GitHub or verifying links",
+            "help_first_line": "Generate notes without updating GitHub or verifying links",
+            "short": [
+              "n"
+            ],
+            "long": [
+              "dry-run"
             ],
             "hide": false,
             "global": false
@@ -78,8 +104,8 @@
           {
             "name": "model",
             "usage": "--model <MODEL>",
-            "help": "Anthropic model to use",
-            "help_first_line": "Anthropic model to use",
+            "help": "LLM model to use",
+            "help_first_line": "LLM model to use",
             "short": [],
             "long": [
               "model"
@@ -108,6 +134,65 @@
             "arg": {
               "name": "MAX_TOKENS",
               "usage": "<MAX_TOKENS>",
+              "required": true,
+              "double_dash": "Optional",
+              "hide": false
+            }
+          },
+          {
+            "name": "provider",
+            "usage": "--provider <PROVIDER>",
+            "help": "LLM provider (anthropic or openai, auto-detected from model if omitted)",
+            "help_first_line": "LLM provider (anthropic or openai, auto-detected from model if omitted)",
+            "short": [],
+            "long": [
+              "provider"
+            ],
+            "hide": false,
+            "global": false,
+            "arg": {
+              "name": "PROVIDER",
+              "usage": "<PROVIDER>",
+              "required": true,
+              "double_dash": "Optional",
+              "hide": false
+            }
+          },
+          {
+            "name": "base-url",
+            "usage": "--base-url <BASE_URL>",
+            "help": "Base URL for the LLM API",
+            "help_first_line": "Base URL for the LLM API",
+            "short": [],
+            "long": [
+              "base-url"
+            ],
+            "hide": false,
+            "global": false,
+            "arg": {
+              "name": "BASE_URL",
+              "usage": "<BASE_URL>",
+              "required": true,
+              "double_dash": "Optional",
+              "hide": false
+            }
+          },
+          {
+            "name": "output",
+            "usage": "-o --output <OUTPUT>",
+            "help": "Write output to a file instead of stdout",
+            "help_first_line": "Write output to a file instead of stdout",
+            "short": [
+              "o"
+            ],
+            "long": [
+              "output"
+            ],
+            "hide": false,
+            "global": false,
+            "arg": {
+              "name": "OUTPUT",
+              "usage": "<OUTPUT>",
               "required": true,
               "double_dash": "Optional",
               "hide": false
@@ -170,7 +255,57 @@
       }
     },
     "args": [],
-    "flags": [],
+    "flags": [
+      {
+        "name": "verbose",
+        "usage": "-v --verbose",
+        "help": "Enable verbose logging output",
+        "help_first_line": "Enable verbose logging output",
+        "short": [
+          "v"
+        ],
+        "long": [
+          "verbose"
+        ],
+        "hide": false,
+        "global": true
+      },
+      {
+        "name": "quiet",
+        "usage": "-q --quiet",
+        "help": "Suppress progress output",
+        "help_first_line": "Suppress progress output",
+        "short": [
+          "q"
+        ],
+        "long": [
+          "quiet"
+        ],
+        "hide": false,
+        "global": true
+      },
+      {
+        "name": "config",
+        "usage": "-c --config <CONFIG>",
+        "help": "Path to config file (default: communique.toml in repo root)",
+        "help_first_line": "Path to config file (default: communique.toml in repo root)",
+        "short": [
+          "c"
+        ],
+        "long": [
+          "config"
+        ],
+        "hide": false,
+        "global": true,
+        "arg": {
+          "name": "CONFIG",
+          "usage": "<CONFIG>",
+          "required": true,
+          "double_dash": "Optional",
+          "hide": false
+        }
+      }
+    ],
     "mounts": [],
     "hide": false,
     "name": "communique",
@@ -181,8 +316,8 @@
   "config": {
     "props": {}
   },
-  "version": "0.1.0",
-  "usage": "Usage: communique <COMMAND>",
+  "version": "0.1.4",
+  "usage": "Usage: communique [OPTIONS] <COMMAND>",
   "complete": {},
   "about": "Editorialized release notes powered by AI"
 }

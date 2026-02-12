@@ -21,9 +21,17 @@ Previous tag (auto-detected if omitted)
 
 Push editorialized notes to the GitHub release
 
+### `--changelog`
+
+Update CHANGELOG.md with the generated changelog entry
+
 ### `--concise`
 
 Output concise changelog entry instead of detailed notes
+
+### `-n --dry-run`
+
+Generate notes without updating GitHub or verifying links
 
 ### `--repo <REPO>`
 
@@ -31,8 +39,20 @@ GitHub repo in owner/repo format (auto-detected from git remote)
 
 ### `--model <MODEL>`
 
-Anthropic model to use
+LLM model to use
 
 ### `--max-tokens <MAX_TOKENS>`
 
 Max response tokens
+
+### `--provider <PROVIDER>`
+
+LLM provider (anthropic or openai, auto-detected from model if omitted)
+
+### `--base-url <BASE_URL>`
+
+Base URL for the LLM API
+
+### `-o --output <OUTPUT>`
+
+Write output to a file instead of stdout
