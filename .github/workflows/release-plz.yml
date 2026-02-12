@@ -99,7 +99,7 @@ jobs:
 
           # Update PR title and body with full release notes
           FULL_NOTES=$($COMMUNIQUE generate "$TAG")
-          PR_TITLE=$(echo "$FULL_NOTES" | head -1 | sed 's/^# //')
+          PR_TITLE="$TAG: $(echo "$FULL_NOTES" | head -1 | sed 's/^# //')"
           PR_BODY=$(echo "$FULL_NOTES" | tail -n +3)
           gh pr edit "$PR_NUMBER" --title "$PR_TITLE" --body "$PR_BODY"
 
