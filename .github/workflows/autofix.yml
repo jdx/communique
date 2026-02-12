@@ -1,0 +1,29 @@
+name: autofix.ci
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  autofix:
+    if: github.actor != 'renovate[bot]' && github.actor != 'mend[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: jdx/mise-action@v2
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: autofix
+      - run: "mise run render ::: lint-fix"
+      - uses: autofix-ci/action@v1
