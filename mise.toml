@@ -24,4 +24,5 @@ run = "npm i && exec npm run docs:dev"
 [tools]
 hk = "latest"
 pkl = "latest"
+ripgrep = "latest"
 usage = "latest"
