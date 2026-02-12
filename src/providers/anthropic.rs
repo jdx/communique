@@ -178,19 +178,28 @@ impl LlmClient for AnthropicProvider {
                 "content": assistant_content,
             }));
 
-            // Extract tool calls
-            let tool_calls: Vec<ToolCall> = response
-                .content
-                .iter()
-                .filter_map(|block| match block {
-                    ContentBlock::ToolUse { id, name, input } => Some(ToolCall {
-                        id: id.clone(),
-                        name: name.clone(),
-                        input: input.clone(),
-                    }),
-                    _ => None,
-                })
-                .collect();
+            // Extract text and tool calls
+            let mut text_parts = Vec::new();
+            let mut tool_calls = Vec::new();
+            for block in &response.content {
+                match block {
+                    ContentBlock::Text { text } => text_parts.push(text.as_str()),
+                    ContentBlock::ToolUse { id, name, input } => {
+                        tool_calls.push(ToolCall {
+                            id: id.clone(),
+                            name: name.clone(),
+                            input: input.clone(),
+                        });
+                    }
+                    _ => {}
+                }
+            }
+
+            let text = if text_parts.is_empty() {
+                None
+            } else {
+                Some(text_parts.join("\n"))
+            };
 
             let stop_reason = match response.stop_reason.as_deref() {
                 Some("tool_use") => StopReason::ToolUse,
@@ -201,6 +210,7 @@ impl LlmClient for AnthropicProvider {
 
             Ok(TurnResponse {
                 tool_calls,
+                text,
                 stop_reason,
                 usage: Usage {
                     input_tokens: response.usage.input_tokens,

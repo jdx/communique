@@ -49,6 +49,7 @@ pub enum StopReason {
 #[derive(Debug)]
 pub struct TurnResponse {
     pub tool_calls: Vec<ToolCall>,
+    pub text: Option<String>,
     pub stop_reason: StopReason,
     pub usage: Usage,
 }

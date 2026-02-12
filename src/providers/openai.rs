@@ -214,6 +214,7 @@ impl LlmClient for OpenAIProvider {
 
             Ok(TurnResponse {
                 tool_calls,
+                text: choice.message.content,
                 stop_reason,
                 usage,
             })

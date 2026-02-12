@@ -8,7 +8,7 @@ use crate::error::{Error, Result};
 use crate::github::GitHubClient;
 use crate::links;
 use crate::llm::{LlmClient, StopReason, ToolDefinition, ToolResult};
-use crate::output::ParsedOutput;
+use crate::output::{self, ParsedOutput};
 use crate::tools;
 
 const MAX_ITERATIONS: usize = 25;
@@ -110,6 +110,13 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
         }
 
         if response.tool_calls.is_empty() || response.stop_reason == StopReason::EndTurn {
+            // Fallback: try to parse text content as release notes
+            if let Some(text) = &response.text
+                && let Some(parsed) = output::parse_text_fallback(text)
+            {
+                log::warn!("model did not call submit_release_notes; falling back to text parsing");
+                return Ok(parsed);
+            }
             return Err(Error::Llm(
                 "model finished without calling submit_release_notes".into(),
             ));
@@ -242,6 +249,7 @@ mod tests {
     async fn test_direct_submission() {
         let client = MockLlmClient::new(vec![TurnResponse {
             tool_calls: vec![submit_tool_call("log", "v1.0", "body")],
+            text: None,
             stop_reason: StopReason::ToolUse,
             usage: fake_usage(),
         }]);
@@ -272,11 +280,13 @@ mod tests {
                     name: "read_file".into(),
                     input: json!({"path": "README.md"}),
                 }],
+                text: None,
                 stop_reason: StopReason::ToolUse,
                 usage: fake_usage(),
             },
             TurnResponse {
                 tool_calls: vec![submit_tool_call("changes", "v2.0", "notes")],
+                text: None,
                 stop_reason: StopReason::ToolUse,
                 usage: fake_usage(),
             },
@@ -303,6 +313,7 @@ mod tests {
     async fn test_end_turn_without_submission() {
         let client = MockLlmClient::new(vec![TurnResponse {
             tool_calls: vec![],
+            text: None,
             stop_reason: StopReason::EndTurn,
             usage: fake_usage(),
         }]);
@@ -324,9 +335,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_end_turn_text_fallback() {
+        let client = MockLlmClient::new(vec![TurnResponse {
+            tool_calls: vec![],
+            text: Some("# Cool Release\n\nSome great changes\n- Added X".into()),
+            stop_reason: StopReason::EndTurn,
+            usage: fake_usage(),
+        }]);
+        let job = Arc::new(ProgressJobBuilder::new().build());
+        let tmp = std::env::temp_dir();
+        let ctx = AgentContext {
+            client: &client,
+            system: "",
+            user_message: "",
+            tool_defs: vec![],
+            repo_root: &tmp,
+            github: None,
+            verify_links: false,
+            job: &job,
+        };
+        let result = run(ctx).await.unwrap();
+        assert_eq!(result.release_title, "Cool Release");
+        assert_eq!(result.release_body, "Some great changes\n- Added X");
+    }
+
+    #[tokio::test]
     async fn test_empty_tool_calls() {
         let client = MockLlmClient::new(vec![TurnResponse {
             tool_calls: vec![],
+            text: None,
             stop_reason: StopReason::ToolUse,
             usage: fake_usage(),
         }]);
@@ -357,6 +394,7 @@ mod tests {
                     "release_body": "body",
                 }),
             }],
+            text: None,
             stop_reason: StopReason::ToolUse,
             usage: fake_usage(),
         }]);
@@ -388,6 +426,7 @@ mod tests {
                     "release_body": "body",
                 }),
             }],
+            text: None,
             stop_reason: StopReason::ToolUse,
             usage: fake_usage(),
         }]);
@@ -419,6 +458,7 @@ mod tests {
                     "release_title": "v1.0",
                 }),
             }],
+            text: None,
             stop_reason: StopReason::ToolUse,
             usage: fake_usage(),
         }]);
@@ -458,6 +498,7 @@ mod tests {
                     "release_body": format!("See {url}"),
                 }),
             }],
+            text: None,
             stop_reason: StopReason::ToolUse,
             usage: fake_usage(),
         }]);
@@ -499,12 +540,14 @@ mod tests {
                         "release_body": format!("See {broken_url}"),
                     }),
                 }],
+                text: None,
                 stop_reason: StopReason::ToolUse,
                 usage: fake_usage(),
             },
             // Second: submit without broken link
             TurnResponse {
                 tool_calls: vec![submit_tool_call("changes", "v1.0", "Fixed notes")],
+                text: None,
                 stop_reason: StopReason::ToolUse,
                 usage: fake_usage(),
             },
@@ -534,6 +577,7 @@ mod tests {
                     name: "read_file".into(),
                     input: json!({"path": "f.txt"}),
                 }],
+                text: None,
                 stop_reason: StopReason::ToolUse,
                 usage: fake_usage(),
             })
