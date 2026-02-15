@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.6](https://github.com/jdx/communique/releases/tag/v0.1.6) - 2026-02-12
+
+### Fixed
+- Fixed draft release tags getting an `untagged-*` placeholder, which prevented pre-built binaries from being uploaded to GitHub releases ([#45](https://github.com/jdx/communique/pull/45))
+
 ## [0.1.5](https://github.com/jdx/communique/releases/tag/v0.1.5) - 2026-02-12
 
 ### Changed
@@ -18,9 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Increased retry resilience for transient API failures — retries now use 10 attempts with a 1s initial delay and 60s max backoff (up from 5 attempts / 500ms / 30s), improving reliability during API outages ([#41](https://github.com/jdx/communique/pull/41))
 
 ### Fixed
-- Fixed double tag prefix in release PR titles where both the workflow and generate logic prepended the tag ([#41](https://github.com/jdx/communique/pull/41))
-
-## [0.1.3](https://github.com/jdx/communique/releases/tag/v0.1.3) - 2026-02-12
+- Fixed double tag prefix in release PR titles where both the workflow and generate logic prepended the tag ([#41](https://github.com/jdx/communique/pull/41))## [0.1.3](https://github.com/jdx/communique/releases/tag/v0.1.3) - 2026-02-12
 
 ### Fixed
 - Fix draft release lookup — `get_release_by_tag` now falls back to listing releases when the `/releases/tags` endpoint returns 404, since that endpoint doesn't return draft releases ([f201231](https://github.com/jdx/communique/commit/f2012318af310105f0a2517b2c6ad03ce684f176))
