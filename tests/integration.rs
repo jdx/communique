@@ -79,6 +79,7 @@ async fn test_generate_end_to_end() {
         ])
         .env("OPENAI_API_KEY", "test-key")
         .env("CLX_NO_PROGRESS", "1")
+        .env_remove("GITHUB_TOKEN")
         .output()
         .expect("failed to run communique");
 
@@ -168,6 +169,7 @@ async fn test_generate_concise() {
         ])
         .env("OPENAI_API_KEY", "test-key")
         .env("CLX_NO_PROGRESS", "1")
+        .env_remove("GITHUB_TOKEN")
         .output()
         .expect("failed to run communique");
 
