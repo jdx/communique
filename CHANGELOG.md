@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.7](https://github.com/jdx/communique/compare/v0.1.6...v0.1.7) - 2026-02-17
+
+### Other
+
+- Fix draft release tag fix failing due to API eventual consistency ([#47](https://github.com/jdx/communique/pull/47))
+
 ## [0.1.6](https://github.com/jdx/communique/releases/tag/v0.1.6) - 2026-02-12
 
 ### Fixed
