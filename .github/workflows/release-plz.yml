@@ -38,11 +38,25 @@ jobs:
         run: |
           # Draft releases created before the tag exists get an "untagged-*" tag_name.
           # Patch each draft release to use the correct tag.
+          # Retry because the GitHub API may not immediately list the new release.
           for tag in $(echo '${{ steps.release-plz.outputs.releases }}' | jq -r '.[].tag'); do
-            release_id=$(gh api repos/${{ github.repository }}/releases --jq ".[] | select(.draft and (.tag_name | startswith(\"untagged-\"))) | select(.name | startswith(\"${tag}\")) | .id" 2>/dev/null || true)
+            echo "Looking for untagged draft release to fix for tag: $tag"
+            release_id=""
+            for attempt in $(seq 1 10); do
+              release_id=$(gh api repos/${{ github.repository }}/releases \
+                --jq ".[] | select(.draft and (.tag_name | startswith(\"untagged-\"))) | select(.name | contains(\"${tag}\")) | .id" \
+                | head -1) || true
+              if [ -n "$release_id" ]; then
+                break
+              fi
+              echo "  Attempt $attempt/10: untagged draft not found yet, retrying in 5s..."
+              sleep 5
+            done
             if [ -n "$release_id" ]; then
               echo "Fixing draft release $release_id: setting tag_name to $tag"
               gh api repos/${{ github.repository }}/releases/$release_id --method PATCH --field tag_name="$tag"
+            else
+              echo "::warning::No untagged draft release found for $tag after 10 attempts"
             fi
           done
       - name: Enhance GitHub release with communique
