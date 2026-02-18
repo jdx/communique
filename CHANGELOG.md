@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.8](https://github.com/jdx/communique/compare/v0.1.7...v0.1.8) - 2026-02-18
+
+### Fixed
+
+- propagate list releases error in get_release_by_tag fallback ([#49](https://github.com/jdx/communique/pull/49))
+
 ## [0.1.7](https://github.com/jdx/communique/compare/v0.1.6...v0.1.7) - 2026-02-17
 
 ### Other
