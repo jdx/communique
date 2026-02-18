@@ -7,11 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.8](https://github.com/jdx/communique/compare/v0.1.7...v0.1.8) - 2026-02-18
+## [0.1.8](https://github.com/jdx/communique/releases/tag/v0.1.8) - 2026-02-18
 
 ### Fixed
 
-- propagate list releases error in get_release_by_tag fallback ([#49](https://github.com/jdx/communique/pull/49))
+- Propagate errors from the list releases fallback in `get_release_by_tag` instead of silently swallowing them ([#49](https://github.com/jdx/communique/pull/49))
 
 ## [0.1.7](https://github.com/jdx/communique/compare/v0.1.6...v0.1.7) - 2026-02-17
 
@@ -22,9 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.6](https://github.com/jdx/communique/releases/tag/v0.1.6) - 2026-02-12
 
 ### Fixed
-- Fixed draft release tags getting an `untagged-*` placeholder, which prevented pre-built binaries from being uploaded to GitHub releases ([#45](https://github.com/jdx/communique/pull/45))
-
-## [0.1.5](https://github.com/jdx/communique/releases/tag/v0.1.5) - 2026-02-12
+- Fixed draft release tags getting an `untagged-*` placeholder, which prevented pre-built binaries from being uploaded to GitHub releases ([#45](https://github.com/jdx/communique/pull/45))## [0.1.5](https://github.com/jdx/communique/releases/tag/v0.1.5) - 2026-02-12
 
 ### Changed
 - Regenerated CLI documentation to reflect flags and options added in prior releases ([#43](https://github.com/jdx/communique/pull/43))
