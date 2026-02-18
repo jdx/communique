@@ -116,6 +116,7 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_PLZ_TOKEN }}
+      - uses: jdx/mise-action@v2
       - uses: Swatinem/rust-cache@v2
       - name: Run release-plz
         id: release-plz
@@ -134,12 +135,9 @@ jobs:
           PR_NUMBER=$(echo '${{ steps.release-plz.outputs.pr }}' | jq -r '.number')
           gh pr checkout "$PR_NUMBER"
 
-          # Rebuild from PR branch (has bumped version)
-          cargo build
+          # Build, regenerate usage spec + docs, and fix linting in parallel
+          mise run render ::: lint-fix
           COMMUNIQUE="$(pwd)/target/debug/communique"
-
-          # Regenerate usage spec for bumped version
-          $COMMUNIQUE usage > communique.usage.kdl
 
           VERSION=$(cargo metadata --format-version=1 --no-deps | jq -r '.packages[0].version')
           TAG="v${VERSION}"
@@ -152,9 +150,9 @@ jobs:
           PR_BODY=$(echo "$FULL_NOTES" | tail -n +3)
           gh pr edit "$PR_NUMBER" --title "$PR_TITLE" --body "$PR_BODY"
 
-          # Commit and push generated file changes
-          git add CHANGELOG.md communique.usage.kdl
-          if ! git diff --cached --quiet; then
-            git commit -m "chore: update changelog and usage spec"
-            git push
-          fi
+          # Squash all branch commits into one and push
+          git add -u
+          MERGE_BASE=$(git merge-base HEAD origin/main)
+          git reset --soft "$MERGE_BASE"
+          git commit -m "chore: release ${TAG}"
+          git push --force-with-lease
