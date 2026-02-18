@@ -7,15 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.8](https://github.com/jdx/communique/compare/v0.1.7...v0.1.8) - 2026-02-18
+## [0.1.8](https://github.com/jdx/communique/releases/tag/v0.1.8) - 2026-02-18
 
 ### Added
 
-- extract communique into separate enhance-release job ([#51](https://github.com/jdx/communique/pull/51))
+- Extracted communique into a separate `enhance-release` CI job that runs after publish, making it independently re-runnable and removing `continue-on-error` so failures are visible ([#51](https://github.com/jdx/communique/pull/51))
 
 ### Fixed
 
-- propagate list releases error in get_release_by_tag fallback ([#49](https://github.com/jdx/communique/pull/49))
+- Propagated errors from the list releases API call in the `get_release_by_tag` fallback instead of silently swallowing them, fixing misleading "No GitHub release found" messages ([#49](https://github.com/jdx/communique/pull/49))
 
 ## [0.1.7](https://github.com/jdx/communique/compare/v0.1.6...v0.1.7) - 2026-02-17
 
@@ -26,9 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.6](https://github.com/jdx/communique/releases/tag/v0.1.6) - 2026-02-12
 
 ### Fixed
-- Fixed draft release tags getting an `untagged-*` placeholder, which prevented pre-built binaries from being uploaded to GitHub releases ([#45](https://github.com/jdx/communique/pull/45))
-
-## [0.1.5](https://github.com/jdx/communique/releases/tag/v0.1.5) - 2026-02-12
+- Fixed draft release tags getting an `untagged-*` placeholder, which prevented pre-built binaries from being uploaded to GitHub releases ([#45](https://github.com/jdx/communique/pull/45))## [0.1.5](https://github.com/jdx/communique/releases/tag/v0.1.5) - 2026-02-12
 
 ### Changed
 - Regenerated CLI documentation to reflect flags and options added in prior releases ([#43](https://github.com/jdx/communique/pull/43))
