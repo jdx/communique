@@ -142,9 +142,9 @@ jobs:
           PR_BODY=$(echo "$FULL_NOTES" | tail -n +3)
           gh pr edit "$PR_NUMBER" --title "$PR_TITLE" --body "$PR_BODY"
 
-          # Commit and push all generated/fixed files
+          # Squash all branch commits into one and push
           git add -u
-          if ! git diff --cached --quiet; then
-            git commit -m "chore: render docs and fix linting"
-            git push
-          fi
+          MERGE_BASE=$(git merge-base HEAD origin/main)
+          git reset --soft "$MERGE_BASE"
+          git commit -m "chore: release ${TAG}"
+          git push --force-with-lease
