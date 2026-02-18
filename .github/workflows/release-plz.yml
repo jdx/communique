@@ -59,18 +59,6 @@ jobs:
               echo "::warning::No untagged draft release found for $tag after 10 attempts"
             fi
           done
-      - name: Enhance GitHub release with communique
-        if: steps.release-plz.outputs.releases_created == 'true'
-        continue-on-error: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: |
-          cargo build
-          for release in $(echo '${{ steps.release-plz.outputs.releases }}' | jq -r '.[].tag'); do
-            ./target/debug/communique generate "$release" --github-release
-          done
-
   upload-assets:
     name: Upload assets
     needs: release-plz-release
@@ -92,6 +80,26 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
         run: gh release edit "${{ needs.release-plz-release.outputs.tag }}" --repo jdx/communique --draft=false
+
+  enhance-release:
+    name: Enhance release notes
+    needs: [release-plz-release, publish-release]
+    if: ${{ needs.release-plz-release.outputs.tag != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: refs/tags/${{ needs.release-plz-release.outputs.tag }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Enhance GitHub release with communique
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          cargo build
+          ./target/debug/communique generate "${{ needs.release-plz-release.outputs.tag }}" --github-release
 
   release-plz-pr:
     name: Release-plz PR

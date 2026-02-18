@@ -104,10 +104,8 @@ impl GitHubClient {
 
         // Fall back to listing releases — the /releases/tags endpoint
         // doesn't return draft releases, but the list endpoint does.
-        match self.list_recent_releases(10).await {
-            Ok(releases) => Ok(releases.into_iter().find(|r| r.tag_name == tag)),
-            Err(_) => Ok(None),
-        }
+        let releases = self.list_recent_releases(10).await?;
+        Ok(releases.into_iter().find(|r| r.tag_name == tag))
     }
 
     pub async fn update_release(
