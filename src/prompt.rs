@@ -19,7 +19,7 @@ When you are done researching, call the `submit_release_notes` tool with three f
 A concise changelog entry using Keep a Changelog categories (## Added, ## Fixed, etc). No version header — just the categorized bullet points. Reference relevant PRs, issues, and commits as markdown links — e.g. `[#123](https://github.com/OWNER/REPO/pull/123)` for PRs/issues or `[abc1234](https://github.com/OWNER/REPO/commit/abc1234)` for commits.
 
 ### `release_title`
-A catchy, concise title for the GitHub release (no # prefix).
+A catchy, concise title for the GitHub release (no # prefix, no version tag — the version will be prepended automatically as "vX.Y.Z: your title").
 
 ### `release_body`
 Detailed GitHub release notes in markdown. Use the following template as a base, including or omitting sections as appropriate for the release:

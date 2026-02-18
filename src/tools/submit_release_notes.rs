@@ -15,7 +15,7 @@ pub fn definition() -> ToolDefinition {
                 },
                 "release_title": {
                     "type": "string",
-                    "description": "A catchy, concise title for the GitHub release (no # prefix)."
+                    "description": "A catchy, concise title for the GitHub release (no # prefix, no version tag — the version will be prepended automatically as 'vX.Y.Z: your title')."
                 },
                 "release_body": {
                     "type": "string",

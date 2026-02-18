@@ -48,9 +48,24 @@ pub async fn run(opts: GenerateOptions) -> miette::Result<()> {
     let ctx = gather_context(&opts, &job).await?;
     let mut parsed = generate_notes(&ctx, opts.dry_run, &job).await?;
 
-    // Ensure the release title is prefixed with the tag
-    if !parsed.release_title.starts_with(&ctx.tag) {
-        parsed.release_title = format!("{}: {}", ctx.tag, parsed.release_title);
+    // Normalize release title to "vX.Y.Z: description" format.
+    // The LLM may include the tag with a different separator (e.g. "v1.0.0 (title)"
+    // or "v1.0.0 - title"), so we check for the exact "tag: " prefix.
+    let tag_prefix = format!("{}: ", ctx.tag);
+    if !parsed.release_title.starts_with(&tag_prefix) {
+        let description = parsed
+            .release_title
+            .strip_prefix(&ctx.tag)
+            .and_then(|rest| {
+                let trimmed = rest.trim_start_matches(|c: char| !c.is_alphanumeric());
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed)
+                }
+            })
+            .unwrap_or(parsed.release_title.as_str());
+        parsed.release_title = format!("{}: {}", ctx.tag, description);
     }
 
     publish(&opts, &ctx, &parsed, &job).await?;
