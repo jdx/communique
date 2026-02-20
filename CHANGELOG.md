@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.9](https://github.com/jdx/communique/compare/v0.1.8...v0.1.9) - 2026-02-20
+
+### Fixed
+
+- *(deps)* update rust crate reqwest to 0.13 ([#57](https://github.com/jdx/communique/pull/57))
+- normalize release title to "vX.Y.Z: description" format ([#55](https://github.com/jdx/communique/pull/55))
+
+### Other
+
+- *(deps)* update rust crate clap to v4.5.60 ([#59](https://github.com/jdx/communique/pull/59))
+- *(deps)* pin dependencies ([#58](https://github.com/jdx/communique/pull/58))
+- *(deps)* update rust crate futures-util to v0.3.32 ([#56](https://github.com/jdx/communique/pull/56))
+- run render and lint-fix when creating release PR ([#53](https://github.com/jdx/communique/pull/53))
+
 ## [0.1.8](https://github.com/jdx/communique/releases/tag/v0.1.8) - 2026-02-18
 
 ### Added
