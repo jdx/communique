@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.10](https://github.com/jdx/communique/releases/tag/v0.1.10) - 2026-03-06
+
+### Changed
+
+- Update `toml` dependency from 0.8 to 0.9 ([#65](https://github.com/jdx/communique/pull/65))
+- Update `tokio` dependency from 1.49.0 to 1.50.0 ([#64](https://github.com/jdx/communique/pull/64))
+
 ## [0.1.9](https://github.com/jdx/communique/compare/v0.1.8...v0.1.9) - 2026-03-02
 
 ### Fixed
@@ -33,9 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Propagated errors from the list releases API call in the `get_release_by_tag` fallback instead of silently swallowing them, fixing misleading "No GitHub release found" messages ([#49](https://github.com/jdx/communique/pull/49))
-
-## [0.1.7](https://github.com/jdx/communique/compare/v0.1.6...v0.1.7) - 2026-02-17
+- Propagated errors from the list releases API call in the `get_release_by_tag` fallback instead of silently swallowing them, fixing misleading "No GitHub release found" messages ([#49](https://github.com/jdx/communique/pull/49))## [0.1.7](https://github.com/jdx/communique/compare/v0.1.6...v0.1.7) - 2026-02-17
 
 ### Other
 
