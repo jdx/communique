@@ -19,7 +19,7 @@ log = "0.4"
 clap_usage = "2"
 clx = { version = "1", features = ["log"] }
 console = "0.16"
-toml = "0.8"
+toml = "0.9"
 xx = "2"
 strum = { version = "0.28.0", features = ["derive"] }
 futures-util = { version = "0.3.31", default-features = false }
