@@ -19,7 +19,7 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_PLZ_TOKEN }}
-      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - name: Run release-plz
         id: release-plz
         uses: release-plz/action@main
@@ -92,7 +92,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           ref: refs/tags/${{ needs.release-plz-release.outputs.tag }}
-      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - name: Enhance GitHub release with communique
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
@@ -117,7 +117,7 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_PLZ_TOKEN }}
       - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
-      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - name: Run release-plz
         id: release-plz
         uses: release-plz/action@main
