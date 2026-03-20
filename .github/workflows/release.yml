@@ -49,7 +49,7 @@ jobs:
           shared-key: rust-${{ matrix.target }}
       - name: Upload binary (macOS signed)
         if: startsWith(matrix.os, 'macos')
-        uses: taiki-e/upload-rust-binary-action@f391289bcff6a7f36b6301c0a74199657bbb4561 # v1
+        uses: taiki-e/upload-rust-binary-action@0e34102c043ded9f2ca39f7af5cd99a540c61aff # v1
         with:
           bin: communique
           target: ${{ matrix.target }}
@@ -59,7 +59,7 @@ jobs:
           codesign_prefix: dev.jdx.
       - name: Upload binary (non-macOS)
         if: ${{ !startsWith(matrix.os, 'macos') }}
-        uses: taiki-e/upload-rust-binary-action@f391289bcff6a7f36b6301c0a74199657bbb4561 # v1
+        uses: taiki-e/upload-rust-binary-action@0e34102c043ded9f2ca39f7af5cd99a540c61aff # v1
         with:
           bin: communique
           target: ${{ matrix.target }}
