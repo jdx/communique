@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.10](https://github.com/jdx/communique/compare/v0.1.9...v0.1.10) - 2026-04-10
+
+### Fixed
+
+- *(deps)* update rust crate toml to 0.9 ([#65](https://github.com/jdx/communique/pull/65))
+
+### Other
+
+- *(deps)* update rust crate tokio to v1.51.1 ([#81](https://github.com/jdx/communique/pull/81))
+- *(deps)* update actions/checkout action to v6 ([#82](https://github.com/jdx/communique/pull/82))
+- *(deps)* update release-plz/action digest to b777e07 ([#79](https://github.com/jdx/communique/pull/79))
+- *(deps)* update taiki-e/upload-rust-binary-action digest to 10c1cf6 ([#80](https://github.com/jdx/communique/pull/80))
+- *(deps)* update release-plz/action digest to ec58883 ([#77](https://github.com/jdx/communique/pull/77))
+- *(deps)* update taiki-e/setup-cross-toolchain-action digest to d62f33b ([#78](https://github.com/jdx/communique/pull/78))
+- *(deps)* lock file maintenance ([#76](https://github.com/jdx/communique/pull/76))
+- *(deps)* pin release-plz/action action to 995558f ([#74](https://github.com/jdx/communique/pull/74))
+- *(deps)* update codecov/codecov-action digest to 75cd116 ([#75](https://github.com/jdx/communique/pull/75))
+- *(deps)* lock file maintenance ([#73](https://github.com/jdx/communique/pull/73))
+- *(deps)* lock file maintenance ([#72](https://github.com/jdx/communique/pull/72))
+- *(deps)* update taiki-e/upload-rust-binary-action digest to 0e34102 ([#71](https://github.com/jdx/communique/pull/71))
+- *(deps)* update codecov/codecov-action digest to 1af5884 ([#70](https://github.com/jdx/communique/pull/70))
+- *(deps)* update swatinem/rust-cache digest to e18b497 ([#67](https://github.com/jdx/communique/pull/67))
+- *(deps)* update taiki-e/setup-cross-toolchain-action digest to 20dbac4 ([#68](https://github.com/jdx/communique/pull/68))
+- *(deps)* lock file maintenance ([#69](https://github.com/jdx/communique/pull/69))
+
 ## [0.1.9](https://github.com/jdx/communique/compare/v0.1.8...v0.1.9) - 2026-03-02
 
 ### Fixed
