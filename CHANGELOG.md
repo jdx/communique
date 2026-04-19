@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.10](https://github.com/jdx/communique/releases/tag/v0.1.10) - 2026-04-19
+## [1.0.0](https://github.com/jdx/communique/compare/v0.1.9...v1.0.0) - 2026-04-19
 
 ### Changed
 
