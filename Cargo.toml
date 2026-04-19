@@ -17,7 +17,7 @@ thiserror = "2"
 regex = "1"
 log = "0.4"
 clap_usage = "2"
-clx = { version = "1", features = ["log"] }
+clx = { version = "2", features = ["log"] }
 console = "0.16"
 toml = "1.0"
 xx = "2"
