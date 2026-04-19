@@ -370,7 +370,7 @@ dependencies = [
 
 [[package]]
 name = "communique"
-version = "0.1.9"
+version = "1.0.0"
 dependencies = [
  "clap",
  "clap_usage",

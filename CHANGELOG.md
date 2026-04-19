@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0](https://github.com/jdx/communique/compare/v0.1.9...v1.0.0) - 2026-04-19
+
+### Changed
+
+- Updated `clx` dependency to v2 ([#98](https://github.com/jdx/communique/pull/98))
+- Updated `toml` dependency from 0.8 → 1.0 ([#65](https://github.com/jdx/communique/pull/65), [#90](https://github.com/jdx/communique/pull/90))
+- Refreshed lockfile to resolve `cargo audit` findings for patched transitive dependencies ([#100](https://github.com/jdx/communique/pull/100))
+
 ## [0.1.9](https://github.com/jdx/communique/compare/v0.1.8...v0.1.9) - 2026-03-02
 
 ### Fixed
@@ -33,9 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Propagated errors from the list releases API call in the `get_release_by_tag` fallback instead of silently swallowing them, fixing misleading "No GitHub release found" messages ([#49](https://github.com/jdx/communique/pull/49))
-
-## [0.1.7](https://github.com/jdx/communique/compare/v0.1.6...v0.1.7) - 2026-02-17
+- Propagated errors from the list releases API call in the `get_release_by_tag` fallback instead of silently swallowing them, fixing misleading "No GitHub release found" messages ([#49](https://github.com/jdx/communique/pull/49))## [0.1.7](https://github.com/jdx/communique/compare/v0.1.6...v0.1.7) - 2026-02-17
 
 ### Other
 
