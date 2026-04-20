@@ -1,6 +1,6 @@
 name communique
 bin communique
-version "1.0.0"
+version "1.0.1"
 about "Editorialized release notes powered by AI"
 usage "Usage: communique [OPTIONS] <COMMAND>"
 flag "-v --verbose" help="Enable verbose logging output" global=#true
