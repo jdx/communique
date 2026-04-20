@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1](https://github.com/jdx/communique/releases/tag/v1.0.1) - 2026-04-20
+
+## Changed
+
+- Bumped the default model from `claude-opus-4-6` to `claude-opus-4-7` ([#101](https://github.com/jdx/communique/pull/101))
+
 ## [1.0.0](https://github.com/jdx/communique/compare/v0.1.9...v1.0.0) - 2026-04-19
 
 ### Changed
@@ -31,9 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - *(deps)* update rust crate clap to v4.5.60 ([#59](https://github.com/jdx/communique/pull/59))
 - *(deps)* pin dependencies ([#58](https://github.com/jdx/communique/pull/58))
 - *(deps)* update rust crate futures-util to v0.3.32 ([#56](https://github.com/jdx/communique/pull/56))
-- run render and lint-fix when creating release PR ([#53](https://github.com/jdx/communique/pull/53))
-
-## [0.1.8](https://github.com/jdx/communique/releases/tag/v0.1.8) - 2026-02-18
+- run render and lint-fix when creating release PR ([#53](https://github.com/jdx/communique/pull/53))## [0.1.8](https://github.com/jdx/communique/releases/tag/v0.1.8) - 2026-02-18
 
 ### Added
 
