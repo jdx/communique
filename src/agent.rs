@@ -12,6 +12,7 @@ use crate::output::{self, ParsedOutput};
 use crate::tools;
 
 const MAX_ITERATIONS: usize = 25;
+const MAX_MALFORMED_SUBMISSIONS: usize = 3;
 
 fn parse_submission(input: &serde_json::Value, usage: &Usage) -> Result<ParsedOutput> {
     let changelog = input["changelog"]
@@ -61,6 +62,7 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
     let mut conversation = client.new_conversation(user_message);
     let mut cache = tools::ToolCache::new();
     let mut total_usage = Usage::default();
+    let mut malformed_submission_count = 0;
 
     for iteration in 0..MAX_ITERATIONS {
         info!("agent iteration {}", iteration + 1);
@@ -127,6 +129,12 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
         }
 
         if !malformed_submit.is_empty() {
+            malformed_submission_count += malformed_submit.len();
+            if malformed_submission_count >= MAX_MALFORMED_SUBMISSIONS {
+                return Err(Error::Parse(format!(
+                    "submit_release_notes was malformed {malformed_submission_count} times"
+                )));
+            }
             client.append_tool_results(&mut conversation, &malformed_submit);
             continue;
         }
@@ -539,6 +547,66 @@ mod tests {
         assert_eq!(result.changelog, "log");
         assert_eq!(result.release_title, "v1.0");
         assert_eq!(result.release_body, "body");
+    }
+
+    #[tokio::test]
+    async fn test_malformed_submission_retry_limit() {
+        let client = MockLlmClient::new(vec![
+            TurnResponse {
+                tool_calls: vec![ToolCall {
+                    id: "call_1".into(),
+                    name: "submit_release_notes".into(),
+                    input: json!({
+                        "changelog": "log",
+                        "release_title": "v1.0",
+                    }),
+                }],
+                text: None,
+                stop_reason: StopReason::ToolUse,
+                usage: fake_usage(),
+            },
+            TurnResponse {
+                tool_calls: vec![ToolCall {
+                    id: "call_2".into(),
+                    name: "submit_release_notes".into(),
+                    input: json!({
+                        "changelog": "log",
+                        "release_title": "v1.0",
+                    }),
+                }],
+                text: None,
+                stop_reason: StopReason::ToolUse,
+                usage: fake_usage(),
+            },
+            TurnResponse {
+                tool_calls: vec![ToolCall {
+                    id: "call_3".into(),
+                    name: "submit_release_notes".into(),
+                    input: json!({
+                        "changelog": "log",
+                        "release_title": "v1.0",
+                    }),
+                }],
+                text: None,
+                stop_reason: StopReason::ToolUse,
+                usage: fake_usage(),
+            },
+        ]);
+        let job = Arc::new(ProgressJobBuilder::new().build());
+        let tmp = std::env::temp_dir();
+        let ctx = AgentContext {
+            client: &client,
+            system: "",
+            user_message: "",
+            tool_defs: vec![],
+            repo_root: &tmp,
+            github: None,
+            verify_links: false,
+            job: &job,
+        };
+        let err = run(ctx).await.unwrap_err();
+        assert!(matches!(err, Error::Parse(_)));
+        assert!(err.to_string().contains("malformed 3 times"));
     }
 
     #[tokio::test]
