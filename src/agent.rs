@@ -13,6 +13,28 @@ use crate::tools;
 
 const MAX_ITERATIONS: usize = 25;
 
+fn parse_submission(input: &serde_json::Value, usage: &Usage) -> Result<ParsedOutput> {
+    let changelog = input["changelog"]
+        .as_str()
+        .ok_or_else(|| Error::Parse("missing changelog in submission".into()))?
+        .to_string();
+    let release_title = input["release_title"]
+        .as_str()
+        .ok_or_else(|| Error::Parse("missing release_title in submission".into()))?
+        .to_string();
+    let release_body = input["release_body"]
+        .as_str()
+        .ok_or_else(|| Error::Parse("missing release_body in submission".into()))?
+        .to_string();
+
+    Ok(ParsedOutput {
+        changelog,
+        release_title,
+        release_body,
+        usage: usage.clone(),
+    })
+}
+
 pub struct AgentContext<'a> {
     pub client: &'a dyn LlmClient,
     pub system: &'a str,
@@ -59,29 +81,20 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
 
         // Check for submit_release_notes tool call — this is the final output
         let mut submit = None;
+        let mut malformed_submit = Vec::new();
         for tc in &response.tool_calls {
             if tc.name == "submit_release_notes" {
-                let changelog = tc.input["changelog"]
-                    .as_str()
-                    .ok_or_else(|| Error::Parse("missing changelog in submission".into()))?
-                    .to_string();
-                let release_title = tc.input["release_title"]
-                    .as_str()
-                    .ok_or_else(|| Error::Parse("missing release_title in submission".into()))?
-                    .to_string();
-                let release_body = tc.input["release_body"]
-                    .as_str()
-                    .ok_or_else(|| Error::Parse("missing release_body in submission".into()))?
-                    .to_string();
-                submit = Some((
-                    tc.id.clone(),
-                    ParsedOutput {
-                        changelog,
-                        release_title,
-                        release_body,
-                        usage: total_usage.clone(),
-                    },
-                ));
+                match parse_submission(&tc.input, &total_usage) {
+                    Ok(parsed) => submit = Some((tc.id.clone(), parsed)),
+                    Err(Error::Parse(message)) => malformed_submit.push(ToolResult {
+                        tool_call_id: tc.id.clone(),
+                        content: format!(
+                            "Error: {message}\n\nPlease call submit_release_notes again with string values for changelog, release_title, and release_body."
+                        ),
+                        is_error: true,
+                    }),
+                    Err(err) => return Err(err),
+                }
             }
         }
 
@@ -111,6 +124,11 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
                 }
             }
             return Ok(parsed);
+        }
+
+        if !malformed_submit.is_empty() {
+            client.append_tool_results(&mut conversation, &malformed_submit);
+            continue;
         }
 
         if response.tool_calls.is_empty() || response.stop_reason == StopReason::EndTurn {
@@ -401,20 +419,28 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_missing_changelog_field() {
-        let client = MockLlmClient::new(vec![TurnResponse {
-            tool_calls: vec![ToolCall {
-                id: "call_1".into(),
-                name: "submit_release_notes".into(),
-                input: json!({
-                    "release_title": "v1.0",
-                    "release_body": "body",
-                }),
-            }],
-            text: None,
-            stop_reason: StopReason::ToolUse,
-            usage: fake_usage(),
-        }]);
+    async fn test_missing_changelog_field_retries_submission() {
+        let client = MockLlmClient::new(vec![
+            TurnResponse {
+                tool_calls: vec![ToolCall {
+                    id: "call_1".into(),
+                    name: "submit_release_notes".into(),
+                    input: json!({
+                        "release_title": "v1.0",
+                        "release_body": "body",
+                    }),
+                }],
+                text: None,
+                stop_reason: StopReason::ToolUse,
+                usage: fake_usage(),
+            },
+            TurnResponse {
+                tool_calls: vec![submit_tool_call("log", "v1.0", "body")],
+                text: None,
+                stop_reason: StopReason::ToolUse,
+                usage: fake_usage(),
+            },
+        ]);
         let job = Arc::new(ProgressJobBuilder::new().build());
         let tmp = std::env::temp_dir();
         let ctx = AgentContext {
@@ -427,26 +453,35 @@ mod tests {
             verify_links: false,
             job: &job,
         };
-        let err = run(ctx).await.unwrap_err();
-        assert!(matches!(err, Error::Parse(_)));
-        assert!(err.to_string().contains("changelog"));
+        let result = run(ctx).await.unwrap();
+        assert_eq!(result.changelog, "log");
+        assert_eq!(result.release_title, "v1.0");
+        assert_eq!(result.release_body, "body");
     }
 
     #[tokio::test]
-    async fn test_missing_release_title_field() {
-        let client = MockLlmClient::new(vec![TurnResponse {
-            tool_calls: vec![ToolCall {
-                id: "call_1".into(),
-                name: "submit_release_notes".into(),
-                input: json!({
-                    "changelog": "log",
-                    "release_body": "body",
-                }),
-            }],
-            text: None,
-            stop_reason: StopReason::ToolUse,
-            usage: fake_usage(),
-        }]);
+    async fn test_missing_release_title_field_retries_submission() {
+        let client = MockLlmClient::new(vec![
+            TurnResponse {
+                tool_calls: vec![ToolCall {
+                    id: "call_1".into(),
+                    name: "submit_release_notes".into(),
+                    input: json!({
+                        "changelog": "log",
+                        "release_body": "body",
+                    }),
+                }],
+                text: None,
+                stop_reason: StopReason::ToolUse,
+                usage: fake_usage(),
+            },
+            TurnResponse {
+                tool_calls: vec![submit_tool_call("log", "v1.0", "body")],
+                text: None,
+                stop_reason: StopReason::ToolUse,
+                usage: fake_usage(),
+            },
+        ]);
         let job = Arc::new(ProgressJobBuilder::new().build());
         let tmp = std::env::temp_dir();
         let ctx = AgentContext {
@@ -459,26 +494,35 @@ mod tests {
             verify_links: false,
             job: &job,
         };
-        let err = run(ctx).await.unwrap_err();
-        assert!(matches!(err, Error::Parse(_)));
-        assert!(err.to_string().contains("release_title"));
+        let result = run(ctx).await.unwrap();
+        assert_eq!(result.changelog, "log");
+        assert_eq!(result.release_title, "v1.0");
+        assert_eq!(result.release_body, "body");
     }
 
     #[tokio::test]
-    async fn test_missing_release_body_field() {
-        let client = MockLlmClient::new(vec![TurnResponse {
-            tool_calls: vec![ToolCall {
-                id: "call_1".into(),
-                name: "submit_release_notes".into(),
-                input: json!({
-                    "changelog": "log",
-                    "release_title": "v1.0",
-                }),
-            }],
-            text: None,
-            stop_reason: StopReason::ToolUse,
-            usage: fake_usage(),
-        }]);
+    async fn test_missing_release_body_field_retries_submission() {
+        let client = MockLlmClient::new(vec![
+            TurnResponse {
+                tool_calls: vec![ToolCall {
+                    id: "call_1".into(),
+                    name: "submit_release_notes".into(),
+                    input: json!({
+                        "changelog": "log",
+                        "release_title": "v1.0",
+                    }),
+                }],
+                text: None,
+                stop_reason: StopReason::ToolUse,
+                usage: fake_usage(),
+            },
+            TurnResponse {
+                tool_calls: vec![submit_tool_call("log", "v1.0", "body")],
+                text: None,
+                stop_reason: StopReason::ToolUse,
+                usage: fake_usage(),
+            },
+        ]);
         let job = Arc::new(ProgressJobBuilder::new().build());
         let tmp = std::env::temp_dir();
         let ctx = AgentContext {
@@ -491,9 +535,10 @@ mod tests {
             verify_links: false,
             job: &job,
         };
-        let err = run(ctx).await.unwrap_err();
-        assert!(matches!(err, Error::Parse(_)));
-        assert!(err.to_string().contains("release_body"));
+        let result = run(ctx).await.unwrap();
+        assert_eq!(result.changelog, "log");
+        assert_eq!(result.release_title, "v1.0");
+        assert_eq!(result.release_body, "body");
     }
 
     #[tokio::test]
