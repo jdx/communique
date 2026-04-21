@@ -7,13 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.2](https://github.com/jdx/communique/releases/tag/v1.0.2) - 2026-04-21
+
+## Fixed
+
+- Retry malformed `submit_release_notes` tool calls instead of aborting the run, with a cap of 3 attempts ([#105](https://github.com/jdx/communique/pull/105))
+
 ## [1.0.1](https://github.com/jdx/communique/releases/tag/v1.0.1) - 2026-04-20
 
 ## Changed
 
-- Bumped the default model from `claude-opus-4-6` to `claude-opus-4-7` ([#101](https://github.com/jdx/communique/pull/101))
-
-## [1.0.0](https://github.com/jdx/communique/compare/v0.1.9...v1.0.0) - 2026-04-19
+- Bumped the default model from `claude-opus-4-6` to `claude-opus-4-7` ([#101](https://github.com/jdx/communique/pull/101))## [1.0.0](https://github.com/jdx/communique/compare/v0.1.9...v1.0.0) - 2026-04-19
 
 ### Changed
 
