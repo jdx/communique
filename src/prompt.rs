@@ -134,7 +134,11 @@ pub fn user_prompt(ctx: &UserPromptContext) -> String {
         );
         for (tag_name, body) in *recent_releases {
             let truncated = if body.len() > 3072 {
-                format!("{}...\n[truncated]", &body[..3072])
+                let mut end = 3072;
+                while !body.is_char_boundary(end) {
+                    end -= 1;
+                }
+                format!("{}...\n[truncated]", &body[..end])
             } else {
                 body.clone()
             };
@@ -249,6 +253,27 @@ mod tests {
             existing_release: None,
             context: None,
             recent_releases: &[("v1.0.0".into(), long_body)],
+        });
+        assert!(prompt.contains("[truncated]"));
+    }
+
+    #[test]
+    fn test_user_prompt_recent_releases_truncation_on_char_boundary() {
+        // Ensure truncation does not panic when the 3072-byte cutoff lands
+        // inside a multi-byte UTF-8 character (e.g. the em-dash '—', 3 bytes).
+        let mut body = "a".repeat(3070);
+        body.push('—');
+        body.push_str(&"b".repeat(2000));
+        let prompt = user_prompt(&UserPromptContext {
+            tag: "v2.0.0",
+            prev_tag: "v1.0.0",
+            owner_repo: "test/repo",
+            git_log: "abc init",
+            pr_numbers: &[],
+            changelog_entry: None,
+            existing_release: None,
+            context: None,
+            recent_releases: &[("v1.0.0".into(), body)],
         });
         assert!(prompt.contains("[truncated]"));
     }
