@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.3](https://github.com/jdx/communique/compare/v1.0.2...v1.0.3) - 2026-04-23
+
+### Fixed
+
+- *(prompt)* truncate recent release bodies on UTF-8 char boundary ([#113](https://github.com/jdx/communique/pull/113))
+
+### Other
+
+- keep banner height in sync via ResizeObserver ([#112](https://github.com/jdx/communique/pull/112))
+- banner cache + fallback color tweaks ([#111](https://github.com/jdx/communique/pull/111))
+- polish banner + add en.dev footer ([#110](https://github.com/jdx/communique/pull/110))
+- add cross-site announcement banner ([#109](https://github.com/jdx/communique/pull/109))
+- *(release)* append en.dev sponsor blurb to release notes ([#106](https://github.com/jdx/communique/pull/106))
+
 ## [1.0.2](https://github.com/jdx/communique/releases/tag/v1.0.2) - 2026-04-21
 
 ## Fixed
