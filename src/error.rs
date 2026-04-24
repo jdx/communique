@@ -33,6 +33,20 @@ pub enum Error {
         span: miette::SourceSpan,
     },
 
+    #[error("submit_release_notes was malformed {attempts} times")]
+    #[diagnostic(
+        code(communique::malformed_submission),
+        help(
+            "The model could not produce a valid submit_release_notes tool call. Problems:\n  - {reasons}\n\nCheck that the model is producing non-empty string values for all three required fields: changelog, release_title, release_body."
+        )
+    )]
+    MalformedSubmission {
+        attempts: usize,
+        reasons: String,
+        #[source_code]
+        src: miette::NamedSource<String>,
+    },
+
     #[error(transparent)]
     Reqwest(#[from] reqwest::Error),
 
