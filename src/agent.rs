@@ -33,7 +33,8 @@ fn field_as_string(input: &serde_json::Value, field: &str) -> Result<String> {
         return Err(Error::Parse(format!("missing `{field}`")));
     }
     match value.as_str() {
-        Some(s) => Ok(s.to_string()),
+        Some(s) if !s.trim().is_empty() => Ok(s.to_string()),
+        Some(_) => Err(Error::Parse(format!("`{field}` cannot be empty"))),
         None => Err(Error::Parse(format!(
             "`{field}` must be a string (got {})",
             json_type_name(value)
@@ -62,9 +63,14 @@ fn parse_submission_lenient(input: &serde_json::Value, usage: &Usage) -> Option<
 
     let primary = release_body
         .as_deref()
-        .or(changelog.as_deref())
         .map(str::trim)
-        .filter(|s| !s.is_empty())?
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            changelog
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+        })?
         .to_string();
 
     let changelog = changelog
@@ -102,10 +108,9 @@ fn coerce_to_string(value: &serde_json::Value) -> Option<String> {
 fn derive_title(body: &str) -> String {
     body.lines()
         .map(str::trim)
+        .map(|l| l.trim_start_matches('#').trim())
         .find(|l| !l.is_empty())
         .unwrap_or("Release")
-        .trim_start_matches('#')
-        .trim()
         .chars()
         .take(80)
         .collect()
@@ -383,6 +388,38 @@ mod tests {
     use super::*;
     use crate::llm::{StopReason, ToolCall, TurnResponse};
     use crate::test_helpers::{MockLlmClient, fake_usage, submit_tool_call};
+
+    #[test]
+    fn test_field_as_string_rejects_empty() {
+        let input = json!({ "changelog": "" });
+        let err = field_as_string(&input, "changelog").unwrap_err();
+        assert!(err.to_string().contains("cannot be empty"), "err: {err}");
+
+        let input = json!({ "changelog": "   \n\t  " });
+        let err = field_as_string(&input, "changelog").unwrap_err();
+        assert!(err.to_string().contains("cannot be empty"), "err: {err}");
+    }
+
+    #[test]
+    fn test_lenient_empty_release_body_falls_back_to_changelog() {
+        // Regression: `coerce_to_string` returned Some("") for `[""]`, which
+        // used to short-circuit the `.or(changelog)` fallback.
+        let input = json!({
+            "release_body": [""],
+            "changelog": "- Fixed X",
+        });
+        let result = parse_submission_lenient(&input, &fake_usage()).unwrap();
+        assert_eq!(result.changelog, "- Fixed X");
+        assert_eq!(result.release_body, "- Fixed X");
+    }
+
+    #[test]
+    fn test_derive_title_skips_empty_after_stripping_markers() {
+        assert_eq!(derive_title("###\n\nReal title here"), "Real title here");
+        assert_eq!(derive_title("#   \nActual content"), "Actual content");
+        assert_eq!(derive_title(""), "Release");
+        assert_eq!(derive_title("\n\n   \n"), "Release");
+    }
 
     #[tokio::test]
     async fn test_direct_submission() {
