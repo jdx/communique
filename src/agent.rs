@@ -15,25 +15,115 @@ const MAX_ITERATIONS: usize = 25;
 const MAX_MALFORMED_SUBMISSIONS: usize = 3;
 
 fn parse_submission(input: &serde_json::Value, usage: &Usage) -> Result<ParsedOutput> {
-    let changelog = input["changelog"]
-        .as_str()
-        .ok_or_else(|| Error::Parse("missing changelog in submission".into()))?
-        .to_string();
-    let release_title = input["release_title"]
-        .as_str()
-        .ok_or_else(|| Error::Parse("missing release_title in submission".into()))?
-        .to_string();
-    let release_body = input["release_body"]
-        .as_str()
-        .ok_or_else(|| Error::Parse("missing release_body in submission".into()))?
-        .to_string();
+    let changelog = field_as_string(input, "changelog");
+    let release_title = field_as_string(input, "release_title");
+    let release_body = field_as_string(input, "release_body");
+
+    let mut problems = Vec::new();
+    for res in [&changelog, &release_title, &release_body] {
+        if let Err(Error::Parse(msg)) = res {
+            problems.push(msg.clone());
+        }
+    }
+    if !problems.is_empty() {
+        return Err(Error::Parse(problems.join("; ")));
+    }
 
     Ok(ParsedOutput {
+        changelog: changelog.unwrap(),
+        release_title: release_title.unwrap(),
+        release_body: release_body.unwrap(),
+        usage: usage.clone(),
+    })
+}
+
+fn field_as_string(input: &serde_json::Value, field: &str) -> Result<String> {
+    let value = &input[field];
+    if value.is_null() {
+        return Err(Error::Parse(format!("missing `{field}`")));
+    }
+    match value.as_str() {
+        Some(s) if !s.trim().is_empty() => Ok(s.to_string()),
+        Some(_) => Err(Error::Parse(format!("`{field}` cannot be empty"))),
+        None => Err(Error::Parse(format!(
+            "`{field}` must be a string (got {})",
+            json_type_name(value)
+        ))),
+    }
+}
+
+fn json_type_name(value: &serde_json::Value) -> &'static str {
+    match value {
+        serde_json::Value::Null => "null",
+        serde_json::Value::Bool(_) => "boolean",
+        serde_json::Value::Number(_) => "number",
+        serde_json::Value::String(_) => "string",
+        serde_json::Value::Array(_) => "array",
+        serde_json::Value::Object(_) => "object",
+    }
+}
+
+/// Best-effort parse: coerce non-string fields and derive missing ones from
+/// whatever is available. Returns `None` only when every content-bearing field
+/// is empty or missing.
+fn parse_submission_lenient(input: &serde_json::Value, usage: &Usage) -> Option<ParsedOutput> {
+    let changelog = coerce_to_string(&input["changelog"]);
+    let release_body = coerce_to_string(&input["release_body"]);
+    let release_title = coerce_to_string(&input["release_title"]);
+
+    let primary = release_body
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            changelog
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+        })?
+        .to_string();
+
+    let changelog = changelog
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| primary.clone());
+    let release_body = release_body
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| primary.clone());
+    let release_title = release_title
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| derive_title(&release_body));
+
+    Some(ParsedOutput {
         changelog,
         release_title,
         release_body,
         usage: usage.clone(),
     })
+}
+
+fn coerce_to_string(value: &serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::Null => None,
+        serde_json::Value::String(s) => Some(s.clone()),
+        serde_json::Value::Bool(b) => Some(b.to_string()),
+        serde_json::Value::Number(n) => Some(n.to_string()),
+        serde_json::Value::Array(arr) => {
+            let parts: Vec<String> = arr.iter().filter_map(coerce_to_string).collect();
+            (!parts.is_empty()).then(|| parts.join("\n"))
+        }
+        serde_json::Value::Object(_) => serde_json::to_string_pretty(value).ok(),
+    }
+}
+
+fn derive_title(body: &str) -> String {
+    body.lines()
+        .map(str::trim)
+        .map(|l| l.trim_start_matches('#').trim())
+        .find(|l| !l.is_empty())
+        .unwrap_or("Release")
+        .chars()
+        .take(80)
+        .collect()
 }
 
 pub struct AgentContext<'a> {
@@ -63,6 +153,8 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
     let mut cache = tools::ToolCache::new();
     let mut total_usage = Usage::default();
     let mut malformed_submission_count = 0;
+    let mut malformed_reasons: Vec<String> = Vec::new();
+    let mut last_malformed_input: Option<serde_json::Value> = None;
 
     for iteration in 0..MAX_ITERATIONS {
         info!("agent iteration {}", iteration + 1);
@@ -88,13 +180,17 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
             if tc.name == "submit_release_notes" {
                 match parse_submission(&tc.input, &total_usage) {
                     Ok(parsed) => submit = Some((tc.id.clone(), parsed)),
-                    Err(Error::Parse(message)) => malformed_submit.push(ToolResult {
-                        tool_call_id: tc.id.clone(),
-                        content: format!(
-                            "Error: {message}\n\nPlease call submit_release_notes again with string values for changelog, release_title, and release_body."
-                        ),
-                        is_error: true,
-                    }),
+                    Err(Error::Parse(message)) => {
+                        malformed_reasons.push(message.clone());
+                        last_malformed_input = Some(tc.input.clone());
+                        malformed_submit.push(ToolResult {
+                            tool_call_id: tc.id.clone(),
+                            content: format!(
+                                "Error: {message}\n\nPlease call submit_release_notes again with non-empty string values for all three required fields: changelog, release_title, and release_body."
+                            ),
+                            is_error: true,
+                        });
+                    }
                     Err(err) => return Err(err),
                 }
             }
@@ -131,9 +227,26 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
         if !malformed_submit.is_empty() {
             malformed_submission_count += malformed_submit.len();
             if malformed_submission_count >= MAX_MALFORMED_SUBMISSIONS {
-                return Err(Error::Parse(format!(
-                    "submit_release_notes was malformed {malformed_submission_count} times"
-                )));
+                let received = last_malformed_input
+                    .as_ref()
+                    .and_then(|v| serde_json::to_string_pretty(v).ok())
+                    .unwrap_or_else(|| "<no input captured>".into());
+                if let Some(input) = &last_malformed_input
+                    && let Some(parsed) = parse_submission_lenient(input, &total_usage)
+                {
+                    log::warn!(
+                        "submit_release_notes was malformed {malformed_submission_count} times ({}); salvaging the last attempt. Received input:\n{received}",
+                        malformed_reasons.join("; ")
+                    );
+                    return Ok(parsed);
+                }
+                let span = (0, received.len()).into();
+                return Err(Error::MalformedSubmission {
+                    attempts: malformed_submission_count,
+                    reasons: malformed_reasons.join("\n  - "),
+                    src: miette::NamedSource::new("last submit_release_notes input", received),
+                    span,
+                });
             }
             client.append_tool_results(&mut conversation, &malformed_submit);
             continue;
@@ -287,6 +400,38 @@ mod tests {
     use super::*;
     use crate::llm::{StopReason, ToolCall, TurnResponse};
     use crate::test_helpers::{MockLlmClient, fake_usage, submit_tool_call};
+
+    #[test]
+    fn test_field_as_string_rejects_empty() {
+        let input = json!({ "changelog": "" });
+        let err = field_as_string(&input, "changelog").unwrap_err();
+        assert!(err.to_string().contains("cannot be empty"), "err: {err}");
+
+        let input = json!({ "changelog": "   \n\t  " });
+        let err = field_as_string(&input, "changelog").unwrap_err();
+        assert!(err.to_string().contains("cannot be empty"), "err: {err}");
+    }
+
+    #[test]
+    fn test_lenient_empty_release_body_falls_back_to_changelog() {
+        // Regression: `coerce_to_string` returned Some("") for `[""]`, which
+        // used to short-circuit the `.or(changelog)` fallback.
+        let input = json!({
+            "release_body": [""],
+            "changelog": "- Fixed X",
+        });
+        let result = parse_submission_lenient(&input, &fake_usage()).unwrap();
+        assert_eq!(result.changelog, "- Fixed X");
+        assert_eq!(result.release_body, "- Fixed X");
+    }
+
+    #[test]
+    fn test_derive_title_skips_empty_after_stripping_markers() {
+        assert_eq!(derive_title("###\n\nReal title here"), "Real title here");
+        assert_eq!(derive_title("#   \nActual content"), "Actual content");
+        assert_eq!(derive_title(""), "Release");
+        assert_eq!(derive_title("\n\n   \n"), "Release");
+    }
 
     #[tokio::test]
     async fn test_direct_submission() {
@@ -550,43 +695,80 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_malformed_submission_retry_limit() {
+    async fn test_malformed_submission_salvages_partial() {
+        // Model submits changelog + release_title but never release_body across
+        // three attempts. Rather than failing, we salvage the partial submission
+        // by deriving release_body from changelog.
+        let partial = |id: &str| ToolCall {
+            id: id.into(),
+            name: "submit_release_notes".into(),
+            input: json!({
+                "changelog": "- Added X\n- Fixed Y",
+                "release_title": "v1.0",
+            }),
+        };
         let client = MockLlmClient::new(vec![
             TurnResponse {
-                tool_calls: vec![ToolCall {
-                    id: "call_1".into(),
-                    name: "submit_release_notes".into(),
-                    input: json!({
-                        "changelog": "log",
-                        "release_title": "v1.0",
-                    }),
-                }],
+                tool_calls: vec![partial("call_1")],
                 text: None,
                 stop_reason: StopReason::ToolUse,
                 usage: fake_usage(),
             },
             TurnResponse {
-                tool_calls: vec![ToolCall {
-                    id: "call_2".into(),
-                    name: "submit_release_notes".into(),
-                    input: json!({
-                        "changelog": "log",
-                        "release_title": "v1.0",
-                    }),
-                }],
+                tool_calls: vec![partial("call_2")],
                 text: None,
                 stop_reason: StopReason::ToolUse,
                 usage: fake_usage(),
             },
             TurnResponse {
-                tool_calls: vec![ToolCall {
-                    id: "call_3".into(),
-                    name: "submit_release_notes".into(),
-                    input: json!({
-                        "changelog": "log",
-                        "release_title": "v1.0",
-                    }),
-                }],
+                tool_calls: vec![partial("call_3")],
+                text: None,
+                stop_reason: StopReason::ToolUse,
+                usage: fake_usage(),
+            },
+        ]);
+        let job = Arc::new(ProgressJobBuilder::new().build());
+        let tmp = std::env::temp_dir();
+        let ctx = AgentContext {
+            client: &client,
+            system: "",
+            user_message: "",
+            tool_defs: vec![],
+            repo_root: &tmp,
+            github: None,
+            verify_links: false,
+            job: &job,
+        };
+        let result = run(ctx).await.unwrap();
+        assert_eq!(result.changelog, "- Added X\n- Fixed Y");
+        assert_eq!(result.release_title, "v1.0");
+        assert_eq!(result.release_body, "- Added X\n- Fixed Y");
+    }
+
+    #[tokio::test]
+    async fn test_malformed_submission_retry_limit_unsalvageable() {
+        // All three content fields missing — nothing to salvage, so we error
+        // out with a descriptive message listing the parse failures.
+        let empty = |id: &str| ToolCall {
+            id: id.into(),
+            name: "submit_release_notes".into(),
+            input: json!({}),
+        };
+        let client = MockLlmClient::new(vec![
+            TurnResponse {
+                tool_calls: vec![empty("call_1")],
+                text: None,
+                stop_reason: StopReason::ToolUse,
+                usage: fake_usage(),
+            },
+            TurnResponse {
+                tool_calls: vec![empty("call_2")],
+                text: None,
+                stop_reason: StopReason::ToolUse,
+                usage: fake_usage(),
+            },
+            TurnResponse {
+                tool_calls: vec![empty("call_3")],
                 text: None,
                 stop_reason: StopReason::ToolUse,
                 usage: fake_usage(),
@@ -605,8 +787,86 @@ mod tests {
             job: &job,
         };
         let err = run(ctx).await.unwrap_err();
-        assert!(matches!(err, Error::Parse(_)));
-        assert!(err.to_string().contains("malformed 3 times"));
+        assert!(
+            matches!(err, Error::MalformedSubmission { .. }),
+            "err: {err:?}"
+        );
+        let msg = err.to_string();
+        assert!(msg.contains("malformed 3 times"), "message: {msg}");
+        // The specific reasons live in the miette help text, not the short
+        // Display string. All three missing fields should be listed — verifies
+        // that parse_submission collects every field's error rather than
+        // short-circuiting on the first.
+        if let Error::MalformedSubmission { reasons, span, .. } = &err {
+            assert!(reasons.contains("changelog"), "reasons: {reasons}");
+            assert!(reasons.contains("release_title"), "reasons: {reasons}");
+            assert!(reasons.contains("release_body"), "reasons: {reasons}");
+            assert!(span.len() > 0, "span should point into source");
+        }
+    }
+
+    #[test]
+    fn test_parse_submission_collects_all_field_errors() {
+        // Regression: parse_submission used to short-circuit on the first `?`
+        // error. With {} input, only `changelog` was reported, which made the
+        // diagnostic list three identical lines instead of all three missing
+        // fields.
+        let err = parse_submission(&json!({}), &fake_usage()).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("changelog"), "msg: {msg}");
+        assert!(msg.contains("release_title"), "msg: {msg}");
+        assert!(msg.contains("release_body"), "msg: {msg}");
+    }
+
+    #[tokio::test]
+    async fn test_lenient_coerces_non_string_fields() {
+        // Model returns changelog as an array instead of a string. First two
+        // attempts fail (retrying); on the third we salvage via coercion.
+        let make = |id: &str| ToolCall {
+            id: id.into(),
+            name: "submit_release_notes".into(),
+            input: json!({
+                "changelog": ["- Added X", "- Fixed Y"],
+                "release_title": "v2.0",
+                "release_body": "Full body",
+            }),
+        };
+        let client = MockLlmClient::new(vec![
+            TurnResponse {
+                tool_calls: vec![make("c1")],
+                text: None,
+                stop_reason: StopReason::ToolUse,
+                usage: fake_usage(),
+            },
+            TurnResponse {
+                tool_calls: vec![make("c2")],
+                text: None,
+                stop_reason: StopReason::ToolUse,
+                usage: fake_usage(),
+            },
+            TurnResponse {
+                tool_calls: vec![make("c3")],
+                text: None,
+                stop_reason: StopReason::ToolUse,
+                usage: fake_usage(),
+            },
+        ]);
+        let job = Arc::new(ProgressJobBuilder::new().build());
+        let tmp = std::env::temp_dir();
+        let ctx = AgentContext {
+            client: &client,
+            system: "",
+            user_message: "",
+            tool_defs: vec![],
+            repo_root: &tmp,
+            github: None,
+            verify_links: false,
+            job: &job,
+        };
+        let result = run(ctx).await.unwrap();
+        assert_eq!(result.changelog, "- Added X\n- Fixed Y");
+        assert_eq!(result.release_title, "v2.0");
+        assert_eq!(result.release_body, "Full body");
     }
 
     #[tokio::test]
