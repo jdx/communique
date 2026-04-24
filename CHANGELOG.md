@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.4](https://github.com/jdx/communique/releases/tag/v1.0.4) - 2026-04-24
+
+## Fixed
+
+- **agent**: salvage partial `submit_release_notes` calls and surface better diagnostics instead of hard-failing after 3 malformed attempts ([#120](https://github.com/jdx/communique/pull/120))
+- **docs**: stack the announcement banner and pin the close button to the top-right on mobile viewports ([#119](https://github.com/jdx/communique/pull/119))
+
 ## [1.0.3](https://github.com/jdx/communique/compare/v1.0.2...v1.0.3) - 2026-04-23
 
 ### Fixed
@@ -21,9 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - add cross-site announcement banner ([#109](https://github.com/jdx/communique/pull/109))
 - *(release)* append en.dev sponsor blurb to release notes ([#106](https://github.com/jdx/communique/pull/106))
 
-## [1.0.2](https://github.com/jdx/communique/releases/tag/v1.0.2) - 2026-04-21
-
-## Fixed
+## [1.0.2](https://github.com/jdx/communique/releases/tag/v1.0.2) - 2026-04-21## Fixed
 
 - Retry malformed `submit_release_notes` tool calls instead of aborting the run, with a cap of 3 attempts ([#105](https://github.com/jdx/communique/pull/105))
 
