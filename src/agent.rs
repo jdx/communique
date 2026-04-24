@@ -15,14 +15,24 @@ const MAX_ITERATIONS: usize = 25;
 const MAX_MALFORMED_SUBMISSIONS: usize = 3;
 
 fn parse_submission(input: &serde_json::Value, usage: &Usage) -> Result<ParsedOutput> {
-    let changelog = field_as_string(input, "changelog")?;
-    let release_title = field_as_string(input, "release_title")?;
-    let release_body = field_as_string(input, "release_body")?;
+    let changelog = field_as_string(input, "changelog");
+    let release_title = field_as_string(input, "release_title");
+    let release_body = field_as_string(input, "release_body");
+
+    let mut problems = Vec::new();
+    for res in [&changelog, &release_title, &release_body] {
+        if let Err(Error::Parse(msg)) = res {
+            problems.push(msg.clone());
+        }
+    }
+    if !problems.is_empty() {
+        return Err(Error::Parse(problems.join("; ")));
+    }
 
     Ok(ParsedOutput {
-        changelog,
-        release_title,
-        release_body,
+        changelog: changelog.unwrap(),
+        release_title: release_title.unwrap(),
+        release_body: release_body.unwrap(),
         usage: usage.clone(),
     })
 }
@@ -230,10 +240,12 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
                     );
                     return Ok(parsed);
                 }
+                let span = (0, received.len()).into();
                 return Err(Error::MalformedSubmission {
                     attempts: malformed_submission_count,
                     reasons: malformed_reasons.join("\n  - "),
                     src: miette::NamedSource::new("last submit_release_notes input", received),
+                    span,
                 });
             }
             client.append_tool_results(&mut conversation, &malformed_submit);
@@ -782,10 +794,28 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains("malformed 3 times"), "message: {msg}");
         // The specific reasons live in the miette help text, not the short
-        // Display string. Confirm they're recorded on the variant directly.
-        if let Error::MalformedSubmission { reasons, .. } = &err {
+        // Display string. All three missing fields should be listed — verifies
+        // that parse_submission collects every field's error rather than
+        // short-circuiting on the first.
+        if let Error::MalformedSubmission { reasons, span, .. } = &err {
             assert!(reasons.contains("changelog"), "reasons: {reasons}");
+            assert!(reasons.contains("release_title"), "reasons: {reasons}");
+            assert!(reasons.contains("release_body"), "reasons: {reasons}");
+            assert!(span.len() > 0, "span should point into source");
         }
+    }
+
+    #[test]
+    fn test_parse_submission_collects_all_field_errors() {
+        // Regression: parse_submission used to short-circuit on the first `?`
+        // error. With {} input, only `changelog` was reported, which made the
+        // diagnostic list three identical lines instead of all three missing
+        // fields.
+        let err = parse_submission(&json!({}), &fake_usage()).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("changelog"), "msg: {msg}");
+        assert!(msg.contains("release_title"), "msg: {msg}");
+        assert!(msg.contains("release_body"), "msg: {msg}");
     }
 
     #[tokio::test]

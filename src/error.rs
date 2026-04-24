@@ -45,6 +45,8 @@ pub enum Error {
         reasons: String,
         #[source_code]
         src: miette::NamedSource<String>,
+        #[label("received input")]
+        span: miette::SourceSpan,
     },
 
     #[error(transparent)]
