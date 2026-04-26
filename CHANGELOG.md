@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.2](https://github.com/jdx/communique/releases/tag/v1.1.2) - 2026-04-26
+
+## Fixed
+
+- *(generate)* Place tagged release entries deterministically in `CHANGELOG.md` instead of letting the LLM rewrite the file ([#129](https://github.com/jdx/communique/pull/129))
+- *(generate)* Preserve section boundaries so preserved release sections no longer get joined onto the previous bullet (e.g. `...))## [1.0.4]`) ([#126](https://github.com/jdx/communique/pull/126))
+
+## Added
+
+- *(release)* Publish `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl` archives alongside the existing GNU Linux, macOS, and Windows assets ([#127](https://github.com/jdx/communique/pull/127))
+
 ## [1.1.1](https://github.com/jdx/communique/releases/tag/v1.1.1) - 2026-04-26
 
 ## Fixed
