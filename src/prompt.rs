@@ -75,6 +75,7 @@ pub struct UserPromptContext<'a> {
     pub owner_repo: &'a str,
     pub git_log: &'a str,
     pub pr_numbers: &'a [u64],
+    pub is_unreleased_head: bool,
     pub changelog_entry: Option<&'a str>,
     pub existing_release: Option<&'a str>,
     pub context: Option<&'a str>,
@@ -88,6 +89,7 @@ pub fn user_prompt(ctx: &UserPromptContext) -> String {
         owner_repo,
         git_log,
         pr_numbers,
+        is_unreleased_head,
         changelog_entry,
         existing_release,
         context,
@@ -99,8 +101,14 @@ pub fn user_prompt(ctx: &UserPromptContext) -> String {
         parts.push(format!("## Project Context\n{ctx}"));
     }
 
+    let release_request = if *is_unreleased_head {
+        format!("Generate release notes for unreleased changes since {prev_tag}.")
+    } else {
+        format!("Generate release notes for **{tag}** (previous release: {prev_tag}).")
+    };
+
     parts.push(format!(
-        "Generate release notes for **{tag}** (previous release: {prev_tag}).\n\
+        "{release_request}\n\
          Repository: `{owner_repo}` (https://github.com/{owner_repo})\n\n\
          ## Git Log\n```\n{git_log}\n```"
     ));
@@ -117,9 +125,15 @@ pub fn user_prompt(ctx: &UserPromptContext) -> String {
     }
 
     if let Some(entry) = changelog_entry {
-        parts.push(format!(
-            "\n## Existing CHANGELOG.md Entry\nHere is the current auto-generated entry — use it as a starting point and improve it:\n```\n{entry}\n```"
-        ));
+        if *is_unreleased_head {
+            parts.push(format!(
+                "\n## Existing Unreleased CHANGELOG.md Draft\nHere is the current draft unreleased material — reconcile it with the generated notes and improve it. Produce only the changelog section body, without a nested `## [Unreleased]` or `## Unreleased` heading:\n```\n{entry}\n```"
+            ));
+        } else {
+            parts.push(format!(
+                "\n## Existing CHANGELOG.md Entry\nHere is the current auto-generated entry — use it as a starting point and improve it:\n```\n{entry}\n```"
+            ));
+        }
     }
 
     if let Some(body) = existing_release {
@@ -184,6 +198,7 @@ mod tests {
             owner_repo: "jdx/communique",
             git_log: "abc1234 feat: add feature",
             pr_numbers: &[],
+            is_unreleased_head: false,
             changelog_entry: None,
             existing_release: None,
             context: None,
@@ -206,6 +221,7 @@ mod tests {
             owner_repo: "jdx/communique",
             git_log: "abc1234 feat (#42)",
             pr_numbers: &[42, 99],
+            is_unreleased_head: false,
             changelog_entry: None,
             existing_release: None,
             context: None,
@@ -225,6 +241,7 @@ mod tests {
             owner_repo: "jdx/communique",
             git_log: "def5678 fix: bug",
             pr_numbers: &[10],
+            is_unreleased_head: false,
             changelog_entry: Some("### Fixed\n- Bug fix"),
             existing_release: Some("Previous release body"),
             context: Some("This is a CLI tool for release notes."),
@@ -249,12 +266,74 @@ mod tests {
             owner_repo: "test/repo",
             git_log: "abc init",
             pr_numbers: &[],
+            is_unreleased_head: false,
             changelog_entry: None,
             existing_release: None,
             context: None,
             recent_releases: &[("v1.0.0".into(), long_body)],
         });
         assert!(prompt.contains("[truncated]"));
+    }
+
+    #[test]
+    fn test_user_prompt_unreleased_head_labels_changes_without_head() {
+        let prompt = user_prompt(&UserPromptContext {
+            tag: "HEAD",
+            prev_tag: "v1.0.0",
+            owner_repo: "test/repo",
+            git_log: "abc1234 feat: draft feature",
+            pr_numbers: &[],
+            is_unreleased_head: true,
+            changelog_entry: None,
+            existing_release: None,
+            context: None,
+            recent_releases: &[],
+        });
+
+        assert!(prompt.contains("Generate release notes for unreleased changes since v1.0.0."));
+        assert!(!prompt.contains("**HEAD**"));
+    }
+
+    #[test]
+    fn test_user_prompt_tagged_mode_preserves_tagged_phrase() {
+        let prompt = user_prompt(&UserPromptContext {
+            tag: "v2.0.0",
+            prev_tag: "v1.0.0",
+            owner_repo: "test/repo",
+            git_log: "abc1234 feat: tagged feature",
+            pr_numbers: &[],
+            is_unreleased_head: false,
+            changelog_entry: None,
+            existing_release: None,
+            context: None,
+            recent_releases: &[],
+        });
+
+        assert!(
+            prompt.contains("Generate release notes for **v2.0.0** (previous release: v1.0.0).")
+        );
+    }
+
+    #[test]
+    fn test_user_prompt_unreleased_changelog_entry_is_draft_material() {
+        let prompt = user_prompt(&UserPromptContext {
+            tag: "HEAD",
+            prev_tag: "v1.0.0",
+            owner_repo: "test/repo",
+            git_log: "abc1234 feat: draft feature",
+            pr_numbers: &[],
+            is_unreleased_head: true,
+            changelog_entry: Some("### Changed\n- Old draft"),
+            existing_release: None,
+            context: None,
+            recent_releases: &[],
+        });
+
+        assert!(prompt.contains("Existing Unreleased CHANGELOG.md Draft"));
+        assert!(prompt.contains("draft unreleased material"));
+        assert!(prompt.contains("without a nested `## [Unreleased]` or `## Unreleased` heading"));
+        assert!(!prompt.contains("Existing CHANGELOG.md Entry"));
+        assert!(!prompt.contains("**HEAD**"));
     }
 
     #[test]
@@ -270,6 +349,7 @@ mod tests {
             owner_repo: "test/repo",
             git_log: "abc init",
             pr_numbers: &[],
+            is_unreleased_head: false,
             changelog_entry: None,
             existing_release: None,
             context: None,

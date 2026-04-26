@@ -39,6 +39,67 @@ struct Context {
     github_client: Option<github::GitHubClient>,
 }
 
+impl Context {
+    fn is_unreleased_head(&self) -> bool {
+        self.tag == "HEAD"
+    }
+
+    fn display_tag(&self) -> &str {
+        if self.is_unreleased_head() {
+            "Unreleased"
+        } else {
+            &self.tag
+        }
+    }
+}
+
+fn validate_generate_options(opts: &GenerateOptions) -> miette::Result<()> {
+    if opts.github_release && opts.tag == "HEAD" {
+        return Err(miette::miette!(
+            "--github-release cannot be used with HEAD because HEAD is an unreleased changelog target. Use --changelog, or generate notes for a real tag."
+        ));
+    }
+
+    Ok(())
+}
+
+fn release_title_description<'a>(title: &'a str, label: &str) -> Option<&'a str> {
+    let rest = title.strip_prefix(label)?;
+    if rest.chars().next().is_some_and(char::is_alphanumeric) {
+        return None;
+    }
+
+    let trimmed = rest.trim_start_matches(|c: char| !c.is_alphanumeric());
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
+}
+
+fn normalize_release_title(title: String, display_tag: &str, raw_tag: &str) -> String {
+    let tag_prefix = format!("{display_tag}: ");
+    if title.starts_with(&tag_prefix) {
+        return title;
+    }
+
+    if raw_tag != display_tag && title.trim() == raw_tag {
+        return format!("{display_tag}: changes");
+    }
+
+    let description = release_title_description(&title, display_tag)
+        .or_else(|| {
+            if raw_tag == display_tag {
+                None
+            } else {
+                release_title_description(&title, raw_tag)
+            }
+        })
+        .unwrap_or(title.as_str());
+
+    format!("{display_tag}: {description}")
+}
+
 pub async fn run(opts: GenerateOptions) -> miette::Result<()> {
     let job = ProgressJobBuilder::new()
         .body("{{spinner()}} {{message | flex}}")
@@ -48,25 +109,11 @@ pub async fn run(opts: GenerateOptions) -> miette::Result<()> {
     let ctx = gather_context(&opts, &job).await?;
     let mut parsed = generate_notes(&ctx, opts.dry_run, &job).await?;
 
-    // Normalize release title to "vX.Y.Z: description" format.
+    // Normalize release title to "label: description" format.
     // The LLM may include the tag with a different separator (e.g. "v1.0.0 (title)"
-    // or "v1.0.0 - title"), so we check for the exact "tag: " prefix.
-    let tag_prefix = format!("{}: ", ctx.tag);
-    if !parsed.release_title.starts_with(&tag_prefix) {
-        let description = parsed
-            .release_title
-            .strip_prefix(&ctx.tag)
-            .and_then(|rest| {
-                let trimmed = rest.trim_start_matches(|c: char| !c.is_alphanumeric());
-                if trimmed.is_empty() {
-                    None
-                } else {
-                    Some(trimmed)
-                }
-            })
-            .unwrap_or(parsed.release_title.as_str());
-        parsed.release_title = format!("{}: {}", ctx.tag, description);
-    }
+    // or "v1.0.0 - title"), so we check for the exact "label: " prefix.
+    let display_tag = ctx.display_tag();
+    parsed.release_title = normalize_release_title(parsed.release_title, display_tag, &ctx.tag);
 
     publish(&opts, &ctx, &parsed, &job).await?;
 
@@ -102,6 +149,8 @@ pub async fn run(opts: GenerateOptions) -> miette::Result<()> {
 }
 
 async fn gather_context(opts: &GenerateOptions, job: &Arc<ProgressJob>) -> miette::Result<Context> {
+    validate_generate_options(opts)?;
+
     let github_token = std::env::var("GITHUB_TOKEN").ok();
 
     if opts.github_release && github_token.is_none() {
@@ -200,12 +249,22 @@ async fn generate_notes(
     );
 
     job.prop("message", "Fetching existing release context...");
-    let changelog_entry = read_changelog_entry(&ctx.repo_root, &ctx.tag);
+    let changelog_entry = if ctx.is_unreleased_head() {
+        read_unreleased_section(&ctx.repo_root)?
+    } else {
+        read_changelog_entry(&ctx.repo_root, &ctx.tag)
+    };
 
     // Fetch existing release and recent releases in parallel
     let match_style = ctx.defaults.match_style.unwrap_or(true);
     let (existing_release, recent_releases) = if let Some(gh) = &ctx.github_client {
-        let existing_fut = gh.get_release_by_tag(&ctx.tag);
+        let existing_fut = async {
+            if ctx.is_unreleased_head() {
+                Ok(None)
+            } else {
+                gh.get_release_by_tag(&ctx.tag).await
+            }
+        };
         let recent_fut = async {
             if !match_style {
                 return vec![];
@@ -248,6 +307,7 @@ async fn generate_notes(
         owner_repo: &ctx.owner_repo,
         git_log: &git_log,
         pr_numbers: &pr_numbers,
+        is_unreleased_head: ctx.is_unreleased_head(),
         changelog_entry: changelog_entry.as_deref(),
         existing_release: existing_release.as_deref(),
         context: ctx.context.as_deref(),
@@ -335,6 +395,71 @@ mod tests {
             output: None,
             config: None,
         }
+    }
+
+    fn test_context(repo_root: PathBuf, tag: &str, prev_tag: &str) -> Context {
+        Context {
+            repo_root,
+            owner_repo: "test/repo".into(),
+            tag: tag.into(),
+            prev_tag: prev_tag.into(),
+            client: Box::new(MockLlmClient::new(vec![])),
+            defaults: Defaults::default(),
+            system_extra: None,
+            context: None,
+            github_client: None,
+        }
+    }
+
+    fn test_parsed_output(changelog: &str) -> ParsedOutput {
+        ParsedOutput {
+            changelog: changelog.into(),
+            release_title: "Title".into(),
+            release_body: "Body".into(),
+            usage: Usage::default(),
+        }
+    }
+
+    #[test]
+    fn test_validate_generate_options_rejects_head_github_release() {
+        let opts = GenerateOptions {
+            github_release: true,
+            ..test_opts("HEAD")
+        };
+
+        let err = validate_generate_options(&opts).unwrap_err().to_string();
+        assert!(err.contains(
+            "--github-release cannot be used with HEAD because HEAD is an unreleased changelog target. Use --changelog, or generate notes for a real tag."
+        ));
+    }
+
+    #[test]
+    fn test_validate_generate_options_allows_head_changelog() {
+        let opts = GenerateOptions {
+            changelog: true,
+            ..test_opts("HEAD")
+        };
+
+        validate_generate_options(&opts).unwrap();
+    }
+
+    #[test]
+    fn test_normalize_release_title_uses_unreleased_display_tag_for_head() {
+        let title = normalize_release_title("HEAD - Draft changes".into(), "Unreleased", "HEAD");
+        assert_eq!(title, "Unreleased: Draft changes");
+        assert!(!title.starts_with("HEAD:"));
+    }
+
+    #[test]
+    fn test_normalize_release_title_preserves_tagged_behavior() {
+        let title = normalize_release_title("v1.2.3 - Feature release".into(), "v1.2.3", "v1.2.3");
+        assert_eq!(title, "v1.2.3: Feature release");
+    }
+
+    #[test]
+    fn test_normalize_release_title_does_not_strip_head_inside_word() {
+        let title = normalize_release_title("HEADline feature".into(), "Unreleased", "HEAD");
+        assert_eq!(title, "Unreleased: HEADline feature");
     }
 
     #[tokio::test]
@@ -608,6 +733,46 @@ mod tests {
         .unwrap();
         let entry = read_changelog_entry(dir.path(), "v1.0.0").unwrap();
         assert!(entry.contains("### Changed"));
+    }
+
+    #[test]
+    fn test_read_unreleased_section_bracketed() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("CHANGELOG.md"),
+            "# Changelog\n\n## [Unreleased]\n\n### Changed\n- Draft\n\n## [1.0.0]\n- Old\n",
+        )
+        .unwrap();
+
+        let entry = read_unreleased_section(dir.path()).unwrap().unwrap();
+        assert_eq!(entry, "### Changed\n- Draft");
+        assert!(!entry.contains("1.0.0"));
+    }
+
+    #[test]
+    fn test_read_unreleased_section_plain() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("CHANGELOG.md"),
+            "# Changelog\n\n## Unreleased\n\n### Fixed\n- Draft bug\n\n## 1.0.0\n- Old\n",
+        )
+        .unwrap();
+
+        let entry = read_unreleased_section(dir.path()).unwrap().unwrap();
+        assert_eq!(entry, "### Fixed\n- Draft bug");
+    }
+
+    #[test]
+    fn test_read_unreleased_section_missing_file_or_section() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(read_unreleased_section(dir.path()).unwrap().is_none());
+
+        std::fs::write(
+            dir.path().join("CHANGELOG.md"),
+            "# Changelog\n\n## [1.0.0]\n- Old\n",
+        )
+        .unwrap();
+        assert!(read_unreleased_section(dir.path()).unwrap().is_none());
     }
 
     #[tokio::test]
@@ -1060,6 +1225,126 @@ mod tests {
         assert!(tail.contains("[0.9.0]"));
     }
 
+    #[test]
+    fn test_replace_unreleased_section_bracketed_preserves_tail() {
+        let existing = "# Changelog\n\n## [Unreleased]\n\n### Changed\n- Old draft\n\n## [1.0.0] - 2025-01-01\n### Added\n- Old release\n";
+        let updated = replace_unreleased_section(existing, "### Added\n- New draft").unwrap();
+
+        assert_eq!(
+            updated,
+            "# Changelog\n\n## [Unreleased]\n\n### Added\n- New draft\n\n## [1.0.0] - 2025-01-01\n### Added\n- Old release\n"
+        );
+    }
+
+    #[test]
+    fn test_replace_unreleased_section_plain_preserves_header() {
+        let existing = "# Changelog\n\n## Unreleased\n\n- Old draft\n";
+        let updated = replace_unreleased_section(existing, "### Fixed\n- New fix").unwrap();
+
+        assert_eq!(
+            updated,
+            "# Changelog\n\n## Unreleased\n\n### Fixed\n- New fix\n"
+        );
+    }
+
+    #[test]
+    fn test_replace_unreleased_section_errors_without_unreleased_header() {
+        let err = replace_unreleased_section("# Changelog\n\n## [1.0.0]\n- Old\n", "- New")
+            .unwrap_err()
+            .to_string();
+
+        assert!(err.contains("does not contain ## [Unreleased] or ## Unreleased"));
+    }
+
+    #[test]
+    fn test_replace_unreleased_section_errors_on_duplicate_unreleased_headers() {
+        let err = replace_unreleased_section(
+            "# Changelog\n\n## [Unreleased]\n\n## Unreleased\n",
+            "- New",
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(err.contains("multiple Unreleased sections"));
+    }
+
+    #[test]
+    fn test_replace_unreleased_section_removes_forbidden_target_headers() {
+        let existing = "# Changelog\n\n## [Unreleased]\n\n- Old\n";
+        let updated = replace_unreleased_section(existing, "## [HEAD]\n### Added\n- New").unwrap();
+
+        assert!(!updated.contains("## [HEAD]"));
+        assert!(!updated.contains("## HEAD"));
+        assert!(updated.contains("### Added\n- New"));
+    }
+
+    #[tokio::test]
+    async fn test_update_changelog_head_updates_unreleased_in_place() {
+        let repo = TempRepo::new();
+        let original = "# Changelog\n\nIntro text.\n\n## [Unreleased]\n\n### Changed\n- Old draft\n\n## [0.1.0] - 2026-01-01\n### Added\n- Initial release\n";
+        repo.write_file("CHANGELOG.md", original);
+
+        let ctx = test_context(repo.path().to_path_buf(), "HEAD", "v0.1.0");
+        let parsed = test_parsed_output("### Added\n- New draft");
+        let job = Arc::new(ProgressJobBuilder::new().build());
+
+        update_changelog(&ctx, &parsed, false, &job).await.unwrap();
+
+        let result = std::fs::read_to_string(repo.path().join("CHANGELOG.md")).unwrap();
+        assert!(result.contains("Intro text."));
+        assert!(result.contains("## [Unreleased]\n\n### Added\n- New draft"));
+        assert!(result.contains("## [0.1.0] - 2026-01-01\n### Added\n- Initial release"));
+        assert!(!result.contains("## [HEAD]"));
+        assert!(!result.contains("## HEAD"));
+    }
+
+    #[tokio::test]
+    async fn test_update_changelog_head_creates_missing_file() {
+        let repo = TempRepo::new();
+        let ctx = test_context(repo.path().to_path_buf(), "HEAD", "v0.1.0");
+        let parsed = test_parsed_output("### Added\n- New draft");
+        let job = Arc::new(ProgressJobBuilder::new().build());
+
+        update_changelog(&ctx, &parsed, false, &job).await.unwrap();
+
+        let result = std::fs::read_to_string(repo.path().join("CHANGELOG.md")).unwrap();
+        assert_eq!(
+            result,
+            "# Changelog\n\n## [Unreleased]\n\n### Added\n- New draft\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_update_changelog_head_errors_without_unreleased_header() {
+        let repo = TempRepo::new();
+        repo.write_file("CHANGELOG.md", "# Changelog\n\n## [0.1.0]\n- Old\n");
+        let ctx = test_context(repo.path().to_path_buf(), "HEAD", "v0.1.0");
+        let parsed = test_parsed_output("### Added\n- New draft");
+        let job = Arc::new(ProgressJobBuilder::new().build());
+
+        let err = update_changelog(&ctx, &parsed, false, &job)
+            .await
+            .unwrap_err()
+            .to_string();
+
+        assert!(err.contains("does not contain ## [Unreleased] or ## Unreleased"));
+    }
+
+    #[tokio::test]
+    async fn test_update_changelog_head_dry_run_leaves_file_unchanged() {
+        let repo = TempRepo::new();
+        let original = "# Changelog\n\n## [Unreleased]\n\n### Changed\n- Old draft\n";
+        repo.write_file("CHANGELOG.md", original);
+        let ctx = test_context(repo.path().to_path_buf(), "HEAD", "v0.1.0");
+        let parsed = test_parsed_output("### Added\n- New draft");
+        let job = Arc::new(ProgressJobBuilder::new().build());
+
+        update_changelog(&ctx, &parsed, true, &job).await.unwrap();
+
+        let result = std::fs::read_to_string(repo.path().join("CHANGELOG.md")).unwrap();
+        assert_eq!(result, original);
+    }
+
     #[tokio::test]
     async fn test_update_changelog_insert() {
         let repo = TempRepo::new();
@@ -1388,6 +1673,126 @@ fn today_iso() -> String {
     format!("{y:04}-{m:02}-{d:02}")
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ChangelogSection {
+    body_start: usize,
+    body_end: usize,
+}
+
+fn is_unreleased_header(line: &str) -> bool {
+    matches!(line.trim(), "## [Unreleased]" | "## Unreleased")
+}
+
+fn is_forbidden_unreleased_target_header(line: &str) -> bool {
+    matches!(
+        line.trim(),
+        "## [Unreleased]" | "## Unreleased" | "## [HEAD]" | "## HEAD"
+    )
+}
+
+fn find_unreleased_section(contents: &str) -> miette::Result<Option<ChangelogSection>> {
+    let mut lines = Vec::new();
+    let mut offset = 0;
+    for line in contents.split_inclusive('\n') {
+        let start = offset;
+        offset += line.len();
+        lines.push((start, offset, line));
+    }
+
+    let mut unreleased_index = None;
+    for (index, (_, _, line)) in lines.iter().enumerate() {
+        if is_unreleased_header(line) && unreleased_index.replace(index).is_some() {
+            return Err(miette::miette!(
+                "CHANGELOG.md contains multiple Unreleased sections; cannot update safely."
+            ));
+        }
+    }
+
+    let Some(index) = unreleased_index else {
+        return Ok(None);
+    };
+
+    let body_start = lines[index].1;
+    let mut body_end = contents.len();
+    for (start, _, line) in lines.iter().skip(index + 1) {
+        if line.trim().starts_with("## ") {
+            body_end = *start;
+            break;
+        }
+    }
+
+    Ok(Some(ChangelogSection {
+        body_start,
+        body_end,
+    }))
+}
+
+fn normalize_generated_changelog_body(generated: &str) -> String {
+    generated
+        .lines()
+        .filter(|line| !is_forbidden_unreleased_target_header(line))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string()
+}
+
+fn new_unreleased_changelog(generated: &str) -> String {
+    let body = normalize_generated_changelog_body(generated);
+    if body.is_empty() {
+        "# Changelog\n\n## [Unreleased]\n".to_string()
+    } else {
+        format!("# Changelog\n\n## [Unreleased]\n\n{body}\n")
+    }
+}
+
+fn replace_unreleased_section(existing: &str, generated: &str) -> miette::Result<String> {
+    let Some(section) = find_unreleased_section(existing)? else {
+        return Err(miette::miette!(
+            "CHANGELOG.md exists but does not contain ## [Unreleased] or ## Unreleased; add an Unreleased section before running `communique generate HEAD --changelog`."
+        ));
+    };
+
+    let body = normalize_generated_changelog_body(generated);
+    let mut updated = existing[..section.body_start].to_string();
+    if !updated.ends_with('\n') {
+        updated.push('\n');
+    }
+
+    if !body.is_empty() {
+        updated.push('\n');
+        updated.push_str(&body);
+        updated.push('\n');
+    }
+
+    let tail = existing[section.body_end..].trim_start_matches(['\r', '\n']);
+    if !tail.is_empty() {
+        updated.push('\n');
+        updated.push_str(tail);
+    }
+
+    Ok(format!("{}\n", updated.trim_end()))
+}
+
+fn read_unreleased_section(repo_root: &Path) -> miette::Result<Option<String>> {
+    let path = repo_root.join("CHANGELOG.md");
+    let contents = match std::fs::read_to_string(&path) {
+        Ok(contents) => contents,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => return Err(crate::error::Error::Io(err).into()),
+    };
+
+    let Some(section) = find_unreleased_section(&contents)? else {
+        return Ok(None);
+    };
+
+    Ok(Some(
+        contents[section.body_start..section.body_end]
+            .trim()
+            .to_string(),
+    ))
+}
+
 async fn update_changelog(
     ctx: &Context,
     parsed: &ParsedOutput,
@@ -1397,6 +1802,24 @@ async fn update_changelog(
     job.prop("message", "Updating CHANGELOG.md...");
 
     let changelog_path = ctx.repo_root.join("CHANGELOG.md");
+    if ctx.is_unreleased_head() {
+        debug_assert_eq!(ctx.tag, "HEAD");
+        let updated = match std::fs::read_to_string(&changelog_path) {
+            Ok(existing) => replace_unreleased_section(&existing, &parsed.changelog)?,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                new_unreleased_changelog(&parsed.changelog)
+            }
+            Err(err) => return Err(crate::error::Error::Io(err).into()),
+        };
+
+        if !dry_run {
+            xx::file::write(&changelog_path, updated)?;
+            info!("wrote {}", changelog_path.display());
+        }
+
+        return Ok(());
+    }
+
     let existing = xx::file::read_to_string(&changelog_path)
         .unwrap_or_else(|_| "# Changelog\n\n## [Unreleased]\n".to_string());
 

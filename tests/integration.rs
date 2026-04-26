@@ -99,6 +99,108 @@ async fn test_generate_end_to_end() {
     );
 }
 
+#[tokio::test]
+async fn test_generate_head_changelog_updates_unreleased() {
+    let server = wiremock::MockServer::start().await;
+
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/chat/completions"))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
+            "choices": [{
+                "message": {
+                    "content": null,
+                    "tool_calls": [{
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {
+                            "name": "submit_release_notes",
+                            "arguments": serde_json::to_string(&json!({
+                                "changelog": "### Added\n- Unreleased feature",
+                                "release_title": "HEAD - Draft Feature",
+                                "release_body": "Draft feature release notes."
+                            })).unwrap()
+                        }
+                    }]
+                },
+                "finish_reason": "tool_calls"
+            }],
+            "usage": {"prompt_tokens": 80, "completion_tokens": 40}
+        })))
+        .mount(&server)
+        .await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path();
+    git(repo, &["init"]);
+    git(repo, &["config", "user.email", "test@test.com"]);
+    git(repo, &["config", "user.name", "Test"]);
+
+    std::fs::write(repo.join("README.md"), "# hello").unwrap();
+    git(repo, &["add", "-A"]);
+    git(repo, &["commit", "-m", "initial"]);
+    git(repo, &["tag", "v0.1.0"]);
+
+    std::fs::write(repo.join("feature.rs"), "// feature").unwrap();
+    std::fs::write(
+        repo.join("CHANGELOG.md"),
+        "# Changelog\n\n## [Unreleased]\n\n### Changed\n- Old draft\n\n## [0.1.0] - 2026-01-01\n### Added\n- Initial release\n",
+    )
+    .unwrap();
+    git(repo, &["add", "-A"]);
+    git(repo, &["commit", "-m", "add unreleased feature"]);
+
+    let output_file = repo.join("output.md");
+    let bin = env!("CARGO_BIN_EXE_communique");
+
+    let result = Command::new(bin)
+        .current_dir(repo)
+        .args([
+            "generate",
+            "HEAD",
+            "--changelog",
+            "--repo",
+            "test/repo",
+            "--provider",
+            "openai",
+            "--model",
+            "test-model",
+            "--base-url",
+            &server.uri(),
+            "--output",
+            output_file.to_str().unwrap(),
+        ])
+        .env("OPENAI_API_KEY", "test-key")
+        .env("CLX_NO_PROGRESS", "1")
+        .env_remove("GITHUB_TOKEN")
+        .output()
+        .expect("failed to run communique");
+
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert!(result.status.success(), "communique failed: {}", stderr);
+
+    let changelog = std::fs::read_to_string(repo.join("CHANGELOG.md")).unwrap();
+    assert!(
+        changelog.contains("## [Unreleased]\n\n### Added\n- Unreleased feature"),
+        "changelog: {changelog}"
+    );
+    assert!(
+        changelog.contains("## [0.1.0] - 2026-01-01\n### Added\n- Initial release"),
+        "changelog should preserve released sections: {changelog}"
+    );
+    assert!(!changelog.contains("## [HEAD]"));
+    assert!(!changelog.contains("## HEAD"));
+
+    let output = std::fs::read_to_string(&output_file).unwrap();
+    assert!(
+        output.contains("# Unreleased: Draft Feature"),
+        "output: {output}"
+    );
+    assert!(
+        !output.contains("HEAD:"),
+        "output should not expose HEAD label: {output}"
+    );
+}
+
 /// Same as above but with `--concise` to verify changelog-only output.
 #[tokio::test]
 async fn test_generate_concise() {
