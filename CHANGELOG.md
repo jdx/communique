@@ -18,12 +18,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Added
 
-- *(generate)* Support `communique generate HEAD --changelog` as an intentional `[Unreleased]` target — replaces the existing `## [Unreleased]` section in place instead of inserting a literal `## [HEAD]` entry, with prompt/title labels switched to "unreleased" wording and an early guard rejecting `HEAD --github-release`. ([#121](https://github.com/jdx/communique/pull/121)) (@ThomasK33)## [1.0.4](https://github.com/jdx/communique/releases/tag/v1.0.4) - 2026-04-24
+- *(generate)* Support `communique generate HEAD --changelog` as an intentional `[Unreleased]` target — replaces the existing `## [Unreleased]` section in place instead of inserting a literal `## [HEAD]` entry, with prompt/title labels switched to "unreleased" wording and an early guard rejecting `HEAD --github-release`. ([#121](https://github.com/jdx/communique/pull/121)) (@ThomasK33)
+
+## [1.0.4](https://github.com/jdx/communique/releases/tag/v1.0.4) - 2026-04-24
 
 ## Fixed
 
 - **agent**: salvage partial `submit_release_notes` calls and surface better diagnostics instead of hard-failing after 3 malformed attempts ([#120](https://github.com/jdx/communique/pull/120))
-- **docs**: stack the announcement banner and pin the close button to the top-right on mobile viewports ([#119](https://github.com/jdx/communique/pull/119))## [1.0.3](https://github.com/jdx/communique/compare/v1.0.2...v1.0.3) - 2026-04-23
+- **docs**: stack the announcement banner and pin the close button to the top-right on mobile viewports ([#119](https://github.com/jdx/communique/pull/119))
+
+## [1.0.3](https://github.com/jdx/communique/compare/v1.0.2...v1.0.3) - 2026-04-23
 
 ### Fixed
 
@@ -37,7 +41,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - add cross-site announcement banner ([#109](https://github.com/jdx/communique/pull/109))
 - *(release)* append en.dev sponsor blurb to release notes ([#106](https://github.com/jdx/communique/pull/106))
 
-## [1.0.2](https://github.com/jdx/communique/releases/tag/v1.0.2) - 2026-04-21## Fixed
+## [1.0.2](https://github.com/jdx/communique/releases/tag/v1.0.2) - 2026-04-21
+
+## Fixed
 
 - Retry malformed `submit_release_notes` tool calls instead of aborting the run, with a cap of 3 attempts ([#105](https://github.com/jdx/communique/pull/105))
 
@@ -45,7 +51,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Changed
 
-- Bumped the default model from `claude-opus-4-6` to `claude-opus-4-7` ([#101](https://github.com/jdx/communique/pull/101))## [1.0.0](https://github.com/jdx/communique/compare/v0.1.9...v1.0.0) - 2026-04-19
+- Bumped the default model from `claude-opus-4-6` to `claude-opus-4-7` ([#101](https://github.com/jdx/communique/pull/101))
+
+## [1.0.0](https://github.com/jdx/communique/compare/v0.1.9...v1.0.0) - 2026-04-19
 
 ### Changed
 
@@ -69,7 +77,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - *(deps)* update rust crate clap to v4.5.60 ([#59](https://github.com/jdx/communique/pull/59))
 - *(deps)* pin dependencies ([#58](https://github.com/jdx/communique/pull/58))
 - *(deps)* update rust crate futures-util to v0.3.32 ([#56](https://github.com/jdx/communique/pull/56))
-- run render and lint-fix when creating release PR ([#53](https://github.com/jdx/communique/pull/53))## [0.1.8](https://github.com/jdx/communique/releases/tag/v0.1.8) - 2026-02-18
+- run render and lint-fix when creating release PR ([#53](https://github.com/jdx/communique/pull/53))
+
+## [0.1.8](https://github.com/jdx/communique/releases/tag/v0.1.8) - 2026-02-18
 
 ### Added
 
@@ -77,7 +87,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Propagated errors from the list releases API call in the `get_release_by_tag` fallback instead of silently swallowing them, fixing misleading "No GitHub release found" messages ([#49](https://github.com/jdx/communique/pull/49))## [0.1.7](https://github.com/jdx/communique/compare/v0.1.6...v0.1.7) - 2026-02-17
+- Propagated errors from the list releases API call in the `get_release_by_tag` fallback instead of silently swallowing them, fixing misleading "No GitHub release found" messages ([#49](https://github.com/jdx/communique/pull/49))
+
+## [0.1.7](https://github.com/jdx/communique/compare/v0.1.6...v0.1.7) - 2026-02-17
 
 ### Other
 
@@ -86,7 +98,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.6](https://github.com/jdx/communique/releases/tag/v0.1.6) - 2026-02-12
 
 ### Fixed
-- Fixed draft release tags getting an `untagged-*` placeholder, which prevented pre-built binaries from being uploaded to GitHub releases ([#45](https://github.com/jdx/communique/pull/45))## [0.1.5](https://github.com/jdx/communique/releases/tag/v0.1.5) - 2026-02-12
+- Fixed draft release tags getting an `untagged-*` placeholder, which prevented pre-built binaries from being uploaded to GitHub releases ([#45](https://github.com/jdx/communique/pull/45))
+
+## [0.1.5](https://github.com/jdx/communique/releases/tag/v0.1.5) - 2026-02-12
 
 ### Changed
 - Regenerated CLI documentation to reflect flags and options added in prior releases ([#43](https://github.com/jdx/communique/pull/43))
@@ -97,7 +111,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Increased retry resilience for transient API failures — retries now use 10 attempts with a 1s initial delay and 60s max backoff (up from 5 attempts / 500ms / 30s), improving reliability during API outages ([#41](https://github.com/jdx/communique/pull/41))
 
 ### Fixed
-- Fixed double tag prefix in release PR titles where both the workflow and generate logic prepended the tag ([#41](https://github.com/jdx/communique/pull/41))## [0.1.3](https://github.com/jdx/communique/releases/tag/v0.1.3) - 2026-02-12
+- Fixed double tag prefix in release PR titles where both the workflow and generate logic prepended the tag ([#41](https://github.com/jdx/communique/pull/41))
+
+## [0.1.3](https://github.com/jdx/communique/releases/tag/v0.1.3) - 2026-02-12
 
 ### Fixed
 - Fix draft release lookup — `get_release_by_tag` now falls back to listing releases when the `/releases/tags` endpoint returns 404, since that endpoint doesn't return draft releases ([f201231](https://github.com/jdx/communique/commit/f2012318af310105f0a2517b2c6ad03ce684f176))
@@ -107,11 +123,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated GitHub Actions documentation to show `--changelog` usage, the required `git fetch --tags` step, and simplified workflow examples ([f201231](https://github.com/jdx/communique/commit/f2012318af310105f0a2517b2c6ad03ce684f176))
 
 ### Removed
-- macOS x86_64 pre-built binaries are no longer published; only aarch64 (Apple Silicon) binaries are provided for macOS ([2861482](https://github.com/jdx/communique/commit/28614828b1561ae198943e9f290b4c27be4c8a38))## [0.1.2](https://github.com/jdx/communique/compare/v0.1.1...v0.1.2) - 2026-02-12
+- macOS x86_64 pre-built binaries are no longer published; only aarch64 (Apple Silicon) binaries are provided for macOS ([2861482](https://github.com/jdx/communique/commit/28614828b1561ae198943e9f290b4c27be4c8a38))
+
+## [0.1.2](https://github.com/jdx/communique/compare/v0.1.1...v0.1.2) - 2026-02-12
 
 ### Other
 
-- Prefix release titles with tag and use draft releases## [0.1.1](https://github.com/jdx/communique/compare/v0.1.0...v0.1.1) - 2026-02-12## Added
+- Prefix release titles with tag and use draft releases
+
+## [0.1.1](https://github.com/jdx/communique/compare/v0.1.0...v0.1.1) - 2026-02-12
+
+## Added
 - Multi-model LLM support with OpenAI-compatible provider — use GPT-4, Groq, Together, Ollama, or any OpenAI-compatible API via `--provider` and `--base-url` flags
 - `--dry-run` (`-n`) flag to preview release notes without updating GitHub or verifying links
 - `--verbose` (`-v`) and `--quiet` (`-q`) flags for controlling output verbosity
