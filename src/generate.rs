@@ -1838,6 +1838,71 @@ mod tests {
         assert!(!result.contains(")## ["));
     }
 
+    #[tokio::test]
+    async fn test_update_changelog_moves_target_version_after_unreleased() {
+        let repo = TempRepo::new();
+        repo.write_file(
+            "CHANGELOG.md",
+            "# Changelog\n\n## [Unreleased]\n\n## [1.1.1]\n- Previous\n\n## [1.1.0]\n- Older\n",
+        );
+        repo.commit("initial");
+        repo.tag("v1.1.1");
+        repo.write_file("src/main.rs", "fn main() {}");
+        repo.commit("fix: new fix");
+        repo.tag("v1.1.2");
+
+        let updated_head = "\
+# Changelog
+
+## [Unreleased]
+
+## [1.1.1]
+- Previous
+
+## [1.1.0]
+- Older
+
+## [1.1.2]
+- New fix
+";
+
+        let mock_client = MockLlmClient::new(vec![TurnResponse {
+            tool_calls: vec![],
+            text: Some(updated_head.to_string()),
+            stop_reason: StopReason::EndTurn,
+            usage: fake_usage(),
+        }]);
+
+        let ctx = Context {
+            repo_root: repo.path().to_path_buf(),
+            owner_repo: "test/repo".into(),
+            tag: "v1.1.2".into(),
+            prev_tag: "v1.1.1".into(),
+            client: Box::new(mock_client),
+            defaults: Defaults::default(),
+            system_extra: None,
+            context: None,
+            github_client: None,
+        };
+
+        let parsed = ParsedOutput {
+            changelog: "- New fix".into(),
+            release_title: "v1.1.2".into(),
+            release_body: "Body.".into(),
+            usage: Usage::default(),
+        };
+
+        let job = Arc::new(ProgressJobBuilder::new().build());
+        update_changelog(&ctx, &parsed, false, &job).await.unwrap();
+
+        let result = std::fs::read_to_string(repo.path().join("CHANGELOG.md")).unwrap();
+        let v112 = result.find("## [1.1.2]").unwrap();
+        let v111 = result.find("## [1.1.1]").unwrap();
+        let v110 = result.find("## [1.1.0]").unwrap();
+        assert!(v112 < v111);
+        assert!(v111 < v110);
+    }
+
     #[test]
     fn test_today_iso() {
         let date = today_iso();
@@ -1850,6 +1915,7 @@ mod tests {
 
 /// Split changelog content into (head, tail) keeping at most `max_versions` versioned sections
 /// in the head. This limits tokens sent to the LLM for large changelogs.
+#[cfg(test)]
 fn split_changelog(content: &str, max_versions: usize) -> (&str, &str) {
     let mut version_count = 0;
 
@@ -2001,6 +2067,84 @@ fn join_changelog_head_tail(head: &str, tail: &str) -> String {
     } else {
         format!("{head}\n\n{tail}")
     }
+}
+
+fn format_version_header(existing: &str, version: &str, date: &str, release_url: &str) -> String {
+    let version = version.strip_prefix('v').unwrap_or(version);
+    let template = existing
+        .lines_with_offset()
+        .find(|(_, line)| is_version_header(line))
+        .map(|(_, line)| line.trim());
+
+    let Some(template) = template else {
+        return format!("## [{version}]({release_url}) - {date}");
+    };
+
+    if template.starts_with("## [") {
+        if template.contains("](") {
+            if template.contains(" - ") {
+                format!("## [{version}]({release_url}) - {date}")
+            } else {
+                format!("## [{version}]({release_url})")
+            }
+        } else if template.contains(" - ") {
+            format!("## [{version}] - {date}")
+        } else {
+            format!("## [{version}]")
+        }
+    } else {
+        let prefix = if template.trim_start_matches("## ").starts_with('v') {
+            "v"
+        } else {
+            ""
+        };
+        if template.contains(" - ") {
+            format!("## {prefix}{version} - {date}")
+        } else {
+            format!("## {prefix}{version}")
+        }
+    }
+}
+
+fn remove_version_section(contents: &str, version: &str) -> String {
+    let Some(start) = find_version_section_start(contents, version) else {
+        return contents.to_string();
+    };
+    let end = find_next_version_section_start(contents, start).unwrap_or(contents.len());
+    join_changelog_head_tail(&contents[..start], &contents[end..])
+}
+
+fn upsert_version_changelog(
+    existing: &str,
+    tag: &str,
+    date: &str,
+    release_url: &str,
+    changelog: &str,
+) -> miette::Result<String> {
+    let existing = repair_changelog_section_boundaries(existing);
+    let version = tag.strip_prefix('v').unwrap_or(tag);
+    let header = format_version_header(&existing, version, date, release_url);
+    let body = changelog.trim();
+    let section = if body.is_empty() {
+        header
+    } else {
+        format!("{header}\n\n{body}")
+    };
+
+    let without_existing = remove_version_section(&existing, version);
+    let Some(unreleased) = find_unreleased_section(&without_existing)? else {
+        return Ok(join_changelog_head_tail(&section, &without_existing));
+    };
+
+    let before = without_existing[..unreleased.body_end].trim_end();
+    let after = without_existing[unreleased.body_end..].trim_start_matches(['\r', '\n']);
+    let updated = if after.is_empty() {
+        format!("{before}\n\n{section}")
+    } else {
+        format!("{before}\n\n{section}\n\n{after}")
+    };
+
+    Ok(format!("{}\n", updated.trim_end()))
 }
 
 fn repair_changelog_section_boundaries(content: &str) -> String {
@@ -2157,10 +2301,7 @@ async fn update_changelog(
     }
 
     let existing = xx::file::read_to_string(&changelog_path)
-        .map(|content| repair_changelog_section_boundaries(&content))
         .unwrap_or_else(|_| "# Changelog\n\n## [Unreleased]\n".to_string());
-
-    let (head, tail) = split_changelog(&existing, 3);
 
     let date = today_iso();
     let release_url = format!(
@@ -2168,43 +2309,9 @@ async fn update_changelog(
         ctx.owner_repo, ctx.tag
     );
 
-    let system = "\
-You are a precise CHANGELOG.md editor. Given the top portion of an existing \
-CHANGELOG.md and a new version entry, produce the updated content.
-
-Rules:
-- Match the formatting conventions of the existing file (header style, spacing, link patterns)
-- Insert the new version section after any [Unreleased] section, before existing version entries
-- If an entry for this exact version already exists, replace it with the new content
-- Use the date and release URL provided to format the version header
-- If the file uses linked headers like ## [X.Y.Z](url) - date, follow that pattern
-- If the file uses plain headers like ## X.Y.Z, follow that pattern
-- Preserve the [Unreleased] section header (keep it even if empty)
-- Preserve all other existing entries exactly as-is
-- Output ONLY the raw markdown content — no code fences, no explanations";
-
-    let user_msg = format!(
-        "Version: {tag}\nDate: {date}\nRelease URL: {release_url}\n\n\
-         New changelog entry:\n{changelog}\n\n\
-         Current CHANGELOG.md (top portion):\n{head}",
-        tag = ctx.tag,
-        changelog = parsed.changelog,
-        head = head,
-    );
-
-    let mut conv = ctx.client.new_conversation(&user_msg);
-    let response = ctx.client.send_turn(system, &mut conv, &[]).await?;
-
-    let updated_head = response.text.unwrap_or_default();
-
-    info!(
-        "changelog update tokens: {} input + {} output",
-        response.usage.input_tokens, response.usage.output_tokens
-    );
-
     if !dry_run {
-        let full = join_changelog_head_tail(&updated_head, tail);
-        let content = format!("{}\n", full.trim_end());
+        let content =
+            upsert_version_changelog(&existing, &ctx.tag, &date, &release_url, &parsed.changelog)?;
         xx::file::write(&changelog_path, content)?;
         info!("wrote {}", changelog_path.display());
     }
