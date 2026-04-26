@@ -83,7 +83,7 @@ fn normalize_release_title(title: String, display_tag: &str, raw_tag: &str) -> S
         return title;
     }
 
-    if raw_tag != display_tag && title.trim() == raw_tag {
+    if raw_tag != display_tag && (title.trim() == raw_tag || title.trim() == display_tag) {
         return format!("{display_tag}: changes");
     }
 
@@ -101,6 +101,8 @@ fn normalize_release_title(title: String, display_tag: &str, raw_tag: &str) -> S
 }
 
 pub async fn run(opts: GenerateOptions) -> miette::Result<()> {
+    validate_generate_options(&opts)?;
+
     let job = ProgressJobBuilder::new()
         .body("{{spinner()}} {{message | flex}}")
         .prop("message", "Discovering repository...")
@@ -149,8 +151,6 @@ pub async fn run(opts: GenerateOptions) -> miette::Result<()> {
 }
 
 async fn gather_context(opts: &GenerateOptions, job: &Arc<ProgressJob>) -> miette::Result<Context> {
-    validate_generate_options(opts)?;
-
     let github_token = std::env::var("GITHUB_TOKEN").ok();
 
     if opts.github_release && github_token.is_none() {
@@ -443,11 +443,36 @@ mod tests {
         validate_generate_options(&opts).unwrap();
     }
 
+    #[tokio::test]
+    async fn test_run_rejects_head_github_release_before_context() {
+        let opts = GenerateOptions {
+            github_release: true,
+            config: Some(PathBuf::from(
+                "/tmp/communique-missing-config-for-validation.toml",
+            )),
+            ..test_opts("HEAD")
+        };
+
+        let err = run(opts).await.unwrap_err().to_string();
+        assert!(err.contains(
+            "--github-release cannot be used with HEAD because HEAD is an unreleased changelog target. Use --changelog, or generate notes for a real tag."
+        ));
+    }
+
     #[test]
     fn test_normalize_release_title_uses_unreleased_display_tag_for_head() {
         let title = normalize_release_title("HEAD - Draft changes".into(), "Unreleased", "HEAD");
         assert_eq!(title, "Unreleased: Draft changes");
         assert!(!title.starts_with("HEAD:"));
+    }
+
+    #[test]
+    fn test_normalize_release_title_bare_unreleased_uses_changes() {
+        let title = normalize_release_title("Unreleased".into(), "Unreleased", "HEAD");
+        assert_eq!(title, "Unreleased: changes");
+
+        let tagged = normalize_release_title("v1.0.0".into(), "v1.0.0", "v1.0.0");
+        assert_eq!(tagged, "v1.0.0: v1.0.0");
     }
 
     #[test]
@@ -1248,6 +1273,43 @@ mod tests {
     }
 
     #[test]
+    fn test_replace_unreleased_section_allows_level_two_categories() {
+        let existing = "# Changelog\n\n## [Unreleased]\n\n## Added\n- thing 1\n\n## Fixed\n- thing 2\n\n## [1.0.0] - 2026-01-01\n- old release\n";
+        let updated = replace_unreleased_section(existing, "## Added\n- replacement").unwrap();
+
+        assert_eq!(
+            updated,
+            "# Changelog\n\n## [Unreleased]\n\n## Added\n- replacement\n\n## [1.0.0] - 2026-01-01\n- old release\n"
+        );
+        assert!(!updated.contains("thing 1"));
+        assert!(!updated.contains("thing 2"));
+    }
+
+    #[test]
+    fn test_replace_unreleased_section_stops_at_unbracketed_v_version() {
+        let existing =
+            "# Changelog\n\n## [Unreleased]\n\n## Added\n- old draft\n\n## v1.0.0\n- old release\n";
+        let updated = replace_unreleased_section(existing, "## Fixed\n- replacement").unwrap();
+
+        assert_eq!(
+            updated,
+            "# Changelog\n\n## [Unreleased]\n\n## Fixed\n- replacement\n\n## v1.0.0\n- old release\n"
+        );
+        assert!(!updated.contains("old draft"));
+    }
+
+    #[test]
+    fn test_replace_unreleased_section_preserves_linked_header() {
+        let existing = "# Changelog\n\n## [Unreleased](https://example.com/compare/v1.0.0...HEAD)\n\n- Old draft\n";
+        let updated = replace_unreleased_section(existing, "- New draft").unwrap();
+
+        assert_eq!(
+            updated,
+            "# Changelog\n\n## [Unreleased](https://example.com/compare/v1.0.0...HEAD)\n\n- New draft\n"
+        );
+    }
+
+    #[test]
     fn test_replace_unreleased_section_errors_without_unreleased_header() {
         let err = replace_unreleased_section("# Changelog\n\n## [1.0.0]\n- Old\n", "- New")
             .unwrap_err()
@@ -1276,6 +1338,15 @@ mod tests {
         assert!(!updated.contains("## [HEAD]"));
         assert!(!updated.contains("## HEAD"));
         assert!(updated.contains("### Added\n- New"));
+    }
+
+    #[test]
+    fn test_normalize_generated_changelog_body_removes_linked_head_header() {
+        let body = normalize_generated_changelog_body(
+            "## [HEAD](https://example.com/compare/v1.0.0...HEAD)\n## Added\n- New",
+        );
+
+        assert_eq!(body, "## Added\n- New");
     }
 
     #[tokio::test]
@@ -1680,14 +1751,31 @@ struct ChangelogSection {
 }
 
 fn is_unreleased_header(line: &str) -> bool {
-    matches!(line.trim(), "## [Unreleased]" | "## Unreleased")
+    let line = line.trim();
+    line == "## Unreleased" || line == "## [Unreleased]" || line.starts_with("## [Unreleased](")
 }
 
 fn is_forbidden_unreleased_target_header(line: &str) -> bool {
-    matches!(
-        line.trim(),
-        "## [Unreleased]" | "## Unreleased" | "## [HEAD]" | "## HEAD"
-    )
+    let line = line.trim();
+    line == "## Unreleased"
+        || line == "## [Unreleased]"
+        || line.starts_with("## [Unreleased](")
+        || line == "## HEAD"
+        || line == "## [HEAD]"
+        || line.starts_with("## [HEAD](")
+}
+
+fn is_version_header(line: &str) -> bool {
+    let Some(rest) = line.trim().strip_prefix("## ") else {
+        return false;
+    };
+    let rest = rest.trim_start();
+
+    rest.starts_with('[')
+        || rest.chars().next().is_some_and(|c| c.is_ascii_digit())
+        || rest
+            .strip_prefix('v')
+            .is_some_and(|s| s.chars().next().is_some_and(|c| c.is_ascii_digit()))
 }
 
 fn find_unreleased_section(contents: &str) -> miette::Result<Option<ChangelogSection>> {
@@ -1715,7 +1803,7 @@ fn find_unreleased_section(contents: &str) -> miette::Result<Option<ChangelogSec
     let body_start = lines[index].1;
     let mut body_end = contents.len();
     for (start, _, line) in lines.iter().skip(index + 1) {
-        if line.trim().starts_with("## ") {
+        if is_version_header(line) {
             body_end = *start;
             break;
         }
@@ -1754,20 +1842,16 @@ fn replace_unreleased_section(existing: &str, generated: &str) -> miette::Result
     };
 
     let body = normalize_generated_changelog_body(generated);
-    let mut updated = existing[..section.body_start].to_string();
-    if !updated.ends_with('\n') {
-        updated.push('\n');
-    }
+    let mut updated = existing[..section.body_start].trim_end().to_string();
 
     if !body.is_empty() {
-        updated.push('\n');
+        updated.push_str("\n\n");
         updated.push_str(&body);
-        updated.push('\n');
     }
 
     let tail = existing[section.body_end..].trim_start_matches(['\r', '\n']);
     if !tail.is_empty() {
-        updated.push('\n');
+        updated.push_str("\n\n");
         updated.push_str(tail);
     }
 
