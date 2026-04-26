@@ -761,6 +761,21 @@ mod tests {
     }
 
     #[test]
+    fn test_read_changelog_entry_allows_level_two_categories() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("CHANGELOG.md"),
+            "## [1.0.0]\n## Added\n- Feature\n\n## Fixed\n- Bug\n\n## [0.9.0]\n## Fixed\n- Old\n",
+        )
+        .unwrap();
+
+        let entry = read_changelog_entry(dir.path(), "v1.0.0").unwrap();
+        assert!(entry.contains("## Added"));
+        assert!(entry.contains("## Fixed\n- Bug"));
+        assert!(!entry.contains("0.9.0"));
+    }
+
+    #[test]
     fn test_read_unreleased_section_bracketed() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
@@ -1251,6 +1266,93 @@ mod tests {
     }
 
     #[test]
+    fn test_split_changelog_ignores_level_two_categories() {
+        let content = "\
+# Changelog
+
+## [Unreleased]
+
+## [3.0.0] - 2025-03-01
+## Added
+- Three
+
+## Fixed
+- Three fix
+
+## [2.0.0] - 2025-02-01
+## Added
+- Two
+
+## [1.0.0] - 2025-01-01
+## Added
+- One
+
+## [0.9.0] - 2024-12-01
+## Fixed
+- Zero nine
+";
+
+        let (head, tail) = split_changelog(content, 3);
+        assert!(head.contains("## Added\n- Three"));
+        assert!(head.contains("## Fixed\n- Three fix"));
+        assert!(head.contains("[1.0.0]"));
+        assert!(!head.contains("[0.9.0]"));
+        assert!(tail.starts_with("## [0.9.0]"));
+    }
+
+    #[test]
+    fn test_split_changelog_ignores_digit_leading_non_versions() {
+        let content = "\
+# Changelog
+
+## [Unreleased]
+
+## [3.0.0]
+- Three
+
+## 2024 Retrospective
+- Not a version
+
+## 1st Quarter Updates
+- Not a version either
+
+## [2.0.0]
+- Two
+
+## [1.0.0]
+- One
+
+## [0.9.0]
+- Zero nine
+";
+
+        let (head, tail) = split_changelog(content, 3);
+        assert!(head.contains("2024 Retrospective"));
+        assert!(head.contains("1st Quarter Updates"));
+        assert!(!head.contains("[0.9.0]"));
+        assert!(tail.starts_with("## [0.9.0]"));
+    }
+
+    #[test]
+    fn test_repair_changelog_section_boundaries() {
+        let content = "- Fix one ([#1](https://github.com/jdx/communique/pull/1))## [1.0.0]\n## Fixed\n- Old ([#0](https://github.com/jdx/communique/pull/0))## [0.9.0]\n";
+
+        let repaired = repair_changelog_section_boundaries(content);
+
+        assert!(repaired.contains("pull/1))\n\n## [1.0.0]"));
+        assert!(repaired.contains("pull/0))\n\n## [0.9.0]"));
+    }
+
+    #[test]
+    fn test_repair_changelog_section_boundaries_ignores_non_versions() {
+        let content = "- Fixed `pattern()## anchor` without changing inline code\n- Also fixed link text)## not a version\n";
+
+        let repaired = repair_changelog_section_boundaries(content);
+
+        assert_eq!(repaired, content);
+    }
+
+    #[test]
     fn test_replace_unreleased_section_bracketed_preserves_tail() {
         let existing = "# Changelog\n\n## [Unreleased]\n\n### Changed\n- Old draft\n\n## [1.0.0] - 2025-01-01\n### Added\n- Old release\n";
         let updated = replace_unreleased_section(existing, "### Added\n- New draft").unwrap();
@@ -1668,6 +1770,72 @@ mod tests {
         // Should preserve the tail (0.9.0)
         assert!(result.contains("[0.9.0]"));
         assert!(result.contains("Zero nine"));
+        assert!(result.contains("- One\n\n## [0.9.0]"));
+    }
+
+    #[tokio::test]
+    async fn test_update_changelog_repairs_existing_joined_boundaries() {
+        let repo = TempRepo::new();
+        repo.write_file(
+            "CHANGELOG.md",
+            "# Changelog\n\n## [Unreleased]\n\n## [1.0.0]\n## Fixed\n- Existing ([#1](https://github.com/jdx/communique/pull/1))## [0.9.0]\n## Fixed\n- Old\n",
+        );
+        repo.commit("initial");
+        repo.tag("v1.0.0");
+        repo.write_file("src/main.rs", "fn main() {}");
+        repo.commit("fix: new fix");
+        repo.tag("v1.1.0");
+
+        let updated_head = "\
+# Changelog
+
+## [Unreleased]
+
+## [1.1.0]
+## Fixed
+- New fix
+
+## [1.0.0]
+## Fixed
+- Existing ([#1](https://github.com/jdx/communique/pull/1))
+
+## [0.9.0]
+## Fixed
+- Old
+";
+
+        let mock_client = MockLlmClient::new(vec![TurnResponse {
+            tool_calls: vec![],
+            text: Some(updated_head.to_string()),
+            stop_reason: StopReason::EndTurn,
+            usage: fake_usage(),
+        }]);
+
+        let ctx = Context {
+            repo_root: repo.path().to_path_buf(),
+            owner_repo: "test/repo".into(),
+            tag: "v1.1.0".into(),
+            prev_tag: "v1.0.0".into(),
+            client: Box::new(mock_client),
+            defaults: Defaults::default(),
+            system_extra: None,
+            context: None,
+            github_client: None,
+        };
+
+        let parsed = ParsedOutput {
+            changelog: "## Fixed\n- New fix".into(),
+            release_title: "v1.1.0".into(),
+            release_body: "Body.".into(),
+            usage: Usage::default(),
+        };
+
+        let job = Arc::new(ProgressJobBuilder::new().build());
+        update_changelog(&ctx, &parsed, false, &job).await.unwrap();
+
+        let result = std::fs::read_to_string(repo.path().join("CHANGELOG.md")).unwrap();
+        assert!(result.contains("pull/1))\n\n## [0.9.0]"));
+        assert!(!result.contains(")## ["));
     }
 
     #[test]
@@ -1684,37 +1852,16 @@ mod tests {
 /// in the head. This limits tokens sent to the LLM for large changelogs.
 fn split_changelog(content: &str, max_versions: usize) -> (&str, &str) {
     let mut version_count = 0;
-    let mut search_start = 0;
 
-    loop {
-        let rest = &content[search_start..];
-        let Some(pos) = rest.find("\n## ") else {
-            break;
-        };
-        let abs_pos = search_start + pos;
-        let header_start = abs_pos + 1; // skip the \n
-
-        // Check if this is [Unreleased] — don't count it
-        let header_line = &content[header_start..];
-        let is_unreleased = header_line.strip_prefix("## ").is_some_and(|s| {
-            s.trim_start().starts_with("[Unreleased]") || s.trim_start().starts_with("Unreleased")
-        });
-
-        if !is_unreleased {
-            version_count += 1;
+    for (start, line) in content.lines_with_offset() {
+        if !is_version_header(line) {
+            continue;
         }
 
-        if version_count >= max_versions {
-            // Find the next ## after this one to split there
-            let after = &content[header_start + 3..];
-            if let Some(next) = after.find("\n## ") {
-                let split_at = header_start + 3 + next + 1; // +1 to include the \n
-                return (&content[..split_at], &content[split_at..]);
-            }
-            break;
+        version_count += 1;
+        if version_count > max_versions {
+            return (&content[..start], &content[start..]);
         }
-
-        search_start = abs_pos + 4; // skip past "\n## "
     }
 
     (content, "")
@@ -1766,16 +1913,121 @@ fn is_forbidden_unreleased_target_header(line: &str) -> bool {
 }
 
 fn is_version_header(line: &str) -> bool {
-    let Some(rest) = line.trim().strip_prefix("## ") else {
-        return false;
-    };
+    header_version(line).is_some()
+}
+
+fn header_version(line: &str) -> Option<&str> {
+    let rest = line.trim().strip_prefix("## ")?;
     let rest = rest.trim_start();
 
-    rest.starts_with('[')
-        || rest.chars().next().is_some_and(|c| c.is_ascii_digit())
-        || rest
-            .strip_prefix('v')
-            .is_some_and(|s| s.chars().next().is_some_and(|c| c.is_ascii_digit()))
+    if let Some(bracketed) = rest.strip_prefix('[') {
+        let (version, _) = bracketed.split_once(']')?;
+        return is_version_like(version).then_some(version);
+    }
+
+    let version = rest
+        .split_once(char::is_whitespace)
+        .map_or(rest, |(version, _)| version);
+    is_version_like(version).then_some(version)
+}
+
+fn is_version_like(value: &str) -> bool {
+    let value = value.strip_prefix('v').unwrap_or(value);
+    value.chars().next().is_some_and(|c| c.is_ascii_digit()) && value.contains('.')
+}
+
+trait LinesWithOffset {
+    fn lines_with_offset(&self) -> LinesWithOffsetIter<'_>;
+}
+
+impl LinesWithOffset for str {
+    fn lines_with_offset(&self) -> LinesWithOffsetIter<'_> {
+        LinesWithOffsetIter {
+            content: self,
+            offset: 0,
+        }
+    }
+}
+
+struct LinesWithOffsetIter<'a> {
+    content: &'a str,
+    offset: usize,
+}
+
+impl<'a> Iterator for LinesWithOffsetIter<'a> {
+    type Item = (usize, &'a str);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.offset >= self.content.len() {
+            return None;
+        }
+
+        let start = self.offset;
+        let rest = &self.content[start..];
+        let line_len = rest.find('\n').map_or(rest.len(), |idx| idx + 1);
+        self.offset += line_len;
+        Some((start, &self.content[start..start + line_len]))
+    }
+}
+
+fn find_version_section_start(contents: &str, version: &str) -> Option<usize> {
+    let version = version.strip_prefix('v').unwrap_or(version);
+
+    contents
+        .lines_with_offset()
+        .find(|(_, line)| {
+            header_version(line)
+                .map(|header| header.strip_prefix('v').unwrap_or(header) == version)
+                .unwrap_or(false)
+        })
+        .map(|(start, _)| start)
+}
+
+fn find_next_version_section_start(contents: &str, after: usize) -> Option<usize> {
+    contents
+        .lines_with_offset()
+        .find(|(start, line)| *start > after && is_version_header(line))
+        .map(|(start, _)| start)
+}
+
+fn join_changelog_head_tail(head: &str, tail: &str) -> String {
+    let head = head.trim_end();
+    let tail = tail.trim_start_matches(['\r', '\n']);
+
+    if tail.is_empty() {
+        head.to_string()
+    } else if head.is_empty() {
+        tail.to_string()
+    } else {
+        format!("{head}\n\n{tail}")
+    }
+}
+
+fn repair_changelog_section_boundaries(content: &str) -> String {
+    let mut repaired = String::with_capacity(content.len());
+    let mut rest = content;
+
+    while let Some(pos) = rest.find(")## ") {
+        let (before, after_marker) = rest.split_at(pos + 1);
+        repaired.push_str(before);
+        if is_version_header(after_marker.lines().next().unwrap_or("")) {
+            repaired.push_str("\n\n");
+        }
+        rest = after_marker;
+    }
+
+    repaired.push_str(rest);
+    repaired
+}
+
+fn read_changelog_entry(repo_root: &Path, tag: &str) -> Option<String> {
+    let path = repo_root.join("CHANGELOG.md");
+    let contents = xx::file::read_to_string(&path).ok()?;
+
+    let start = find_version_section_start(&contents, tag)?;
+    let end = find_next_version_section_start(&contents, start).unwrap_or(contents.len());
+
+    Some(contents[start..end].trim().to_string())
 }
 
 fn find_unreleased_section(contents: &str) -> miette::Result<Option<ChangelogSection>> {
@@ -1905,6 +2157,7 @@ async fn update_changelog(
     }
 
     let existing = xx::file::read_to_string(&changelog_path)
+        .map(|content| repair_changelog_section_boundaries(&content))
         .unwrap_or_else(|_| "# Changelog\n\n## [Unreleased]\n".to_string());
 
     let (head, tail) = split_changelog(&existing, 3);
@@ -1950,36 +2203,11 @@ Rules:
     );
 
     if !dry_run {
-        let full = if tail.is_empty() {
-            updated_head
-        } else {
-            format!("{updated_head}{tail}")
-        };
+        let full = join_changelog_head_tail(&updated_head, tail);
         let content = format!("{}\n", full.trim_end());
         xx::file::write(&changelog_path, content)?;
         info!("wrote {}", changelog_path.display());
     }
 
     Ok(())
-}
-
-fn read_changelog_entry(repo_root: &Path, tag: &str) -> Option<String> {
-    let path = repo_root.join("CHANGELOG.md");
-    let contents = xx::file::read_to_string(&path).ok()?;
-
-    let version = tag.strip_prefix('v').unwrap_or(tag);
-    let header_pattern = format!("## [{version}]");
-    let alt_pattern = format!("## {version}");
-
-    let start = contents
-        .find(&header_pattern)
-        .or_else(|| contents.find(&alt_pattern))?;
-
-    let rest = &contents[start..];
-    let end = rest[3..]
-        .find("\n## ")
-        .map(|i| start + 3 + i)
-        .unwrap_or(contents.len());
-
-    Some(contents[start..end].trim().to_string())
 }
