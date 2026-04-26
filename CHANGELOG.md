@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.2](https://github.com/jdx/communique/compare/v1.1.1...v1.1.2) - 2026-04-26
+
+### Fixed
+
+- *(generate)* preserve changelog section boundaries ([#126](https://github.com/jdx/communique/pull/126))
+
+### Other
+
+- *(release)* add musl linux assets ([#127](https://github.com/jdx/communique/pull/127))
+
 ## [1.1.1](https://github.com/jdx/communique/releases/tag/v1.1.1) - 2026-04-26
 
 ## Fixed
@@ -19,16 +29,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Added
 
 - *(generate)* Support `communique generate HEAD --changelog` as an intentional `[Unreleased]` target — replaces the existing `## [Unreleased]` section in place instead of inserting a literal `## [HEAD]` entry, with prompt/title labels switched to "unreleased" wording and an early guard rejecting `HEAD --github-release`. ([#121](https://github.com/jdx/communique/pull/121)) (@ThomasK33)
-
-## [1.1.2](https://github.com/jdx/communique/compare/v1.1.1...v1.1.2) - 2026-04-26
-
-### Fixed
-
-- *(generate)* preserve changelog section boundaries ([#126](https://github.com/jdx/communique/pull/126))
-
-### Other
-
-- *(release)* add musl linux assets ([#127](https://github.com/jdx/communique/pull/127))
 
 ## [1.0.4](https://github.com/jdx/communique/releases/tag/v1.0.4) - 2026-04-24
 
