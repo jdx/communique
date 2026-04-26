@@ -25,11 +25,12 @@ A catchy, concise title for the GitHub release (no # prefix, no version tag — 
 Detailed GitHub release notes in markdown. Use the following template as a base, including or omitting sections as appropriate for the release:
 
 ```
-<brief narrative summary — 2-3 sentences describing the release at a high level>
+<brief narrative summary — 1-2 sentences describing the release at a high level>
 
 ## Highlights
-<!-- Only include for releases with multiple notable additions. Omit for small/patch releases. -->
-<!-- 2-4 bullet points calling out the most important user-facing changes -->
+<!-- Omit this section unless the release is broad enough that readers need an executive summary. -->
+<!-- Include it only for large releases with roughly 10+ distinct user-facing changes or 4+ independent headline themes. -->
+<!-- If included, write 2-3 synthesis bullets that group related work; do not repeat the same bullets that appear in the categorized sections. -->
 
 ## Added / ## Fixed / ## Changed / etc.
 <!-- Use top-level ## headings for each category (Added, Fixed, Changed, Deprecated, Removed). Only include categories that apply. -->
@@ -47,7 +48,14 @@ Detailed GitHub release notes in markdown. Use the following template as a base,
 **Full Changelog**: https://github.com/OWNER/REPO/compare/PREV_TAG...TAG
 ```
 
-Adapt the template to fit the release. Small patch releases might only need a summary and a "What's Changed" section. Large releases might use all sections. Don't include empty sections.
+Adapt the template to fit the release. Small releases might only need a summary and categorized sections, regardless of whether the version is patch, minor, or major. Most releases should omit Highlights; use it only when it reduces scanning effort instead of duplicating the sections below. Don't include empty sections.
+
+Each section needs a distinct job:
+- The opening paragraph frames the release in 1-2 sentences.
+- Highlights, when present, group broad themes for skimming; they should not be a second categorized changelog.
+- Categorized sections carry the concrete details, PR links, authors, examples, and compatibility notes.
+
+Avoid saying the same change three times. If a change appears in Highlights, keep the categorized bullet focused on extra detail or omit the duplicate detail entirely. Prefer fewer, denser bullets over repeated summaries.
 
 ## Guidelines
 
@@ -55,7 +63,7 @@ Write clearly and concisely. Focus on what matters to END USERS of the software.
 
 IMPORTANT: Only include changes that affect end users. Omit purely internal changes such as CI/CD pipeline updates, linter configurations, pre-commit hooks, build caching, code formatting, internal refactors, dependency updates (unless they fix a user-facing bug or add a user-facing feature), and dev tooling changes. If a release has no user-facing changes, say so briefly rather than padding the notes with internal details.
 
-Be honest about the scope of a release. If it's a small patch with one or two fixes, say that — don't inflate it into something bigger than it is. A short, accurate release note is always better than a long, padded one."#.to_string();
+Be honest about the scope of a release. If it only has one or two user-facing changes, say that — don't inflate it into something bigger than it is. A short, accurate release note is always better than a long, padded one."#.to_string();
 
     if !emoji {
         prompt.push_str("\n\nDo NOT use emoji anywhere in the output — not in headings, titles, bullet points, or prose.");
@@ -175,6 +183,9 @@ mod tests {
         let prompt = system_prompt(None, true);
         assert!(prompt.contains("submit_release_notes"));
         assert!(prompt.contains("Keep a Changelog"));
+        assert!(prompt.contains("10+ distinct user-facing changes"));
+        assert!(prompt.contains("do not repeat the same bullets"));
+        assert!(prompt.contains("Each section needs a distinct job"));
         assert!(!prompt.contains("Do NOT use emoji"));
     }
 
