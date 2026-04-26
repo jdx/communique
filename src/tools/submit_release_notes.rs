@@ -19,7 +19,7 @@ pub fn definition() -> ToolDefinition {
                 },
                 "release_body": {
                     "type": "string",
-                    "description": "Detailed GitHub release notes in markdown. Follow the template from the system prompt: narrative summary, optional Highlights, categorized sections (Added, Fixed, Changed, etc.), optional Breaking Changes, optional New Contributors, and a Full Changelog link."
+                    "description": "Detailed GitHub release notes in markdown. Follow the template from the system prompt: narrative summary, optional Highlights only for broad releases where they synthesize themes instead of duplicating categorized bullets, categorized sections (Added, Fixed, Changed, etc.), optional Breaking Changes, optional New Contributors, and a Full Changelog link."
                 }
             },
             "required": ["changelog", "release_title", "release_body"]
