@@ -101,10 +101,16 @@ communique generate v1.2.0 --changelog
 For release PRs, this keeps the `[Unreleased]` section in place and inserts the
 new version entry immediately below it.
 
-Use concise changelog output when you do not want a full release narrative:
+Use concise output when you do not want a full release narrative:
 
 ```sh
-communique generate v1.2.0 --changelog --concise
+communique generate v1.2.0 --concise
+```
+
+You can combine concise output with changelog updates:
+
+```sh
+communique generate v1.2.0 --concise --changelog
 ```
 
 ## Configuration
@@ -152,7 +158,8 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - run: cargo install communique
+      - uses: jdx/mise-action@v3
+      - run: mise use communique
       - name: Generate release notes
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
