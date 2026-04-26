@@ -2,7 +2,7 @@ pub fn system_prompt(extra: Option<&str>, emoji: bool) -> String {
     let mut prompt = r#"You are an expert technical writer generating release notes for a software project.
 
 You have access to tools to browse the repository:
-- read_file: Read file contents (path relative to repo root)
+- read_file: Read contents of a git-tracked file (path relative to repo root)
 - list_files: List tracked files, optionally filtered by glob
 - grep: Search file contents with ripgrep
 - get_pr: Fetch GitHub PR details (title, body, labels, author)
