@@ -7,13 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1](https://github.com/jdx/communique/releases/tag/v1.1.1) - 2026-04-26
+
+## Fixed
+
+- Reduce repetitive Highlights in generated release notes by tightening the system prompt and tool schema ([#124](https://github.com/jdx/communique/pull/124))
+- Dedupe the sponsor blurb in communique's own GitHub releases when the workflow re-runs ([#123](https://github.com/jdx/communique/pull/123))
+
 ## [1.1.0](https://github.com/jdx/communique/releases/tag/v1.1.0) - 2026-04-26
 
 ## Added
 
-- *(generate)* Support `communique generate HEAD --changelog` as an intentional `[Unreleased]` target — replaces the existing `## [Unreleased]` section in place instead of inserting a literal `## [HEAD]` entry, with prompt/title labels switched to "unreleased" wording and an early guard rejecting `HEAD --github-release`. ([#121](https://github.com/jdx/communique/pull/121)) (@ThomasK33)
-
-## [1.0.4](https://github.com/jdx/communique/releases/tag/v1.0.4) - 2026-04-24
+- *(generate)* Support `communique generate HEAD --changelog` as an intentional `[Unreleased]` target — replaces the existing `## [Unreleased]` section in place instead of inserting a literal `## [HEAD]` entry, with prompt/title labels switched to "unreleased" wording and an early guard rejecting `HEAD --github-release`. ([#121](https://github.com/jdx/communique/pull/121)) (@ThomasK33)## [1.0.4](https://github.com/jdx/communique/releases/tag/v1.0.4) - 2026-04-24
 
 ## Fixed
 
