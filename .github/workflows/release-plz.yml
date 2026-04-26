@@ -105,9 +105,11 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
           TAG: ${{ needs.release-plz-release.outputs.tag }}
         run: |
-          {
-            gh release view "$TAG" --json body --jq .body
-            cat <<'EOF'
+          gh release view "$TAG" --json body --jq .body \
+            | perl -0pe 's/\n*##\s+💚?\s*Sponsor communique\b.*\z//s' \
+            > /tmp/release-notes.md
+
+          cat <<'EOF' >> /tmp/release-notes.md
 
           ## 💚 Sponsor communique
 
@@ -115,7 +117,7 @@ jobs:
 
           If communique is drafting your release notes or changelogs, please consider [sponsoring at en.dev](https://en.dev). Every sponsor — individual or company — helps keep the project independent and actively maintained.
           EOF
-          } > /tmp/release-notes.md
+
           gh release edit "$TAG" --notes-file /tmp/release-notes.md
 
   release-plz-pr:
