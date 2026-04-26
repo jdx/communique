@@ -1851,46 +1851,8 @@ mod tests {
         repo.commit("fix: new fix");
         repo.tag("v1.1.2");
 
-        let updated_head = "\
-# Changelog
-
-## [Unreleased]
-
-## [1.1.1]
-- Previous
-
-## [1.1.0]
-- Older
-
-## [1.1.2]
-- New fix
-";
-
-        let mock_client = MockLlmClient::new(vec![TurnResponse {
-            tool_calls: vec![],
-            text: Some(updated_head.to_string()),
-            stop_reason: StopReason::EndTurn,
-            usage: fake_usage(),
-        }]);
-
-        let ctx = Context {
-            repo_root: repo.path().to_path_buf(),
-            owner_repo: "test/repo".into(),
-            tag: "v1.1.2".into(),
-            prev_tag: "v1.1.1".into(),
-            client: Box::new(mock_client),
-            defaults: Defaults::default(),
-            system_extra: None,
-            context: None,
-            github_client: None,
-        };
-
-        let parsed = ParsedOutput {
-            changelog: "- New fix".into(),
-            release_title: "v1.1.2".into(),
-            release_body: "Body.".into(),
-            usage: Usage::default(),
-        };
+        let ctx = test_context(repo.path().to_path_buf(), "v1.1.2", "v1.1.1");
+        let parsed = test_parsed_output("- New fix");
 
         let job = Arc::new(ProgressJobBuilder::new().build());
         update_changelog(&ctx, &parsed, false, &job).await.unwrap();
@@ -1901,6 +1863,89 @@ mod tests {
         let v110 = result.find("## [1.1.0]").unwrap();
         assert!(v112 < v111);
         assert!(v111 < v110);
+    }
+
+    #[tokio::test]
+    async fn test_update_changelog_errors_without_unreleased_header() {
+        let repo = TempRepo::new();
+        repo.write_file(
+            "CHANGELOG.md",
+            "# Changelog\n\n## [1.1.1]\n- Previous\n\n## [1.1.0]\n- Older\n",
+        );
+        repo.commit("initial");
+        repo.tag("v1.1.1");
+        repo.write_file("src/main.rs", "fn main() {}");
+        repo.commit("fix: new fix");
+        repo.tag("v1.1.2");
+
+        let ctx = test_context(repo.path().to_path_buf(), "v1.1.2", "v1.1.1");
+        let parsed = test_parsed_output("- New fix");
+        let job = Arc::new(ProgressJobBuilder::new().build());
+
+        let err = update_changelog(&ctx, &parsed, false, &job)
+            .await
+            .unwrap_err()
+            .to_string();
+
+        assert!(err.contains("does not contain ## [Unreleased] or ## Unreleased"));
+        let result = std::fs::read_to_string(repo.path().join("CHANGELOG.md")).unwrap();
+        assert!(result.starts_with("# Changelog\n\n## [1.1.1]"));
+    }
+
+    #[tokio::test]
+    async fn test_update_changelog_dry_run_validates_duplicate_unreleased() {
+        let repo = TempRepo::new();
+        repo.write_file(
+            "CHANGELOG.md",
+            "# Changelog\n\n## [Unreleased]\n\n## [Unreleased]\n",
+        );
+        repo.commit("initial");
+        repo.tag("v0.9.0");
+        repo.write_file("src/main.rs", "fn main() {}");
+        repo.commit("fix: new fix");
+        repo.tag("v1.0.0");
+
+        let ctx = test_context(repo.path().to_path_buf(), "v1.0.0", "v0.9.0");
+        let parsed = test_parsed_output("- New fix");
+        let job = Arc::new(ProgressJobBuilder::new().build());
+
+        let err = update_changelog(&ctx, &parsed, true, &job)
+            .await
+            .unwrap_err()
+            .to_string();
+
+        assert!(err.contains("multiple Unreleased sections"));
+    }
+
+    #[test]
+    fn test_format_version_header_matches_existing_styles() {
+        assert_eq!(
+            format_version_header(
+                "# Changelog\n\n## [1.0.0](https://example.com) - 2025-01-01\n",
+                "v1.1.0",
+                "2025-02-01",
+                "https://github.com/test/repo/releases/tag/v1.1.0",
+            ),
+            "## [1.1.0](https://github.com/test/repo/releases/tag/v1.1.0) - 2025-02-01"
+        );
+        assert_eq!(
+            format_version_header(
+                "# Changelog\n\n## v1.0.0 - 2025-01-01\n",
+                "1.1.0",
+                "2025-02-01",
+                "https://github.com/test/repo/releases/tag/v1.1.0",
+            ),
+            "## v1.1.0 - 2025-02-01"
+        );
+        assert_eq!(
+            format_version_header(
+                "# Changelog\n\n## [1.0.0]\n",
+                "1.1.0",
+                "2025-02-01",
+                "https://github.com/test/repo/releases/tag/v1.1.0",
+            ),
+            "## [1.1.0]"
+        );
     }
 
     #[test]
@@ -2133,7 +2178,10 @@ fn upsert_version_changelog(
 
     let without_existing = remove_version_section(&existing, version);
     let Some(unreleased) = find_unreleased_section(&without_existing)? else {
-        return Ok(join_changelog_head_tail(&section, &without_existing));
+        return Err(miette::miette!(
+            "CHANGELOG.md exists but does not contain ## [Unreleased] or ## Unreleased; add an Unreleased section before running `communique generate {} --changelog`.",
+            tag
+        ));
     };
 
     let before = without_existing[..unreleased.body_end].trim_end();
@@ -2309,9 +2357,9 @@ async fn update_changelog(
         ctx.owner_repo, ctx.tag
     );
 
+    let content =
+        upsert_version_changelog(&existing, &ctx.tag, &date, &release_url, &parsed.changelog)?;
     if !dry_run {
-        let content =
-            upsert_version_changelog(&existing, &ctx.tag, &date, &release_url, &parsed.changelog)?;
         xx::file::write(&changelog_path, content)?;
         info!("wrote {}", changelog_path.display());
     }
