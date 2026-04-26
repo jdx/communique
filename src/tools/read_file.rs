@@ -119,8 +119,6 @@ mod tests {
 
     #[test]
     fn test_read_file_path_traversal() {
-        let outer = tempfile::tempdir().unwrap();
-        std::fs::write(outer.path().join("secret.txt"), "sensitive").unwrap();
         let repo = TempRepo::new();
         repo.write_file("README.md", "# hi");
         repo.commit("init");
@@ -130,8 +128,28 @@ mod tests {
             err.to_string().contains("not a git-tracked file"),
             "unexpected error: {err}"
         );
-        // keep `outer` alive until the assertion runs
-        drop(outer);
+    }
+
+    // Defense-in-depth: even when git tracks the path, a symlink resolving
+    // outside the repo must be rejected by the canonicalize check.
+    #[cfg(unix)]
+    #[test]
+    fn test_read_file_tracked_symlink_outside_repo_rejected() {
+        use std::os::unix::fs::symlink;
+
+        let outside = tempfile::tempdir().unwrap();
+        let secret = outside.path().join("secret.txt");
+        std::fs::write(&secret, "sensitive").unwrap();
+
+        let repo = TempRepo::new();
+        symlink(&secret, repo.path().join("link")).unwrap();
+        repo.commit("add symlink");
+
+        let err = execute(repo.path(), &json!({"path": "link"})).unwrap_err();
+        assert!(
+            err.to_string().contains("escapes repo root"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]
