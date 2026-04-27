@@ -31,6 +31,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - *(generate)* Support `communique generate HEAD --changelog` as an intentional `[Unreleased]` target — replaces the existing `## [Unreleased]` section in place instead of inserting a literal `## [HEAD]` entry, with prompt/title labels switched to "unreleased" wording and an early guard rejecting `HEAD --github-release`. ([#121](https://github.com/jdx/communique/pull/121)) (@ThomasK33)
 
+## [1.1.3](https://github.com/jdx/communique/compare/v1.1.2...v1.1.3) - 2026-04-27
+
+### Fixed
+
+- *(read_file)* restrict to git-tracked paths ([#133](https://github.com/jdx/communique/pull/133))
+
+### Other
+
+- add plausible analytics ([#137](https://github.com/jdx/communique/pull/137))
+- *(deps)* lock file maintenance ([#134](https://github.com/jdx/communique/pull/134))
+- rewrite readme for end users ([#131](https://github.com/jdx/communique/pull/131))
+
 ## [1.0.4](https://github.com/jdx/communique/releases/tag/v1.0.4) - 2026-04-24
 
 ## Fixed
