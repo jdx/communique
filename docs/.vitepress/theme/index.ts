@@ -3,13 +3,14 @@ import type { Theme } from "vitepress";
 import { h } from "vue";
 import { initBanner } from "./banner";
 import EndevFooter from "./EndevFooter.vue";
+import EndevSponsors from "./EndevSponsors.vue";
 import "./custom.css";
 
 export default {
   extends: DefaultTheme,
   Layout() {
     return h(DefaultTheme.Layout, null, {
-      "layout-bottom": () => h(EndevFooter),
+      "layout-bottom": () => [h(EndevSponsors), h(EndevFooter)],
     });
   },
   enhanceApp() {
