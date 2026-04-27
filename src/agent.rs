@@ -199,7 +199,13 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
         if let Some((tool_call_id, parsed)) = submit {
             if verify_links {
                 job.prop("message", "Verifying links...");
-                let broken = links::verify(&[&parsed.changelog, &parsed.release_body]).await;
+                let texts = [parsed.changelog.as_str(), parsed.release_body.as_str()];
+                let broken = if let Some(gh) = github {
+                    let link_options = links::VerifyOptions::new(Some(gh.token()), gh.base_url());
+                    links::verify_with_options(&texts, &link_options).await
+                } else {
+                    links::verify(&texts).await
+                };
                 if !broken.is_empty() {
                     let summary = broken
                         .iter()
@@ -907,6 +913,59 @@ mod tests {
         let result = run(ctx).await.unwrap();
         assert_eq!(result.changelog, "changes");
         assert_eq!(result.release_body, format!("See {url}"));
+    }
+
+    #[tokio::test]
+    async fn test_verify_links_uses_github_token_for_browser_links() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("GET"))
+            .and(wiremock::matchers::path("/repos/owner/repo/pulls/123"))
+            .and(wiremock::matchers::header(
+                "Authorization",
+                "Bearer test-token",
+            ))
+            .respond_with(wiremock::ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let gh = crate::github::GitHubClient::with_base_url(
+            "test-token".into(),
+            "owner/repo",
+            server.uri(),
+        )
+        .unwrap();
+        let client = MockLlmClient::new(vec![TurnResponse {
+            tool_calls: vec![ToolCall {
+                id: "call_1".into(),
+                name: "submit_release_notes".into(),
+                input: json!({
+                    "changelog": "changes",
+                    "release_title": "v1.0",
+                    "release_body": "See https://github.com/owner/repo/pull/123",
+                }),
+            }],
+            text: None,
+            stop_reason: StopReason::ToolUse,
+            usage: fake_usage(),
+        }]);
+        let job = Arc::new(ProgressJobBuilder::new().build());
+        let tmp = std::env::temp_dir();
+        let ctx = AgentContext {
+            client: &client,
+            system: "",
+            user_message: "",
+            tool_defs: vec![],
+            repo_root: &tmp,
+            github: Some(&gh),
+            verify_links: true,
+            job: &job,
+        };
+        let result = run(ctx).await.unwrap();
+        assert_eq!(
+            result.release_body,
+            "See https://github.com/owner/repo/pull/123"
+        );
     }
 
     #[tokio::test]

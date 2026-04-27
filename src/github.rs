@@ -63,9 +63,25 @@ impl GitHubClient {
     }
 
     pub(crate) fn with_base_url(token: String, owner_repo: &str, base_url: String) -> Result<Self> {
+        if token.is_empty() {
+            return Err(Error::GitHub("GITHUB_TOKEN cannot be empty".into()));
+        }
         let (owner, repo) = owner_repo
             .split_once('/')
             .ok_or_else(|| Error::GitHub(format!("invalid owner/repo: {owner_repo}")))?;
+        let base_url = base_url.trim_end_matches('/').to_string();
+        let parsed_base_url = reqwest::Url::parse(&base_url)
+            .map_err(|e| Error::GitHub(format!("invalid GitHub API base URL: {e}")))?;
+        if parsed_base_url.host_str().is_none() {
+            return Err(Error::GitHub(
+                "GitHub API base URL must include a host".into(),
+            ));
+        }
+        if parsed_base_url.query().is_some() || parsed_base_url.fragment().is_some() {
+            return Err(Error::GitHub(
+                "GitHub API base URL cannot include a query or fragment".into(),
+            ));
+        }
         let client = reqwest::Client::builder()
             .user_agent("communique/0.1")
             .build()?;
@@ -76,6 +92,15 @@ impl GitHubClient {
             repo: repo.to_string(),
             base_url,
         })
+    }
+
+    pub(crate) fn token(&self) -> &str {
+        debug_assert!(!self.token.is_empty());
+        &self.token
+    }
+
+    pub(crate) fn base_url(&self) -> reqwest::Url {
+        reqwest::Url::parse(&self.base_url).expect("GitHubClient base URL must be valid")
     }
 
     fn api_url(&self, path: &str) -> String {
@@ -248,6 +273,50 @@ mod tests {
                 .unwrap()
                 .to_string()
                 .contains("invalid owner/repo")
+        );
+    }
+
+    #[test]
+    fn test_new_empty_token() {
+        let result = GitHubClient::new("".into(), "owner/repo");
+        assert!(result.is_err());
+        assert!(
+            result
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("cannot be empty")
+        );
+    }
+
+    #[test]
+    fn test_with_base_url_rejects_missing_host() {
+        let result =
+            GitHubClient::with_base_url("token".into(), "owner/repo", "file:///tmp".into());
+        assert!(result.is_err());
+        assert!(
+            result
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("must include a host")
+        );
+    }
+
+    #[test]
+    fn test_with_base_url_rejects_query_or_fragment() {
+        let result = GitHubClient::with_base_url(
+            "token".into(),
+            "owner/repo",
+            "https://api.github.com?x=1".into(),
+        );
+        assert!(result.is_err());
+        assert!(
+            result
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("query or fragment")
         );
     }
 
