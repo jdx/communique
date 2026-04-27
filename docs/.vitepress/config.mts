@@ -43,6 +43,15 @@ export default defineConfig({
     ],
     ["meta", { property: "og:type", content: "website" }],
     ["meta", { name: "twitter:card", content: "summary" }],
+    [
+      "script",
+      {
+        defer: "",
+        "data-domain": "communique.jdx.dev",
+        "data-api": "https://shrill.en.dev/f5f1/event",
+        src: "https://shrill.en.dev/shrill/script.js",
+      },
+    ],
   ],
 
   themeConfig: {
