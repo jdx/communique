@@ -22,7 +22,7 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - name: Run release-plz
         id: release-plz
-        uses: release-plz/action@108077fb79157039c3b128234beb81ee724a81a3 # main
+        uses: release-plz/action@03be38a44e906c5fbe6882a55482af6a4243835d # main
         with:
           command: release
         env:
@@ -139,7 +139,7 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - name: Run release-plz
         id: release-plz
-        uses: release-plz/action@108077fb79157039c3b128234beb81ee724a81a3 # main
+        uses: release-plz/action@03be38a44e906c5fbe6882a55482af6a4243835d # main
         with:
           command: release-pr
         env:
