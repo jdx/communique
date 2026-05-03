@@ -27,3 +27,6 @@ futures-util = { version = "0.3.31", default-features = false }
 [dev-dependencies]
 wiremock = "0.6"
 tempfile = "3"
+
+[profile.dev]
+debug = 1
