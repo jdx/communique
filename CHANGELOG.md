@@ -12,11 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Fixed
 
 - Restrict the `read_file` tool to git-tracked paths, blocking reads of `.env`, gitignored secrets, build artifacts, and `.git/` internals ([#133](https://github.com/jdx/communique/pull/133))
-- Send `max_completion_tokens` instead of `max_tokens` for OpenAI GPT-5+ and o-series reasoning models, which reject the older parameter ([#148](https://github.com/jdx/communique/pull/148))
+- Send `max_completion_tokens` instead of `max_tokens` for OpenAI GPT-5+ and o-series reasoning models, which reject the legacy parameter ([#148](https://github.com/jdx/communique/pull/148))
 
 ## Changed
 
-- Rewrite the README as end-user documentation covering installation, configuration, CHANGELOG/Release publishing, and CI usage ([#131](https://github.com/jdx/communique/pull/131))
+- Rewrite the README as end-user documentation covering installation, configuration, `CHANGELOG.md` updates, GitHub Release publishing, and CI usage ([#131](https://github.com/jdx/communique/pull/131))
 
 ## [1.1.2](https://github.com/jdx/communique/releases/tag/v1.1.2) - 2026-04-26
 
@@ -43,6 +43,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Added
 
 - *(generate)* Support `communique generate HEAD --changelog` as an intentional `[Unreleased]` target — replaces the existing `## [Unreleased]` section in place instead of inserting a literal `## [HEAD]` entry, with prompt/title labels switched to "unreleased" wording and an early guard rejecting `HEAD --github-release`. ([#121](https://github.com/jdx/communique/pull/121)) (@ThomasK33)
+
+## [1.1.3](https://github.com/jdx/communique/compare/v1.1.2...v1.1.3) - 2026-05-06
+
+### Fixed
+
+- OpenAI max token parameter ([#148](https://github.com/jdx/communique/pull/148))
+- *(read_file)* restrict to git-tracked paths ([#133](https://github.com/jdx/communique/pull/133))
+
+### Other
+
+- Lock down read_file to tracked paths ([#132](https://github.com/jdx/communique/pull/132))
+- *(deps)* lock file maintenance ([#146](https://github.com/jdx/communique/pull/146))
+- set dev profile debug to 1 ([#145](https://github.com/jdx/communique/pull/145))
+- *(docs)* remove shrill.en.dev analytics script ([#144](https://github.com/jdx/communique/pull/144))
+- *(deps)* update taiki-e/install-action digest ([#143](https://github.com/jdx/communique/pull/143))
+- *(deps)* update release-plz/action digest to b2a4486 ([#142](https://github.com/jdx/communique/pull/142))
+- *(deps)* update apple-actions/import-codesign-certs action to v7 ([#141](https://github.com/jdx/communique/pull/141))
+- *(deps)* update release-plz/action digest to 03be38a ([#140](https://github.com/jdx/communique/pull/140))
+- pin taiki-e/install-action to commit SHAs ([#139](https://github.com/jdx/communique/pull/139))
+- bump hk to 1.44.3 ([#138](https://github.com/jdx/communique/pull/138))
+- add plausible analytics ([#137](https://github.com/jdx/communique/pull/137))
+- *(deps)* lock file maintenance ([#134](https://github.com/jdx/communique/pull/134))
+- rewrite readme for end users ([#131](https://github.com/jdx/communique/pull/131))
 
 ## [1.0.4](https://github.com/jdx/communique/releases/tag/v1.0.4) - 2026-04-24
 
