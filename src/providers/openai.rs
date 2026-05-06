@@ -122,9 +122,13 @@ impl LlmClient for OpenAIProvider {
 
             let mut body = json!({
                 "model": self.model,
-                "max_tokens": self.max_tokens,
                 "messages": messages,
             });
+            if uses_max_completion_tokens(&self.model) {
+                body["max_completion_tokens"] = json!(self.max_tokens);
+            } else {
+                body["max_tokens"] = json!(self.max_tokens);
+            }
             if !tool_defs.is_empty() {
                 body["tools"] = json!(tool_defs);
             }
@@ -223,6 +227,21 @@ impl LlmClient for OpenAIProvider {
     }
 }
 
+fn uses_max_completion_tokens(model: &str) -> bool {
+    let model = model.to_ascii_lowercase();
+    let model_name = model.rsplit([':', '/']).next().unwrap();
+    gpt_model_number(model_name).is_some_and(|number| number >= 5)
+        || model_name
+            .strip_prefix('o')
+            .is_some_and(|suffix| suffix.starts_with(|c: char| c.is_ascii_digit()))
+}
+
+fn gpt_model_number(model: &str) -> Option<u32> {
+    let segment = model.strip_prefix("gpt-")?.split(['.', '-']).next()?;
+    let numeric = segment.trim_end_matches(|c: char| !c.is_ascii_digit());
+    numeric.parse().ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -274,6 +293,10 @@ mod tests {
         let server = wiremock::MockServer::start().await;
         wiremock::Mock::given(wiremock::matchers::method("POST"))
             .and(wiremock::matchers::path("/chat/completions"))
+            .and(wiremock::matchers::body_partial_json(json!({
+                "model": "gpt-4",
+                "max_tokens": 1024,
+            })))
             .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
                 "choices": [{
                     "message": {"content": "Hello!", "tool_calls": null},
@@ -291,6 +314,49 @@ mod tests {
         assert!(resp.tool_calls.is_empty());
         assert_eq!(resp.usage.input_tokens, 10);
         assert_eq!(resp.usage.output_tokens, 5);
+    }
+
+    #[tokio::test]
+    async fn test_send_turn_uses_max_completion_tokens_for_gpt5() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/chat/completions"))
+            .and(wiremock::matchers::body_partial_json(json!({
+                "model": "gpt-5.1",
+                "max_completion_tokens": 2048,
+            })))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
+                "choices": [{
+                    "message": {"content": "Hello!", "tool_calls": null},
+                    "finish_reason": "stop"
+                }],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5}
+            })))
+            .mount(&server)
+            .await;
+
+        let provider = OpenAIProvider::new("test-key".into(), "gpt-5.1".into(), 2048, server.uri());
+        let mut conv = provider.new_conversation("Hi");
+        let resp = provider.send_turn("system", &mut conv, &[]).await.unwrap();
+        assert_eq!(resp.stop_reason, StopReason::EndTurn);
+    }
+
+    #[test]
+    fn test_uses_max_completion_tokens_model_detection() {
+        assert!(uses_max_completion_tokens("gpt-5.1"));
+        assert!(uses_max_completion_tokens("gpt-5"));
+        assert!(uses_max_completion_tokens("gpt-5o"));
+        assert!(uses_max_completion_tokens("gpt-6"));
+        assert!(uses_max_completion_tokens("openai/gpt-5.1"));
+        assert!(uses_max_completion_tokens("o1-mini"));
+        assert!(uses_max_completion_tokens("o1-preview"));
+        assert!(uses_max_completion_tokens("o3-mini"));
+        assert!(uses_max_completion_tokens("openai/o4-mini"));
+        assert!(uses_max_completion_tokens("o5"));
+        assert!(!uses_max_completion_tokens("gpt-4"));
+        assert!(!uses_max_completion_tokens("gpt-4o"));
+        assert!(!uses_max_completion_tokens("openrouter"));
+        assert!(!uses_max_completion_tokens("test-model"));
     }
 
     #[tokio::test]
