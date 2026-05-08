@@ -14,7 +14,7 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4
       - run: rustup component add clippy rustfmt
-      - uses: taiki-e/install-action@e96017355c8b613bff850d75294a872bbc98a6ef # cargo-audit
+      - uses: taiki-e/install-action@c030abdc26abd91eb618a6c9d1963825f7ce5a90 # cargo-audit
       - run: mise run lint
       - run: mise x -- cargo test
       - run: cargo audit
@@ -26,7 +26,7 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4
       - run: rustup component add llvm-tools-preview
-      - uses: taiki-e/install-action@e5de28abeb52d916c5e5875d54b21a9e738b61ec # cargo-llvm-cov
+      - uses: taiki-e/install-action@4c7e9f3bb4ca35f54341be8fc8d3608f71e4d24e # cargo-llvm-cov
       - run: mise x -- cargo llvm-cov --codecov --output-path codecov.json
       - uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6
         with:
