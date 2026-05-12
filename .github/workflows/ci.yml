@@ -6,15 +6,21 @@ on:
   pull_request:
     branches: [main]
 
+permissions: {}
+
 jobs:
   ci:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4
       - run: rustup component add clippy rustfmt
-      - uses: taiki-e/install-action@c030abdc26abd91eb618a6c9d1963825f7ce5a90 # cargo-audit
+      - uses: taiki-e/install-action@c030abdc26abd91eb618a6c9d1963825f7ce5a90 # zizmor: ignore[impostor-commit] cargo-audit (tag-only ref by design)
       - run: mise run render
       - name: assert render produces no diff
         run: |
@@ -30,12 +36,16 @@ jobs:
 
   coverage:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4
       - run: rustup component add llvm-tools-preview
-      - uses: taiki-e/install-action@4c7e9f3bb4ca35f54341be8fc8d3608f71e4d24e # cargo-llvm-cov
+      - uses: taiki-e/install-action@4c7e9f3bb4ca35f54341be8fc8d3608f71e4d24e # zizmor: ignore[impostor-commit] cargo-llvm-cov (tag-only ref by design)
       - run: mise x -- cargo llvm-cov --codecov --output-path codecov.json
       - uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6
         with:

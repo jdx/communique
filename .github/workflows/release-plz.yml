@@ -5,6 +5,8 @@ on:
     branches:
       - main
 
+permissions: {}
+
 jobs:
   release-plz-release:
     name: Release-plz release
@@ -19,6 +21,7 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_PLZ_TOKEN }}
+          persist-credentials: false
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - name: Run release-plz
         id: release-plz
@@ -35,11 +38,12 @@ jobs:
         if: steps.release-plz.outputs.releases_created == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
+          STEPS_RELEASE_PLZ_OUTPUTS_RELEASES: ${{ steps.release-plz.outputs.releases }}
         run: |
           # Draft releases created before the tag exists get an "untagged-*" tag_name.
           # Patch each draft release to use the correct tag.
           # Retry because the GitHub API may not immediately list the new release.
-          for tag in $(echo '${{ steps.release-plz.outputs.releases }}' | jq -r '.[].tag'); do
+          for tag in $(echo "${STEPS_RELEASE_PLZ_OUTPUTS_RELEASES}" | jq -r '.[].tag'); do
             echo "Looking for untagged draft release to fix for tag: $tag"
             release_id=""
             for attempt in $(seq 1 10); do
@@ -66,7 +70,9 @@ jobs:
     uses: ./.github/workflows/release.yml
     with:
       tag: ${{ needs.release-plz-release.outputs.tag }}
-    secrets: inherit
+    secrets:
+      CERTIFICATES_P12: ${{ secrets.CERTIFICATES_P12 }}
+      CERTIFICATES_P12_PASS: ${{ secrets.CERTIFICATES_P12_PASS }}
 
   publish-release:
     name: Publish release
@@ -79,7 +85,8 @@ jobs:
       - name: Publish GitHub release
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
-        run: gh release edit "${{ needs.release-plz-release.outputs.tag }}" --repo jdx/communique --draft=false
+          NEEDS_RELEASE_PLZ_RELEASE_OUTPUTS_TAG: ${{ needs.release-plz-release.outputs.tag }}
+        run: gh release edit "${NEEDS_RELEASE_PLZ_RELEASE_OUTPUTS_TAG}" --repo jdx/communique --draft=false
 
   enhance-release:
     name: Enhance release notes
@@ -92,14 +99,16 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           ref: refs/tags/${{ needs.release-plz-release.outputs.tag }}
+          persist-credentials: false
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - name: Enhance GitHub release with communique
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          NEEDS_RELEASE_PLZ_RELEASE_OUTPUTS_TAG: ${{ needs.release-plz-release.outputs.tag }}
         run: |
           cargo build
-          ./target/debug/communique generate "${{ needs.release-plz-release.outputs.tag }}" --github-release
+          ./target/debug/communique generate "${NEEDS_RELEASE_PLZ_RELEASE_OUTPUTS_TAG}" --github-release
       - name: Append en.dev sponsor blurb
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
@@ -130,8 +139,10 @@ jobs:
       group: release-plz-${{ github.ref }}
       cancel-in-progress: false
     steps:
+      # release-plz-pr needs persisted credentials so the later
+      # `git push --force-with-lease` can authenticate.
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # zizmor: ignore[artipacked] v6
         with:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_PLZ_TOKEN }}
@@ -150,8 +161,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          STEPS_RELEASE_PLZ_OUTPUTS_PR: ${{ steps.release-plz.outputs.pr }}
         run: |
-          PR_NUMBER=$(echo '${{ steps.release-plz.outputs.pr }}' | jq -r '.number')
+          PR_NUMBER=$(echo "${STEPS_RELEASE_PLZ_OUTPUTS_PR}" | jq -r '.number')
           gh pr checkout "$PR_NUMBER"
 
           # Build, regenerate usage spec + docs, and fix linting in parallel
