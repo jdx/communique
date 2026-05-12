@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.4](https://github.com/jdx/communique/releases/tag/v1.1.4) - 2026-05-12
+
+### Changed
+- Maintenance release. CI and dependency updates only ([#150](https://github.com/jdx/communique/pull/150), [#151](https://github.com/jdx/communique/pull/151), [#152](https://github.com/jdx/communique/pull/152), [#153](https://github.com/jdx/communique/pull/153), [#154](https://github.com/jdx/communique/pull/154), [#155](https://github.com/jdx/communique/pull/155), [#156](https://github.com/jdx/communique/pull/156)). No user-facing changes.
+
 ## [1.1.3](https://github.com/jdx/communique/releases/tag/v1.1.3) - 2026-05-06
 
 ## Fixed
