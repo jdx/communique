@@ -15,6 +15,15 @@ jobs:
       - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4
       - run: rustup component add clippy rustfmt
       - uses: taiki-e/install-action@c030abdc26abd91eb618a6c9d1963825f7ce5a90 # cargo-audit
+      - run: mise run render
+      - name: assert render produces no diff
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::error::'mise run render' produced changes. Run it locally and commit."
+            git status
+            git diff HEAD
+            exit 1
+          fi
       - run: mise run lint
       - run: mise x -- cargo test
       - run: cargo audit
