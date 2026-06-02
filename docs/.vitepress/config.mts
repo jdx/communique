@@ -58,7 +58,7 @@ export default defineConfig({
           { text: "Getting Started", link: "/guide/getting-started" },
           { text: "Configuration", link: "/guide/configuration" },
           { text: "GitHub Actions", link: "/guide/github-actions" },
-          { text: "Sponsors", link: "/sponsors" },
+          { text: "Sponsors", link: "https://en.dev/sponsors.html" },
         ],
       },
       {
