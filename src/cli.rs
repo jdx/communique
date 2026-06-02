@@ -86,5 +86,8 @@ pub enum Command {
         force: bool,
     },
 
+    /// Show the companies sponsoring communique and the en.dev project family
+    Sponsors,
+
     Usage(usage::Usage),
 }

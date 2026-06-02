@@ -236,6 +236,22 @@
         "hidden_aliases": [],
         "examples": []
       },
+      "sponsors": {
+        "full_cmd": [
+          "sponsors"
+        ],
+        "usage": "sponsors",
+        "subcommands": {},
+        "args": [],
+        "flags": [],
+        "mounts": [],
+        "hide": false,
+        "help": "Show the companies sponsoring communique and the en.dev project family",
+        "name": "sponsors",
+        "aliases": [],
+        "hidden_aliases": [],
+        "examples": []
+      },
       "usage": {
         "full_cmd": [
           "usage"

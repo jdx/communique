@@ -25,3 +25,4 @@ Path to config file (default: communique.toml in repo root)
 
 - [`communique generate [FLAGS] <TAG> [PREV_TAG]`](/cli/generate.md)
 - [`communique init [--force]`](/cli/init.md)
+- [`communique sponsors`](/cli/sponsors.md)

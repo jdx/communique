@@ -37,6 +37,7 @@ cmd generate help="Generate release notes for a git tag" {
 cmd init help="Generate a communique.toml config file in the repo root" {
     flag --force help="Overwrite existing config file"
 }
+cmd sponsors help="Show the companies sponsoring communique and the en.dev project family"
 cmd usage hide=#true help="Generates a usage spec for the CLI" {
     long_help "Generates a usage spec for the CLI\n\nhttps://usage.jdx.dev"
 }

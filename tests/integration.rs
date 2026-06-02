@@ -3,6 +3,35 @@ use std::process::Command;
 
 use serde_json::json;
 
+#[test]
+fn test_sponsors_command() {
+    let bin = env!("CARGO_BIN_EXE_communique");
+
+    let result = Command::new(bin)
+        .arg("sponsors")
+        .env("CLX_NO_PROGRESS", "1")
+        .output()
+        .expect("failed to run communique");
+
+    let stdout = String::from_utf8_lossy(&result.stdout);
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert!(
+        result.status.success(),
+        "communique failed with status {}:\n{}",
+        result.status,
+        stderr
+    );
+    assert!(stdout.contains("37signals"), "stdout: {stdout}");
+    assert!(
+        stdout.contains("https://en.dev/sponsors.html"),
+        "stdout: {stdout}"
+    );
+    assert!(
+        !stdout.contains("https://en.dev/sponsor.html"),
+        "stdout: {stdout}"
+    );
+}
+
 /// Spin up a wiremock server that responds to OpenAI chat completions
 /// with a `submit_release_notes` tool call, then run the full CLI
 /// pipeline against a temporary git repo.
