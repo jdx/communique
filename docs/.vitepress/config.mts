@@ -85,9 +85,6 @@ export default defineConfig({
       provider: "local",
     },
 
-    footer: {
-      message: "Thank you for visiting the communiqué information superhighway ── MIT Licensed",
-      copyright: "&copy; 2026 Jeff Dickey ── A better tomorrow, today™",
-    },
+    footer: false,
   },
 });
