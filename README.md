@@ -6,6 +6,10 @@ communique turns your git history, pull requests, and repository context into
 polished release notes. It can print notes locally, update `CHANGELOG.md`, or
 publish directly to a GitHub Release.
 
+## Sponsors
+
+communique is sponsored by [37signals](https://37signals.com).
+
 ## Install
 
 Install with [mise](https://mise.jdx.dev):
