@@ -51,6 +51,7 @@ async fn main() -> miette::Result<()> {
 
     let result = match cli.command {
         Command::Usage(usage) => usage.run(),
+        Command::Sponsors => sponsors(),
         Command::Init { force } => init(force),
         Command::Generate {
             tag,
@@ -103,5 +104,12 @@ fn init(force: bool) -> miette::Result<()> {
 
     xx::file::write(&path, Config::template())?;
     eprintln!("Wrote {}", path.display());
+    Ok(())
+}
+
+fn sponsors() -> miette::Result<()> {
+    println!(
+        "communique and the en.dev project family are sponsored by:\n\n  37signals - https://37signals.com\n\nView all sponsors: https://en.dev/sponsors.html\nSponsor en.dev: https://en.dev/sponsor.html"
+    );
     Ok(())
 }
