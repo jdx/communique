@@ -109,7 +109,7 @@ fn init(force: bool) -> miette::Result<()> {
 
 fn sponsors() -> miette::Result<()> {
     println!(
-        "communique and the en.dev project family are sponsored by:\n\n  37signals - https://37signals.com\n\nView all sponsors: https://en.dev/sponsors.html\nSponsor en.dev: https://en.dev/sponsor.html"
+        "communique and the en.dev project family are sponsored by:\n\n  37signals - https://37signals.com\n\nView all sponsors: https://en.dev/sponsors.html"
     );
     Ok(())
 }
