@@ -10,6 +10,8 @@ publish directly to a GitHub Release.
 
 communique is sponsored by [37signals](https://37signals.com).
 
+[View all sponsors](https://en.dev/sponsors.html).
+
 ## Install
 
 Install with [mise](https://mise.jdx.dev):
