@@ -1,0 +1,5 @@
+run `git status`, tell me all of the files with modifications, what should be gitignored?
+
+---
+
+make a pr that just adds all of these files to the repo
