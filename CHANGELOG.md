@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## Changed
+
+- Bumped the default model from `claude-opus-4-7` to `claude-opus-4-8`.
+
 ## [1.1.3](https://github.com/jdx/communique/releases/tag/v1.1.3) - 2026-05-06
 
 ## Fixed

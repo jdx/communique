@@ -135,7 +135,7 @@ Avoid marketing language.
 """
 
 [defaults]
-model = "claude-opus-4-7"
+model = "claude-opus-4-8"
 repo = "owner/repo"
 max_tokens = 4096
 ```
@@ -180,7 +180,7 @@ examples and release PR workflows.
 
 ```sh
 communique generate v1.2.0 --repo owner/repo
-communique generate v1.2.0 --model claude-opus-4-7
+communique generate v1.2.0 --model claude-opus-4-8
 communique generate v1.2.0 --provider openai --base-url https://api.example.com/v1
 communique generate v1.2.0 --quiet
 communique generate v1.2.0 --verbose
