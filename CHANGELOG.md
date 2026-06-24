@@ -11,6 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bumped the default model from `claude-opus-4-7` to `claude-opus-4-8`.
 
+## [1.2.0](https://github.com/jdx/communique/releases/tag/v1.2.0) - 2026-06-24
+
+## Added
+
+- Added a `communique sponsors` command that lists the companies sponsoring communique and the en.dev project family ([#174](https://github.com/jdx/communique/pull/174))
+
+## Changed
+
+- Bumped the built-in Anthropic default model from `claude-opus-4-7` to `claude-opus-4-8` ([#197](https://github.com/jdx/communique/pull/197))
+
+## Fixed
+
+- Updated the locked `quinn-proto` dependency (0.11.14 → 0.11.15) to resolve RustSec advisory RUSTSEC-2026-0185 ([#199](https://github.com/jdx/communique/pull/199))
+- Granted `contents: write` to the release asset workflow so prebuilt binaries upload correctly ([#200](https://github.com/jdx/communique/pull/200))
+
 ## [1.1.3](https://github.com/jdx/communique/releases/tag/v1.1.3) - 2026-05-06
 
 ## Fixed
