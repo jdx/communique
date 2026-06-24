@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.7.7",
+  "checkpoint_id": "427d4e76cb81",
+  "strategy": "manual-commit",
+  "branch": "bump-opus-4-8",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "CHANGELOG.md",
+    "README.md",
+    "docs/guide/configuration.md",
+    "src/config.rs",
+    "src/generate.rs",
+    "src/providers/mod.rs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/42/7d4e76cb81/0/metadata.json",
+      "transcript": "/42/7d4e76cb81/0/full.jsonl",
+      "content_hash": "/42/7d4e76cb81/0/content_hash.txt",
+      "prompt": "/42/7d4e76cb81/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 178549,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1111040,
+    "output_tokens": 7892,
+    "api_call_count": 24
+  }
+}
