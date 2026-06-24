@@ -31,7 +31,7 @@ mod tests {
 
     #[test]
     fn test_detect_provider_claude() {
-        assert_eq!(detect_provider("claude-opus-4-6"), Provider::Anthropic);
+        assert_eq!(detect_provider("claude-opus-4-8"), Provider::Anthropic);
         assert_eq!(
             detect_provider("claude-sonnet-4-5-20250929"),
             Provider::Anthropic
