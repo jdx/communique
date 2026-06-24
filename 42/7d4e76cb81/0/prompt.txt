@@ -1,13 +1,1 @@
-bump the opus version
-
----
-
-run this:
-
-git log -1 --format=%B
-entire checkpoint list --no-pager
-entire session list
-
----
-
-run git status
+ok first make a pr for the opus stuff
