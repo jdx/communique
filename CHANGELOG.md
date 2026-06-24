@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Added
 
-- Added a `communique sponsors` command that lists the companies sponsoring communique and the en.dev project family ([#174](https://github.com/jdx/communique/pull/174))
+- New `communique sponsors` command that lists the companies sponsoring communique and the en.dev project family, and links to the full sponsor page ([#174](https://github.com/jdx/communique/pull/174))
 
 ## Changed
 
@@ -62,6 +62,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Added
 
 - *(generate)* Support `communique generate HEAD --changelog` as an intentional `[Unreleased]` target — replaces the existing `## [Unreleased]` section in place instead of inserting a literal `## [HEAD]` entry, with prompt/title labels switched to "unreleased" wording and an early guard rejecting `HEAD --github-release`. ([#121](https://github.com/jdx/communique/pull/121)) (@ThomasK33)
+
+## [1.2.0](https://github.com/jdx/communique/compare/v1.1.3...v1.2.0) - 2026-06-24
+
+### Added
+
+- add sponsors command ([#174](https://github.com/jdx/communique/pull/174))
+
+### Fixed
+
+- *(ci)* grant release asset workflow permissions ([#200](https://github.com/jdx/communique/pull/200))
+
+### Other
+
+- Sponsors command & Opus 4.8 default ([#149](https://github.com/jdx/communique/pull/149))
+- Add Codex and Entire configuration ([#198](https://github.com/jdx/communique/pull/198))
+- Bump default Opus model to 4.8 ([#197](https://github.com/jdx/communique/pull/197))
+- Update quinn-proto for RustSec advisory ([#199](https://github.com/jdx/communique/pull/199))
+- *(deps)* lock file maintenance lockfile maintenance ([#196](https://github.com/jdx/communique/pull/196))
+- *(deps)* update release-plz/action digest to f71a0ca ([#195](https://github.com/jdx/communique/pull/195))
+- *(deps)* update codecov/codecov-action action to v7 ([#194](https://github.com/jdx/communique/pull/194))
+- *(deps)* update vue monorepo to v3.5.38 ([#193](https://github.com/jdx/communique/pull/193))
+- *(deps)* update release-plz/action digest to eda14d0 ([#192](https://github.com/jdx/communique/pull/192))
+- *(deps)* update jdx/mise-action digest to e6a8b39 ([#191](https://github.com/jdx/communique/pull/191))
+- *(deps)* lock file maintenance lockfile maintenance ([#190](https://github.com/jdx/communique/pull/190))
+- *(ci)* use shared coderabbit config ([#189](https://github.com/jdx/communique/pull/189))
+- make contributing guide canonical ([#188](https://github.com/jdx/communique/pull/188))
+- clarify contribution fit ([#187](https://github.com/jdx/communique/pull/187))
+- link to all sponsors ([#186](https://github.com/jdx/communique/pull/186))
+- *(deps)* update codecov/codecov-action digest to fb8b358 ([#184](https://github.com/jdx/communique/pull/184))
+- *(deps)* update release-plz/action digest to 5b69657 ([#185](https://github.com/jdx/communique/pull/185))
+- *(deps)* lock file maintenance lockfile maintenance ([#183](https://github.com/jdx/communique/pull/183))
+- *(deps)* lock file maintenance lockfile maintenance ([#182](https://github.com/jdx/communique/pull/182))
+- *(deps)* update release-plz/action digest to 7600366 ([#181](https://github.com/jdx/communique/pull/181))
+- *(deps)* update vue monorepo to v3.5.35 ([#180](https://github.com/jdx/communique/pull/180))
+- *(deps)* update rust crate log to v0.4.30 ([#178](https://github.com/jdx/communique/pull/178))
+- *(deps)* update rust crate reqwest to v0.13.4 ([#179](https://github.com/jdx/communique/pull/179))
+- *(deps)* update release-plz/action digest to f983e75 ([#177](https://github.com/jdx/communique/pull/177))
+- *(deps)* update jdx/mise-action digest to dba1968 ([#176](https://github.com/jdx/communique/pull/176))
+- *(deps)* update actions/checkout digest to df4cb1c ([#175](https://github.com/jdx/communique/pull/175))
+- add sponsor footer ([#173](https://github.com/jdx/communique/pull/173))
+- *(deps)* update release-plz/action digest to 007bb82 ([#172](https://github.com/jdx/communique/pull/172))
+- *(deps)* update release-plz/action digest to 7ea4a2d ([#171](https://github.com/jdx/communique/pull/171))
+- *(deps)* update zizmorcore/zizmor-action action to v0.5.6 ([#170](https://github.com/jdx/communique/pull/170))
+- *(deps)* update release-plz/action digest to 2a9f3ef ([#168](https://github.com/jdx/communique/pull/168))
+- *(deps)* update taiki-e/setup-cross-toolchain-action digest to 3d9770c ([#169](https://github.com/jdx/communique/pull/169))
+- *(deps)* lock file maintenance ([#167](https://github.com/jdx/communique/pull/167))
+- *(deps)* update release-plz/action digest to 0b8b1af ([#166](https://github.com/jdx/communique/pull/166))
+- *(deps)* update release-plz/action digest to bd79cef ([#164](https://github.com/jdx/communique/pull/164))
+- *(deps)* update zizmorcore/zizmor-action action to v0.5.4 ([#165](https://github.com/jdx/communique/pull/165))
+- *(deps)* update codecov/codecov-action digest to e79a696 ([#163](https://github.com/jdx/communique/pull/163))
+- *(deps)* lock file maintenance ([#162](https://github.com/jdx/communique/pull/162))
+- *(deps)* update rust crate tokio to v1.52.3 ([#161](https://github.com/jdx/communique/pull/161))
+- *(deps)* update rust crate tokio to v1.52.2 ([#160](https://github.com/jdx/communique/pull/160))
+- *(deps)* update release-plz/action digest to cdf0f38 ([#158](https://github.com/jdx/communique/pull/158))
+- *(deps)* update dependency vue to v3.5.34 ([#159](https://github.com/jdx/communique/pull/159))
+- *(ci)* add zizmor workflow for github actions security analysis ([#157](https://github.com/jdx/communique/pull/157))
+- *(ci)* assert mise run render produces no diff ([#156](https://github.com/jdx/communique/pull/156))
+- *(deps)* update release-plz/action digest to b234371 ([#153](https://github.com/jdx/communique/pull/153))
+- *(deps)* update taiki-e/install-action digest ([#154](https://github.com/jdx/communique/pull/154))
+- *(deps)* update taiki-e/setup-cross-toolchain-action digest to 1293612 ([#152](https://github.com/jdx/communique/pull/152))
+- *(deps)* update taiki-e/install-action digest ([#151](https://github.com/jdx/communique/pull/151))
+- *(deps)* update release-plz/action digest to 3427ba6 ([#150](https://github.com/jdx/communique/pull/150))
 
 ## [1.0.4](https://github.com/jdx/communique/releases/tag/v1.0.4) - 2026-04-24
 
