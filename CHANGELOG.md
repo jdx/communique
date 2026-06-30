@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bumped the default model from `claude-opus-4-7` to `claude-opus-4-8`.
 
+## [1.2.1](https://github.com/jdx/communique/releases/tag/v1.2.1) - 2026-06-30
+
+## Added
+
+- Added a root `LICENSE` file with the MIT license text, matching the `license = "MIT"` already declared in `Cargo.toml` ([#207](https://github.com/jdx/communique/pull/207))
+
+## Changed
+
+- Routine dependency and CI maintenance: bumped `actions/checkout` to v7, refreshed the `release-plz/action` digest, and performed lock file maintenance ([#203](https://github.com/jdx/communique/pull/203), [#205](https://github.com/jdx/communique/pull/205), [#202](https://github.com/jdx/communique/pull/202), [#206](https://github.com/jdx/communique/pull/206))
+
 ## [1.2.0](https://github.com/jdx/communique/releases/tag/v1.2.0) - 2026-06-24
 
 ## Added
