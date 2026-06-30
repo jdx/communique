@@ -1,0 +1,43 @@
+{
+  "cli_version": "0.7.7",
+  "checkpoint_id": "a69b1d7ff20e",
+  "session_id": "019f19d4-e359-7c83-8b6b-4f2332e7bfac",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-30T18:41:13.79206Z",
+  "branch": "codex/add-license-file",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "LICENSE"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "431ad9a62fa4",
+  "token_usage": {
+    "input_tokens": 28942,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 144896,
+    "output_tokens": 2380,
+    "api_call_count": 8
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-30T18:41:13.788226Z",
+    "agent_lines": 21,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 21,
+    "total_lines_changed": 21,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
