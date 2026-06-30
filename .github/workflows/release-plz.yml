@@ -17,7 +17,7 @@ jobs:
       tag: ${{ steps.release-plz.outputs.releases && fromJSON(steps.release-plz.outputs.releases)[0].tag || '' }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_PLZ_TOKEN }}
@@ -25,7 +25,7 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - name: Run release-plz
         id: release-plz
-        uses: release-plz/action@f71a0ca7a8ad30e8795e58ffaf31fbcd35b08f8d # main
+        uses: release-plz/action@ce0ea4c202c91fa55375f71579fdd082e40cba50 # main
         with:
           command: release
         env:
@@ -98,7 +98,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           ref: refs/tags/${{ needs.release-plz-release.outputs.tag }}
           persist-credentials: false
@@ -152,7 +152,7 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - name: Run release-plz
         id: release-plz
-        uses: release-plz/action@f71a0ca7a8ad30e8795e58ffaf31fbcd35b08f8d # main
+        uses: release-plz/action@ce0ea4c202c91fa55375f71579fdd082e40cba50 # main
         with:
           command: release-pr
         env:
