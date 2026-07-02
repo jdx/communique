@@ -29,6 +29,7 @@ export default defineConfig({
   lastUpdated: true,
 
   head: [
+    ["link", { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" }],
     ["meta", { name: "theme-color", content: "#b967ff" }],
     [
       "meta",
@@ -46,6 +47,8 @@ export default defineConfig({
   ],
 
   themeConfig: {
+    logo: "/logo-mark.svg",
+
     nav: [
       { text: "Guide", link: "/guide/getting-started" },
       { text: "CLI Reference", link: "/cli/" },

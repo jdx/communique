@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">communiqué mark</title>
+  <desc id="desc">A neon document and signal mark forming a stylized C with an acute accent.</desc>
+  <defs>
+    <linearGradient id="mark-stroke" x1="42" y1="214" x2="220" y2="28" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ff71ce"/>
+      <stop offset=".52" stop-color="#b967ff"/>
+      <stop offset="1" stop-color="#01cdfe"/>
+    </linearGradient>
+    <linearGradient id="paper-fill" x1="82" y1="63" x2="172" y2="193" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#25103e"/>
+      <stop offset="1" stop-color="#0a0015"/>
+    </linearGradient>
+    <linearGradient id="accent-fill" x1="143" y1="47" x2="198" y2="14" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ff71ce"/>
+      <stop offset=".45" stop-color="#b967ff"/>
+      <stop offset="1" stop-color="#01cdfe"/>
+    </linearGradient>
+    <filter id="soft-glow" x="-35%" y="-35%" width="170%" height="170%" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="5" result="blur"/>
+      <feColorMatrix in="blur" values="1 0 0 0 0.75 0 1 0 0 0.25 0 0 1 0 1 0 0 0 0.7 0" result="glow"/>
+      <feMerge>
+        <feMergeNode in="glow"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <clipPath id="fold-clip">
+      <path d="M151 59h5l38 38v87a15 15 0 0 1-15 15H83a15 15 0 0 1-15-15V74a15 15 0 0 1 15-15h68z"/>
+    </clipPath>
+  </defs>
+  <rect width="256" height="256" rx="56" fill="#0a0015"/>
+  <path d="M180 44a88 88 0 1 0 0 168" fill="none" stroke="url(#mark-stroke)" stroke-width="18" stroke-linecap="round" filter="url(#soft-glow)"/>
+  <path d="M151 59h5l38 38v87a15 15 0 0 1-15 15H83a15 15 0 0 1-15-15V74a15 15 0 0 1 15-15h68z" fill="url(#paper-fill)" stroke="url(#mark-stroke)" stroke-width="8" stroke-linejoin="round"/>
+  <g clip-path="url(#fold-clip)">
+    <path d="M151 59v33a10 10 0 0 0 10 10h33z" fill="#120025" stroke="#01cdfe" stroke-width="6" stroke-linejoin="round"/>
+    <path d="M91 114h78M91 141h67M91 168h47" fill="none" stroke="#e8d5f5" stroke-width="9" stroke-linecap="round"/>
+    <path d="M91 114h78M91 141h67M91 168h47" fill="none" stroke="#01cdfe" stroke-width="3" stroke-linecap="round" opacity=".65"/>
+  </g>
+  <path d="M146 46 196 20" fill="none" stroke="url(#accent-fill)" stroke-width="16" stroke-linecap="round" filter="url(#soft-glow)"/>
+  <path d="M185 68c16 5 28 16 35 31M196 47c22 8 39 24 49 45" fill="none" stroke="#01cdfe" stroke-width="7" stroke-linecap="round" opacity=".75"/>
+</svg>
