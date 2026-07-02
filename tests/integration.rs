@@ -21,9 +21,10 @@ fn test_sponsors_command() {
         result.status,
         stderr
     );
+    assert!(stdout.contains("entire.io"), "stdout: {stdout}");
     assert!(stdout.contains("37signals"), "stdout: {stdout}");
     assert!(
-        stdout.contains("https://en.dev/sponsors.html"),
+        stdout.contains("https://jdx.dev/sponsors.html"),
         "stdout: {stdout}"
     );
     assert!(

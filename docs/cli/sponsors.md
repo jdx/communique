@@ -3,4 +3,4 @@
 
 - **Usage**: `communique sponsors`
 
-Show the companies sponsoring communique and the en.dev project family
+Show the companies sponsoring communique and the jdx.dev open source tools
