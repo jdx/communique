@@ -8,7 +8,7 @@ publish directly to a GitHub Release.
 
 ## Sponsors
 
-communique is sponsored by [entire.io](https://entire.io), [37signals](https://37signals.com), and [CodeRabbit](https://coderabbit.link/mise).
+communique is sponsored by [entire.io](https://entire.io) and [37signals](https://37signals.com).
 
 [View all sponsors](https://jdx.dev/sponsors.html).
 
