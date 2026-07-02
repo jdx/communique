@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Added
 
-- Added a `communique sponsors` command that lists the companies sponsoring communique and the en.dev project family ([#174](https://github.com/jdx/communique/pull/174))
+- Added a `communique sponsors` command that lists the companies sponsoring communique and the jdx.dev open source tools ([#174](https://github.com/jdx/communique/pull/174))
 
 ## Changed
 

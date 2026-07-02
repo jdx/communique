@@ -111,7 +111,7 @@ jobs:
         run: |
           cargo build
           ./target/debug/communique generate "${NEEDS_RELEASE_PLZ_RELEASE_OUTPUTS_TAG}" --github-release
-      - name: Append en.dev sponsor blurb
+      - name: Append jdx.dev sponsor blurb
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
           TAG: ${{ needs.release-plz-release.outputs.tag }}
@@ -124,9 +124,9 @@ jobs:
 
           ## 💚 Sponsor communique
 
-          communique is developed by [@jdx](https://github.com/jdx) at [**en.dev**](https://en.dev), an independent studio behind developer tools like [mise](https://mise.jdx.dev/), [aube](https://aube.en.dev/), hk, and more. Ongoing work on communique is funded by sponsorships.
+          communique is maintained by [@jdx](https://github.com/jdx), an open source developer for [**entire.io**](https://entire.io), the title sponsor of the [jdx.dev](https://jdx.dev) open source tools including [mise](https://mise.jdx.dev/), [aube](https://aube.jdx.dev/), hk, and more. Ongoing work on communique is funded by sponsorships.
 
-          If communique is drafting your release notes or changelogs, please consider [sponsoring at en.dev](https://en.dev). Every sponsor — individual or company — helps keep the project independent and actively maintained.
+          If communique is drafting your release notes or changelogs, please consider [sponsoring at jdx.dev](https://jdx.dev/sponsors.html). Every sponsor — individual or company — helps keep the project independent and actively maintained.
           EOF
 
           gh release edit "$TAG" --notes-file /tmp/release-notes.md

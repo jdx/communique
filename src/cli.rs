@@ -86,7 +86,7 @@ pub enum Command {
         force: bool,
     },
 
-    /// Show the companies sponsoring communique and the en.dev project family
+    /// Show the companies sponsoring communique and the jdx.dev open source tools
     Sponsors,
 
     Usage(usage::Usage),
