@@ -4,6 +4,9 @@ layout: home
 hero:
   name: communiqué
   text: AI Release Notes
+  image:
+    src: /logo.svg
+    alt: communiqué
   tagline: Your release notes have been optimized for human consumption
   actions:
     - theme: brand

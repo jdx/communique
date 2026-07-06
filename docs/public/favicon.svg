@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="sun" x1="0" y1="116" x2="0" y2="324" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ff71ce"/>
+      <stop offset=".55" stop-color="#b967ff"/>
+      <stop offset="1" stop-color="#01cdfe"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="64" y1="72" x2="448" y2="452" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ff71ce"/>
+      <stop offset=".5" stop-color="#b967ff"/>
+      <stop offset="1" stop-color="#01cdfe"/>
+    </linearGradient>
+    <mask id="slats">
+      <rect width="512" height="512" fill="#fff"/>
+      <rect x="112" y="252" width="288" height="18" fill="#000"/>
+      <rect x="112" y="292" width="288" height="24" fill="#000"/>
+    </mask>
+  </defs>
+  <circle cx="256" cy="220" r="104" fill="url(#sun)" mask="url(#slats)"/>
+  <path d="M136 72h240a72 72 0 0 1 72 72v160a72 72 0 0 1-72 72H232l-76 64 8-64h-28a72 72 0 0 1-72-72V144a72 72 0 0 1 72-72Z" stroke="url(#rim)" stroke-width="34" stroke-linejoin="round"/>
+</svg>

@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="sun" x1="0" y1="124" x2="0" y2="316" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ff71ce"/>
+      <stop offset=".55" stop-color="#b967ff"/>
+      <stop offset="1" stop-color="#01cdfe"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="64" y1="72" x2="448" y2="452" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ff71ce"/>
+      <stop offset=".5" stop-color="#b967ff"/>
+      <stop offset="1" stop-color="#01cdfe"/>
+    </linearGradient>
+    <mask id="slats">
+      <rect width="512" height="512" fill="#fff"/>
+      <rect x="120" y="238" width="272" height="10" fill="#000"/>
+      <rect x="120" y="262" width="272" height="13" fill="#000"/>
+      <rect x="120" y="290" width="272" height="17" fill="#000"/>
+    </mask>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="0" stdDeviation="10" flood-color="#b967ff" flood-opacity="0.55"/>
+    </filter>
+  </defs>
+  <g filter="url(#glow)">
+    <circle cx="256" cy="220" r="96" fill="url(#sun)" mask="url(#slats)"/>
+    <path d="M136 72h240a72 72 0 0 1 72 72v160a72 72 0 0 1-72 72H232l-76 64 8-64h-28a72 72 0 0 1-72-72V144a72 72 0 0 1 72-72Z" stroke="url(#rim)" stroke-width="20" stroke-linejoin="round"/>
+  </g>
+</svg>
