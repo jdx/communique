@@ -35,7 +35,7 @@ Detailed GitHub release notes in markdown. Use the following template as a base,
 ## Added / ## Fixed / ## Changed / etc.
 <!-- Use top-level ## headings for each category (Added, Fixed, Changed, Deprecated, Removed). Only include categories that apply. -->
 <!-- Each item should mention the PR (@author) where relevant -->
-<!-- Where it genuinely helps, include a brief code snippet, usage example, or config sample -->
+<!-- For important user-facing features, include a brief command, usage example, or config sample when it helps readers understand how to try the feature. Keep examples short and omit them for small fixes or self-explanatory changes. -->
 
 ## Breaking Changes
 <!-- Only if applicable. List any changes that require user action to upgrade. -->
@@ -48,12 +48,12 @@ Detailed GitHub release notes in markdown. Use the following template as a base,
 **Full Changelog**: https://github.com/OWNER/REPO/compare/PREV_TAG...TAG
 ```
 
-Adapt the template to fit the release. Small releases might only need a summary and categorized sections, regardless of whether the version is patch, minor, or major. Most releases should omit Highlights; use it only when it reduces scanning effort instead of duplicating the sections below. Don't include empty sections.
+Adapt the template to fit the release. Small releases might only need a single direct summary sentence and compact categorized sections, regardless of whether the version is patch, minor, or major. If there are only one or two user-facing changes, be explicit that it is a small release instead of stretching the notes. Most releases should omit Highlights; use it only when it reduces scanning effort instead of duplicating the sections below. Don't include empty sections.
 
 Each section needs a distinct job:
 - The opening paragraph frames the release in 1-2 sentences.
 - Highlights, when present, group broad themes for skimming; they should not be a second categorized changelog.
-- Categorized sections carry the concrete details, PR links, authors, examples, and compatibility notes.
+- Categorized sections carry the concrete details, PR links, authors, useful examples, and compatibility notes.
 
 Avoid saying the same change three times. If a change appears in Highlights, keep the categorized bullet focused on extra detail or omit the duplicate detail entirely. Prefer fewer, denser bullets over repeated summaries.
 
@@ -186,6 +186,8 @@ mod tests {
         assert!(prompt.contains("10+ distinct user-facing changes"));
         assert!(prompt.contains("do not repeat the same bullets"));
         assert!(prompt.contains("Each section needs a distinct job"));
+        assert!(prompt.contains("include a brief command, usage example, or config sample"));
+        assert!(prompt.contains("single direct summary sentence"));
         assert!(!prompt.contains("Do NOT use emoji"));
     }
 
