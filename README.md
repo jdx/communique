@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/public/logo.svg" width="140" alt="communiqué logo">
+</p>
+
 # communique
 
 AI-generated release notes for people who read release notes.
