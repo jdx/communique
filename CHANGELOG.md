@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bumped the default model from `claude-opus-4-7` to `claude-opus-4-8`.
 
+## [1.2.1](https://github.com/jdx/communique/releases/tag/v1.2.1) - 2026-07-07
+
+## Added
+
+- MIT `LICENSE` file at the repo root, matching the `license = "MIT"` already declared in `Cargo.toml` ([#207](https://github.com/jdx/communique/pull/207))
+- Vaporwave logo and favicon set for the docs site and README ([#215](https://github.com/jdx/communique/pull/215))
+
+## Changed
+
+- Sponsor references now point at jdx.dev, and `entire.io` is listed as a title sponsor alongside 37signals in the `communique sponsors` command, help text, docs, and the appended release blurb ([#208](https://github.com/jdx/communique/pull/208))
+- Improved built-in release-note prompt calibration — important features get short command/config examples, and small releases stay compact instead of being padded ([#218](https://github.com/jdx/communique/pull/218))
+
 ## [1.2.0](https://github.com/jdx/communique/releases/tag/v1.2.0) - 2026-06-24
 
 ## Added
