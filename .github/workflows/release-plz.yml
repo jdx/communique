@@ -8,8 +8,40 @@ on:
 permissions: {}
 
 jobs:
+  pending-release:
+    runs-on: ubuntu-latest
+    outputs:
+      has_release_commits: ${{ steps.commits.outputs.has_release_commits }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          fetch-depth: 0
+      - name: Check for fix/feat commits since the latest release
+        id: commits
+        run: |
+          set -euo pipefail
+
+          latest_tag=$(git tag --list 'v[0-9]*' --sort=-v:refname | head -1 || true)
+          if [ -n "$latest_tag" ]; then
+            range="${latest_tag}..HEAD"
+            echo "Checking pending commits since ${latest_tag}"
+          else
+            range="HEAD"
+            echo "No v* release tag found; checking all commits"
+          fi
+
+          if git log --format=%s "$range" | grep -Eq '^(fix|feat)(\([^)]+\))?!?: '; then
+            echo "has_release_commits=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No pending fix/feat commits; skipping autorelease."
+            echo "has_release_commits=false" >> "$GITHUB_OUTPUT"
+          fi
+
   release-plz-release:
     name: Release-plz release
+    needs: pending-release
+    if: needs.pending-release.outputs.has_release_commits == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -58,7 +90,7 @@ jobs:
             done
             if [ -n "$release_id" ]; then
               echo "Fixing draft release $release_id: setting tag_name to $tag"
-              gh api repos/${{ github.repository }}/releases/$release_id --method PATCH --field tag_name="$tag"
+              gh api "repos/${{ github.repository }}/releases/$release_id" --method PATCH --field tag_name="$tag"
             else
               echo "::warning::No untagged draft release found for $tag after 10 attempts"
             fi
@@ -133,6 +165,8 @@ jobs:
 
   release-plz-pr:
     name: Release-plz PR
+    needs: pending-release
+    if: needs.pending-release.outputs.has_release_commits == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
