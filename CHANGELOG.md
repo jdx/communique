@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bumped the default model from `claude-opus-4-7` to `claude-opus-4-8`.
 
+## [1.2.3](https://github.com/jdx/communique/releases/tag/v1.2.3) - 2026-07-14
+
+### Changed
+
+- *(ci)* Update pinned `actions/setup-node` commit (v6.4.0 → v6.5.0) to fix a Zizmor `ref-version-mismatch` audit failure ([#227](https://github.com/jdx/communique/pull/227))
+
 ## [1.2.2](https://github.com/jdx/communique/releases/tag/v1.2.2) - 2026-07-14
 
 ## Fixed
