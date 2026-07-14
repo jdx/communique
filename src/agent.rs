@@ -17,14 +17,19 @@ const MAX_MALFORMED_SUBMISSIONS: usize = 3;
 fn parse_submission(
     input: &serde_json::Value,
     usage: &Usage,
+    require_release_notes: bool,
     require_changelog: bool,
 ) -> Result<ParsedOutput> {
     let changelog = require_changelog.then(|| field_as_string(input, "changelog"));
-    let release_title = field_as_string(input, "release_title");
-    let release_body = field_as_string(input, "release_body");
+    let release_title = require_release_notes.then(|| field_as_string(input, "release_title"));
+    let release_body = require_release_notes.then(|| field_as_string(input, "release_body"));
 
     let mut problems = Vec::new();
-    for res in changelog.iter().chain([&release_title, &release_body]) {
+    for res in changelog
+        .iter()
+        .chain(release_title.iter())
+        .chain(release_body.iter())
+    {
         if let Err(Error::Parse(msg)) = res {
             problems.push(msg.clone());
         }
@@ -35,8 +40,8 @@ fn parse_submission(
 
     Ok(ParsedOutput {
         changelog: changelog.transpose()?.unwrap_or_default(),
-        release_title: release_title.unwrap(),
-        release_body: release_body.unwrap(),
+        release_title: release_title.transpose()?.unwrap_or_default(),
+        release_body: release_body.transpose()?.unwrap_or_default(),
         usage: usage.clone(),
     })
 }
@@ -73,10 +78,17 @@ fn json_type_name(value: &serde_json::Value) -> &'static str {
 fn parse_submission_lenient(
     input: &serde_json::Value,
     usage: &Usage,
+    require_release_notes: bool,
     require_changelog: bool,
 ) -> Option<ParsedOutput> {
-    let release_body = non_empty_coerced(&input["release_body"])?;
-    let release_title = non_empty_coerced(&input["release_title"])?;
+    let (release_title, release_body) = if require_release_notes {
+        (
+            non_empty_coerced(&input["release_title"])?,
+            non_empty_coerced(&input["release_body"])?,
+        )
+    } else {
+        (String::new(), String::new())
+    };
     let changelog = if require_changelog {
         non_empty_coerced(&input["changelog"])?
     } else {
@@ -117,6 +129,7 @@ pub struct AgentContext<'a> {
     pub repo_root: &'a Path,
     pub github: Option<&'a GitHubClient>,
     pub verify_links: bool,
+    pub require_release_notes: bool,
     pub require_changelog: bool,
     pub job: &'a Arc<ProgressJob>,
 }
@@ -130,6 +143,7 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
         repo_root,
         github,
         verify_links,
+        require_release_notes,
         require_changelog,
         job,
     } = ctx;
@@ -163,7 +177,12 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
         let mut malformed_submit = Vec::new();
         for tc in &response.tool_calls {
             if tc.name == "submit_release_notes" {
-                match parse_submission(&tc.input, &total_usage, require_changelog) {
+                match parse_submission(
+                    &tc.input,
+                    &total_usage,
+                    require_release_notes,
+                    require_changelog,
+                ) {
                     Ok(parsed) => submit = Some((tc.id.clone(), parsed)),
                     Err(Error::Parse(message)) => {
                         malformed_reasons.push(message.clone());
@@ -173,6 +192,7 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
                             content: submission_retry_message(
                                 &message,
                                 &response.stop_reason,
+                                require_release_notes,
                                 require_changelog,
                             ),
                             is_error: true,
@@ -218,10 +238,13 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
                     .as_ref()
                     .and_then(|v| serde_json::to_string_pretty(v).ok())
                     .unwrap_or_else(|| "<no input captured>".into());
-                if response.stop_reason != StopReason::MaxTokens
-                    && let Some(input) = &last_malformed_input
-                    && let Some(parsed) =
-                        parse_submission_lenient(input, &total_usage, require_changelog)
+                if let Some(input) = &last_malformed_input
+                    && let Some(parsed) = parse_submission_lenient(
+                        input,
+                        &total_usage,
+                        require_release_notes,
+                        require_changelog,
+                    )
                 {
                     log::warn!(
                         "submit_release_notes was malformed {malformed_submission_count} times ({}); salvaging the last attempt. Received input:\n{received}",
@@ -362,16 +385,30 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
 fn submission_retry_message(
     message: &str,
     stop_reason: &StopReason,
+    require_release_notes: bool,
     require_changelog: bool,
 ) -> String {
-    let fields = if require_changelog {
-        "release_title, release_body, and changelog"
-    } else {
-        "release_title and release_body"
+    let fields = match (require_release_notes, require_changelog) {
+        (true, true) => "release_title, release_body, and changelog",
+        (true, false) => "release_title and release_body",
+        (false, true) => "changelog",
+        (false, false) => unreachable!("at least one output must be required"),
     };
     if *stop_reason == StopReason::MaxTokens {
+        let budget_hint = match (require_release_notes, require_changelog) {
+            (true, true) => {
+                "prioritize a complete editorial release_body, group related changes, omit minor or internal details, and do not repeat an oversized changelog"
+            }
+            (true, false) => {
+                "prioritize a complete editorial release_body, group related changes, and omit minor or internal details"
+            }
+            (false, true) => {
+                "produce a concise grouped changelog and omit minor or internal details"
+            }
+            (false, false) => unreachable!("at least one output must be required"),
+        };
         format!(
-            "Error: the response reached max_tokens before the submission was complete ({message}).\n\nCall submit_release_notes again with non-empty string values for {fields}. Keep the response within the available budget: prioritize a complete editorial release_body, group related changes, and omit minor or internal details. Do not repeat an oversized changelog."
+            "Error: the response reached max_tokens before the submission was complete ({message}).\n\nCall submit_release_notes again with non-empty string values for {fields}. Keep the response within the available budget: {budget_hint}."
         )
     } else {
         format!(
@@ -434,19 +471,45 @@ mod tests {
             "release_title": "A useful title",
             "release_body": "A useful editorial body",
         });
-        let result = parse_submission(&input, &fake_usage(), false).unwrap();
+        let result = parse_submission(&input, &fake_usage(), true, false).unwrap();
         assert!(result.changelog.is_empty());
         assert_eq!(result.release_title, "A useful title");
         assert_eq!(result.release_body, "A useful editorial body");
     }
 
     #[test]
+    fn test_changelog_only_submission_does_not_require_release_notes() {
+        let input = json!({ "changelog": "## Fixed\n- A useful fix" });
+        let result = parse_submission(&input, &fake_usage(), false, true).unwrap();
+        assert_eq!(result.changelog, "## Fixed\n- A useful fix");
+        assert!(result.release_title.is_empty());
+        assert!(result.release_body.is_empty());
+    }
+
+    #[test]
     fn test_max_tokens_retry_prioritizes_editorial_body() {
         let message =
-            submission_retry_message("missing `release_body`", &StopReason::MaxTokens, true);
+            submission_retry_message("missing `release_body`", &StopReason::MaxTokens, true, true);
         assert!(message.contains("reached max_tokens"));
         assert!(message.contains("prioritize a complete editorial release_body"));
-        assert!(message.contains("Do not repeat an oversized changelog"));
+        assert!(message.contains("do not repeat an oversized changelog"));
+    }
+
+    #[test]
+    fn test_max_tokens_retry_matches_requested_artifacts() {
+        let release_only = submission_retry_message(
+            "missing `release_body`",
+            &StopReason::MaxTokens,
+            true,
+            false,
+        );
+        assert!(release_only.contains("release_title and release_body"));
+        assert!(!release_only.contains("changelog"));
+
+        let changelog_only =
+            submission_retry_message("missing `changelog`", &StopReason::MaxTokens, false, true);
+        assert!(changelog_only.contains("concise grouped changelog"));
+        assert!(!changelog_only.contains("release_body"));
     }
 
     #[test]
@@ -456,7 +519,7 @@ mod tests {
             "changelog": "- Fixed X",
             "release_title": "Fix X",
         });
-        assert!(parse_submission_lenient(&input, &fake_usage(), true).is_none());
+        assert!(parse_submission_lenient(&input, &fake_usage(), true, true).is_none());
     }
 
     #[tokio::test]
@@ -477,6 +540,7 @@ mod tests {
             repo_root: &tmp,
             github: None,
             verify_links: false,
+            require_release_notes: true,
             require_changelog: true,
             job: &job,
         };
@@ -484,6 +548,38 @@ mod tests {
         assert_eq!(result.changelog, "log");
         assert_eq!(result.release_title, "v1.0");
         assert_eq!(result.release_body, "body");
+    }
+
+    #[tokio::test]
+    async fn test_changelog_only_direct_submission() {
+        let client = MockLlmClient::new(vec![TurnResponse {
+            tool_calls: vec![ToolCall {
+                id: "call_1".into(),
+                name: "submit_release_notes".into(),
+                input: json!({ "changelog": "## Fixed\n- A useful fix" }),
+            }],
+            text: None,
+            stop_reason: StopReason::ToolUse,
+            usage: fake_usage(),
+        }]);
+        let job = Arc::new(ProgressJobBuilder::new().build());
+        let tmp = std::env::temp_dir();
+        let ctx = AgentContext {
+            client: &client,
+            system: "",
+            user_message: "",
+            tool_defs: vec![],
+            repo_root: &tmp,
+            github: None,
+            verify_links: false,
+            require_release_notes: false,
+            require_changelog: true,
+            job: &job,
+        };
+        let result = run(ctx).await.unwrap();
+        assert_eq!(result.changelog, "## Fixed\n- A useful fix");
+        assert!(result.release_title.is_empty());
+        assert!(result.release_body.is_empty());
     }
 
     #[tokio::test]
@@ -516,6 +612,7 @@ mod tests {
             repo_root: &tmp,
             github: None,
             verify_links: false,
+            require_release_notes: true,
             require_changelog: true,
             job: &job,
         };
@@ -543,6 +640,7 @@ mod tests {
             repo_root: &tmp,
             github: None,
             verify_links: false,
+            require_release_notes: true,
             require_changelog: true,
             job: &job,
         };
@@ -569,6 +667,7 @@ mod tests {
             repo_root: &tmp,
             github: None,
             verify_links: false,
+            require_release_notes: true,
             require_changelog: true,
             job: &job,
         };
@@ -595,6 +694,7 @@ mod tests {
             repo_root: &tmp,
             github: None,
             verify_links: false,
+            require_release_notes: true,
             require_changelog: true,
             job: &job,
         };
@@ -620,6 +720,7 @@ mod tests {
             repo_root: &tmp,
             github: None,
             verify_links: false,
+            require_release_notes: true,
             require_changelog: false,
             job: &job,
         };
@@ -661,6 +762,7 @@ mod tests {
             repo_root: &tmp,
             github: None,
             verify_links: false,
+            require_release_notes: true,
             require_changelog: true,
             job: &job,
         };
@@ -703,6 +805,7 @@ mod tests {
             repo_root: &tmp,
             github: None,
             verify_links: false,
+            require_release_notes: true,
             require_changelog: true,
             job: &job,
         };
@@ -745,6 +848,7 @@ mod tests {
             repo_root: &tmp,
             github: None,
             verify_links: false,
+            require_release_notes: true,
             require_changelog: true,
             job: &job,
         };
@@ -781,7 +885,7 @@ mod tests {
             TurnResponse {
                 tool_calls: vec![partial("call_3")],
                 text: None,
-                stop_reason: StopReason::ToolUse,
+                stop_reason: StopReason::MaxTokens,
                 usage: fake_usage(),
             },
         ]);
@@ -795,6 +899,7 @@ mod tests {
             repo_root: &tmp,
             github: None,
             verify_links: false,
+            require_release_notes: true,
             require_changelog: true,
             job: &job,
         };
@@ -841,6 +946,7 @@ mod tests {
             repo_root: &tmp,
             github: None,
             verify_links: false,
+            require_release_notes: true,
             require_changelog: true,
             job: &job,
         };
@@ -869,7 +975,7 @@ mod tests {
         // error. With {} input, only `changelog` was reported, which made the
         // diagnostic list three identical lines instead of all three missing
         // fields.
-        let err = parse_submission(&json!({}), &fake_usage(), true).unwrap_err();
+        let err = parse_submission(&json!({}), &fake_usage(), true, true).unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("changelog"), "msg: {msg}");
         assert!(msg.contains("release_title"), "msg: {msg}");
@@ -905,7 +1011,7 @@ mod tests {
             TurnResponse {
                 tool_calls: vec![make("c3")],
                 text: None,
-                stop_reason: StopReason::ToolUse,
+                stop_reason: StopReason::MaxTokens,
                 usage: fake_usage(),
             },
         ]);
@@ -919,6 +1025,7 @@ mod tests {
             repo_root: &tmp,
             github: None,
             verify_links: false,
+            require_release_notes: true,
             require_changelog: true,
             job: &job,
         };
@@ -961,6 +1068,7 @@ mod tests {
             repo_root: &tmp,
             github: None,
             verify_links: true,
+            require_release_notes: true,
             require_changelog: true,
             job: &job,
         };
@@ -1012,6 +1120,7 @@ mod tests {
             repo_root: &tmp,
             github: None,
             verify_links: true,
+            require_release_notes: true,
             require_changelog: true,
             job: &job,
         };
@@ -1044,6 +1153,7 @@ mod tests {
             repo_root: &tmp,
             github: None,
             verify_links: false,
+            require_release_notes: true,
             require_changelog: true,
             job: &job,
         };
