@@ -174,7 +174,10 @@ async fn gather_context(opts: &GenerateOptions, job: &Arc<ProgressJob>) -> miett
         .clone()
         .or(defaults.model.clone())
         .unwrap_or_else(|| "claude-opus-4-8".into());
-    let max_tokens = opts.max_tokens.or(defaults.max_tokens).unwrap_or(4096);
+    let max_tokens = opts
+        .max_tokens
+        .or(defaults.max_tokens)
+        .unwrap_or(config::DEFAULT_MAX_TOKENS);
     let owner_repo = match opts.repo.clone().or(defaults.repo.clone()) {
         Some(r) => r,
         None => git::detect_remote(&repo_root)?,

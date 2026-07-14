@@ -3,6 +3,8 @@ use std::path::Path;
 use serde::Deserialize;
 
 use crate::error::Result;
+
+pub const DEFAULT_MAX_TOKENS: u32 = 16_384;
 use crate::providers::Provider;
 
 #[derive(Debug, Deserialize, Default)]
@@ -34,7 +36,7 @@ const TEMPLATE: &str = r#"# Extra instructions appended to the system prompt.
 
 [defaults]
 #model = "claude-opus-4-8"
-#max_tokens = 4096
+#max_tokens = 16384
 #repo = "owner/repo"
 #provider = "anthropic"
 #base_url = ""
@@ -137,6 +139,7 @@ emoji = false
     fn test_template_is_valid_toml() {
         let config: Config = toml::from_str(Config::template()).unwrap();
         assert!(config.system_extra.is_none());
+        assert!(Config::template().contains("#max_tokens = 16384"));
     }
 
     #[test]

@@ -37,14 +37,14 @@ Default parameters for generation. All values can be overridden via CLI flags.
 ```toml
 [defaults]
 model = "claude-opus-4-8"
-max_tokens = 4096
+max_tokens = 16384
 repo = "owner/repo"
 ```
 
 | Key | Description | Default |
 |-----|-------------|---------|
 | `model` | Model identifier | `claude-opus-4-8` |
-| `max_tokens` | Maximum response tokens | `4096` |
+| `max_tokens` | Maximum tokens permitted per model response (billing is based on actual usage) | `16384` |
 | `repo` | GitHub repo in `owner/repo` format | Auto-detected from git remote |
 
 ## Resolution Order
