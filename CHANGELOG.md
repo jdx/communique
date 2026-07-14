@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bumped the default model from `claude-opus-4-7` to `claude-opus-4-8`.
 
+## [1.2.2](https://github.com/jdx/communique/releases/tag/v1.2.2) - 2026-07-14
+
+## Fixed
+
+- Raise the default per-response token ceiling from 4,096 to 16,384; `--max-tokens` and `[defaults].max_tokens` overrides are unchanged ([#224](https://github.com/jdx/communique/pull/224))
+- Reject token-truncated output and stop substituting changelog content for a missing `release_body`, failing with actionable guidance instead of publishing malformed notes ([#223](https://github.com/jdx/communique/pull/223))
+- Request and validate only the artifacts each output mode needs, letting concise/changelog-only runs submit just a changelog and tailoring retry guidance accordingly ([#225](https://github.com/jdx/communique/pull/225))
+
 ## [1.2.1](https://github.com/jdx/communique/releases/tag/v1.2.1) - 2026-07-07
 
 ## Added
