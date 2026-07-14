@@ -109,7 +109,8 @@ pub async fn run(opts: GenerateOptions) -> miette::Result<()> {
         .start();
 
     let ctx = gather_context(&opts, &job).await?;
-    let mut parsed = generate_notes(&ctx, opts.dry_run, &job).await?;
+    let include_changelog = opts.changelog || opts.concise;
+    let mut parsed = generate_notes(&ctx, opts.dry_run, include_changelog, &job).await?;
 
     // Normalize release title to "label: description" format.
     // The LLM may include the tag with a different separator (e.g. "v1.0.0 (title)"
@@ -238,6 +239,7 @@ async fn gather_context(opts: &GenerateOptions, job: &Arc<ProgressJob>) -> miett
 async fn generate_notes(
     ctx: &Context,
     dry_run: bool,
+    include_changelog: bool,
     job: &Arc<ProgressJob>,
 ) -> miette::Result<ParsedOutput> {
     let git_log = git::log_between(&ctx.repo_root, &ctx.prev_tag, &ctx.tag)?;
@@ -300,7 +302,7 @@ async fn generate_notes(
     };
 
     let emoji = ctx.defaults.emoji.unwrap_or(true);
-    let system = prompt::system_prompt(ctx.system_extra.as_deref(), emoji);
+    let system = prompt::system_prompt(ctx.system_extra.as_deref(), emoji, include_changelog);
     let user_msg = prompt::user_prompt(&prompt::UserPromptContext {
         tag: &ctx.tag,
         prev_tag: &ctx.prev_tag,
@@ -315,7 +317,7 @@ async fn generate_notes(
     });
 
     job.prop("message", "Generating release notes...");
-    let tool_defs = tools::all_definitions(ctx.github_client.is_some());
+    let tool_defs = tools::all_definitions(ctx.github_client.is_some(), include_changelog);
 
     let verify_links = !dry_run && ctx.defaults.verify_links.unwrap_or(true);
 
@@ -327,6 +329,7 @@ async fn generate_notes(
         repo_root: &ctx.repo_root,
         github: ctx.github_client.as_ref(),
         verify_links,
+        require_changelog: include_changelog,
         job,
     })
     .await
@@ -524,7 +527,7 @@ mod tests {
         };
 
         let job = Arc::new(ProgressJobBuilder::new().build());
-        let parsed = generate_notes(&ctx, false, &job).await.unwrap();
+        let parsed = generate_notes(&ctx, false, true, &job).await.unwrap();
         assert_eq!(parsed.release_title, "Initial Release");
         assert!(parsed.changelog.contains("Main function"));
     }
@@ -583,7 +586,7 @@ mod tests {
         };
 
         let job = Arc::new(ProgressJobBuilder::new().build());
-        let parsed = generate_notes(&ctx, false, &job).await.unwrap();
+        let parsed = generate_notes(&ctx, false, true, &job).await.unwrap();
         assert_eq!(parsed.release_title, "Title");
         assert_eq!(parsed.release_body, "Body");
     }
@@ -866,7 +869,7 @@ mod tests {
         };
 
         let job = Arc::new(ProgressJobBuilder::new().build());
-        let parsed = generate_notes(&ctx, false, &job).await.unwrap();
+        let parsed = generate_notes(&ctx, false, true, &job).await.unwrap();
         assert_eq!(parsed.release_title, "v1.0.0");
         assert!(parsed.release_body.contains("main entry point"));
     }
@@ -948,7 +951,7 @@ mod tests {
         };
 
         let job = Arc::new(ProgressJobBuilder::new().build());
-        let parsed = generate_notes(&ctx, false, &job).await.unwrap();
+        let parsed = generate_notes(&ctx, false, true, &job).await.unwrap();
         assert_eq!(parsed.release_title, "v1.0.0");
         assert!(parsed.release_body.contains("greeting"));
     }
@@ -1085,7 +1088,7 @@ mod tests {
         };
 
         let job = Arc::new(ProgressJobBuilder::new().build());
-        let parsed = generate_notes(&ctx, false, &job).await.unwrap();
+        let parsed = generate_notes(&ctx, false, true, &job).await.unwrap();
         assert_eq!(parsed.release_title, "v1.0.0 - Feature Release");
         assert!(parsed.changelog.contains("feature"));
     }
@@ -1164,7 +1167,7 @@ mod tests {
         };
 
         let job = Arc::new(ProgressJobBuilder::new().build());
-        let parsed = generate_notes(&ctx, false, &job).await.unwrap();
+        let parsed = generate_notes(&ctx, false, true, &job).await.unwrap();
         publish(&opts, &ctx, &parsed, &job).await.unwrap();
         // wiremock expect(1) verifies PATCH was called
     }
@@ -1220,7 +1223,7 @@ mod tests {
         };
 
         let job = Arc::new(ProgressJobBuilder::new().build());
-        let parsed = generate_notes(&ctx, false, &job).await.unwrap();
+        let parsed = generate_notes(&ctx, false, true, &job).await.unwrap();
         assert_eq!(parsed.usage.input_tokens, 250);
         assert_eq!(parsed.usage.output_tokens, 125);
     }

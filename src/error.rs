@@ -37,7 +37,7 @@ pub enum Error {
     #[diagnostic(
         code(communique::malformed_submission),
         help(
-            "The model could not produce a valid submit_release_notes tool call. Problems:\n  - {reasons}\n\nCheck that the model is producing non-empty string values for all three required fields: changelog, release_title, release_body."
+            "The model could not produce a valid submit_release_notes tool call. Problems:\n  - {reasons}\n\nCheck that the model is producing non-empty string values for every field requested by the submit_release_notes schema. If the response reached max_tokens, increase --max-tokens or defaults.max_tokens."
         )
     )]
     MalformedSubmission {

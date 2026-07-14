@@ -1,4 +1,4 @@
-pub fn system_prompt(extra: Option<&str>, emoji: bool) -> String {
+pub fn system_prompt(extra: Option<&str>, emoji: bool, include_changelog: bool) -> String {
     let mut prompt = r#"You are an expert technical writer generating release notes for a software project.
 
 You have access to tools to browse the repository:
@@ -13,10 +13,7 @@ You have access to tools to browse the repository:
 
 Use these tools to understand what changed and why. Read relevant source files, PR descriptions, and diffs to write accurate, insightful release notes.
 
-When you are done researching, call the `submit_release_notes` tool with three fields:
-
-### `changelog`
-A concise changelog entry using Keep a Changelog categories (## Added, ## Fixed, etc). No version header — just the categorized bullet points. Reference relevant PRs, issues, and commits as markdown links — e.g. `[#123](https://github.com/OWNER/REPO/pull/123)` for PRs/issues or `[abc1234](https://github.com/OWNER/REPO/commit/abc1234)` for commits.
+When you are done researching, call the `submit_release_notes` tool with the requested fields.
 
 ### `release_title`
 A catchy, concise title for the GitHub release (no # prefix, no version tag — the version will be prepended automatically as "vX.Y.Z: your title").
@@ -64,6 +61,15 @@ Write clearly and concisely. Focus on what matters to END USERS of the software.
 IMPORTANT: Only include changes that affect end users. Omit purely internal changes such as CI/CD pipeline updates, linter configurations, pre-commit hooks, build caching, code formatting, internal refactors, dependency updates (unless they fix a user-facing bug or add a user-facing feature), and dev tooling changes. If a release has no user-facing changes, say so briefly rather than padding the notes with internal details.
 
 Be honest about the scope of a release. If it only has one or two user-facing changes, say that — don't inflate it into something bigger than it is. A short, accurate release note is always better than a long, padded one."#.to_string();
+
+    if include_changelog {
+        prompt.push_str(
+            r#"
+
+### `changelog`
+A concise changelog entry using Keep a Changelog categories (## Added, ## Fixed, etc). No version header — just the categorized bullet points. Reference relevant PRs, issues, and commits as markdown links — e.g. `[#123](https://github.com/OWNER/REPO/pull/123)` for PRs/issues or `[abc1234](https://github.com/OWNER/REPO/commit/abc1234)` for commits. Keep this substantially shorter than `release_body`; group related changes and omit minor or internal work so both artifacts fit in one response."#,
+        );
+    }
 
     if !emoji {
         prompt.push_str("\n\nDo NOT use emoji anywhere in the output — not in headings, titles, bullet points, or prose.");
@@ -180,7 +186,7 @@ mod tests {
 
     #[test]
     fn test_system_prompt_default() {
-        let prompt = system_prompt(None, true);
+        let prompt = system_prompt(None, true, true);
         assert!(prompt.contains("submit_release_notes"));
         assert!(prompt.contains("Keep a Changelog"));
         assert!(prompt.contains("10+ distinct user-facing changes"));
@@ -193,14 +199,21 @@ mod tests {
 
     #[test]
     fn test_system_prompt_no_emoji() {
-        let prompt = system_prompt(None, false);
+        let prompt = system_prompt(None, false, true);
         assert!(prompt.contains("Do NOT use emoji"));
     }
 
     #[test]
     fn test_system_prompt_with_extra() {
-        let prompt = system_prompt(Some("Always mention cats"), true);
+        let prompt = system_prompt(Some("Always mention cats"), true, true);
         assert!(prompt.contains("Always mention cats"));
+    }
+
+    #[test]
+    fn test_system_prompt_detailed_only_omits_changelog_request() {
+        let prompt = system_prompt(None, true, false);
+        assert!(!prompt.contains("### `changelog`"));
+        assert!(prompt.contains("### `release_body`"));
     }
 
     #[test]

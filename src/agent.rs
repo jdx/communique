@@ -14,13 +14,17 @@ use crate::tools;
 const MAX_ITERATIONS: usize = 25;
 const MAX_MALFORMED_SUBMISSIONS: usize = 3;
 
-fn parse_submission(input: &serde_json::Value, usage: &Usage) -> Result<ParsedOutput> {
-    let changelog = field_as_string(input, "changelog");
+fn parse_submission(
+    input: &serde_json::Value,
+    usage: &Usage,
+    require_changelog: bool,
+) -> Result<ParsedOutput> {
+    let changelog = require_changelog.then(|| field_as_string(input, "changelog"));
     let release_title = field_as_string(input, "release_title");
     let release_body = field_as_string(input, "release_body");
 
     let mut problems = Vec::new();
-    for res in [&changelog, &release_title, &release_body] {
+    for res in changelog.iter().chain([&release_title, &release_body]) {
         if let Err(Error::Parse(msg)) = res {
             problems.push(msg.clone());
         }
@@ -30,7 +34,7 @@ fn parse_submission(input: &serde_json::Value, usage: &Usage) -> Result<ParsedOu
     }
 
     Ok(ParsedOutput {
-        changelog: changelog.unwrap(),
+        changelog: changelog.transpose()?.unwrap_or_default(),
         release_title: release_title.unwrap(),
         release_body: release_body.unwrap(),
         usage: usage.clone(),
@@ -63,35 +67,21 @@ fn json_type_name(value: &serde_json::Value) -> &'static str {
     }
 }
 
-/// Best-effort parse: coerce non-string fields and derive missing ones from
-/// whatever is available. Returns `None` only when every content-bearing field
-/// is empty or missing.
-fn parse_submission_lenient(input: &serde_json::Value, usage: &Usage) -> Option<ParsedOutput> {
-    let changelog = coerce_to_string(&input["changelog"]);
-    let release_body = coerce_to_string(&input["release_body"]);
-    let release_title = coerce_to_string(&input["release_title"]);
-
-    let primary = release_body
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .or_else(|| {
-            changelog
-                .as_deref()
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-        })?
-        .to_string();
-
-    let changelog = changelog
-        .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| primary.clone());
-    let release_body = release_body
-        .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| primary.clone());
-    let release_title = release_title
-        .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| derive_title(&release_body));
+/// Best-effort parse for models that return the requested fields using the
+/// wrong JSON types. Missing content is never invented: in particular, a
+/// changelog must not silently become the editorial release body.
+fn parse_submission_lenient(
+    input: &serde_json::Value,
+    usage: &Usage,
+    require_changelog: bool,
+) -> Option<ParsedOutput> {
+    let release_body = non_empty_coerced(&input["release_body"])?;
+    let release_title = non_empty_coerced(&input["release_title"])?;
+    let changelog = if require_changelog {
+        non_empty_coerced(&input["changelog"])?
+    } else {
+        String::new()
+    };
 
     Some(ParsedOutput {
         changelog,
@@ -99,6 +89,10 @@ fn parse_submission_lenient(input: &serde_json::Value, usage: &Usage) -> Option<
         release_body,
         usage: usage.clone(),
     })
+}
+
+fn non_empty_coerced(value: &serde_json::Value) -> Option<String> {
+    coerce_to_string(value).filter(|s| !s.trim().is_empty())
 }
 
 fn coerce_to_string(value: &serde_json::Value) -> Option<String> {
@@ -115,17 +109,6 @@ fn coerce_to_string(value: &serde_json::Value) -> Option<String> {
     }
 }
 
-fn derive_title(body: &str) -> String {
-    body.lines()
-        .map(str::trim)
-        .map(|l| l.trim_start_matches('#').trim())
-        .find(|l| !l.is_empty())
-        .unwrap_or("Release")
-        .chars()
-        .take(80)
-        .collect()
-}
-
 pub struct AgentContext<'a> {
     pub client: &'a dyn LlmClient,
     pub system: &'a str,
@@ -134,6 +117,7 @@ pub struct AgentContext<'a> {
     pub repo_root: &'a Path,
     pub github: Option<&'a GitHubClient>,
     pub verify_links: bool,
+    pub require_changelog: bool,
     pub job: &'a Arc<ProgressJob>,
 }
 
@@ -146,6 +130,7 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
         repo_root,
         github,
         verify_links,
+        require_changelog,
         job,
     } = ctx;
 
@@ -178,15 +163,17 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
         let mut malformed_submit = Vec::new();
         for tc in &response.tool_calls {
             if tc.name == "submit_release_notes" {
-                match parse_submission(&tc.input, &total_usage) {
+                match parse_submission(&tc.input, &total_usage, require_changelog) {
                     Ok(parsed) => submit = Some((tc.id.clone(), parsed)),
                     Err(Error::Parse(message)) => {
                         malformed_reasons.push(message.clone());
                         last_malformed_input = Some(tc.input.clone());
                         malformed_submit.push(ToolResult {
                             tool_call_id: tc.id.clone(),
-                            content: format!(
-                                "Error: {message}\n\nPlease call submit_release_notes again with non-empty string values for all three required fields: changelog, release_title, and release_body."
+                            content: submission_retry_message(
+                                &message,
+                                &response.stop_reason,
+                                require_changelog,
                             ),
                             is_error: true,
                         });
@@ -231,8 +218,10 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
                     .as_ref()
                     .and_then(|v| serde_json::to_string_pretty(v).ok())
                     .unwrap_or_else(|| "<no input captured>".into());
-                if let Some(input) = &last_malformed_input
-                    && let Some(parsed) = parse_submission_lenient(input, &total_usage)
+                if response.stop_reason != StopReason::MaxTokens
+                    && let Some(input) = &last_malformed_input
+                    && let Some(parsed) =
+                        parse_submission_lenient(input, &total_usage, require_changelog)
                 {
                     log::warn!(
                         "submit_release_notes was malformed {malformed_submission_count} times ({}); salvaging the last attempt. Received input:\n{received}",
@@ -250,6 +239,12 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
             }
             client.append_tool_results(&mut conversation, &malformed_submit);
             continue;
+        }
+
+        if response.stop_reason == StopReason::MaxTokens {
+            return Err(Error::Llm(
+                "model response reached max_tokens before completing release notes; increase --max-tokens or defaults.max_tokens".into(),
+            ));
         }
 
         if response.tool_calls.is_empty() || response.stop_reason == StopReason::EndTurn {
@@ -364,6 +359,27 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
     )))
 }
 
+fn submission_retry_message(
+    message: &str,
+    stop_reason: &StopReason,
+    require_changelog: bool,
+) -> String {
+    let fields = if require_changelog {
+        "release_title, release_body, and changelog"
+    } else {
+        "release_title and release_body"
+    };
+    if *stop_reason == StopReason::MaxTokens {
+        format!(
+            "Error: the response reached max_tokens before the submission was complete ({message}).\n\nCall submit_release_notes again with non-empty string values for {fields}. Keep the response within the available budget: prioritize a complete editorial release_body, group related changes, and omit minor or internal details. Do not repeat an oversized changelog."
+        )
+    } else {
+        format!(
+            "Error: {message}\n\nPlease call submit_release_notes again with non-empty string values for {fields}."
+        )
+    }
+}
+
 fn tool_detail(name: &str, input: &serde_json::Value) -> String {
     match name {
         "read_file" => {
@@ -413,24 +429,34 @@ mod tests {
     }
 
     #[test]
-    fn test_lenient_empty_release_body_falls_back_to_changelog() {
-        // Regression: `coerce_to_string` returned Some("") for `[""]`, which
-        // used to short-circuit the `.or(changelog)` fallback.
+    fn test_detailed_only_submission_does_not_require_changelog() {
         let input = json!({
-            "release_body": [""],
-            "changelog": "- Fixed X",
+            "release_title": "A useful title",
+            "release_body": "A useful editorial body",
         });
-        let result = parse_submission_lenient(&input, &fake_usage()).unwrap();
-        assert_eq!(result.changelog, "- Fixed X");
-        assert_eq!(result.release_body, "- Fixed X");
+        let result = parse_submission(&input, &fake_usage(), false).unwrap();
+        assert!(result.changelog.is_empty());
+        assert_eq!(result.release_title, "A useful title");
+        assert_eq!(result.release_body, "A useful editorial body");
     }
 
     #[test]
-    fn test_derive_title_skips_empty_after_stripping_markers() {
-        assert_eq!(derive_title("###\n\nReal title here"), "Real title here");
-        assert_eq!(derive_title("#   \nActual content"), "Actual content");
-        assert_eq!(derive_title(""), "Release");
-        assert_eq!(derive_title("\n\n   \n"), "Release");
+    fn test_max_tokens_retry_prioritizes_editorial_body() {
+        let message =
+            submission_retry_message("missing `release_body`", &StopReason::MaxTokens, true);
+        assert!(message.contains("reached max_tokens"));
+        assert!(message.contains("prioritize a complete editorial release_body"));
+        assert!(message.contains("Do not repeat an oversized changelog"));
+    }
+
+    #[test]
+    fn test_lenient_missing_release_body_is_not_salvaged() {
+        let input = json!({
+            "release_body": [""],
+            "changelog": "- Fixed X",
+            "release_title": "Fix X",
+        });
+        assert!(parse_submission_lenient(&input, &fake_usage(), true).is_none());
     }
 
     #[tokio::test]
@@ -451,6 +477,7 @@ mod tests {
             repo_root: &tmp,
             github: None,
             verify_links: false,
+            require_changelog: true,
             job: &job,
         };
         let result = run(ctx).await.unwrap();
@@ -489,6 +516,7 @@ mod tests {
             repo_root: &tmp,
             github: None,
             verify_links: false,
+            require_changelog: true,
             job: &job,
         };
         let result = run(ctx).await.unwrap();
@@ -515,6 +543,7 @@ mod tests {
             repo_root: &tmp,
             github: None,
             verify_links: false,
+            require_changelog: true,
             job: &job,
         };
         let err = run(ctx).await.unwrap_err();
@@ -540,6 +569,7 @@ mod tests {
             repo_root: &tmp,
             github: None,
             verify_links: false,
+            require_changelog: true,
             job: &job,
         };
         let result = run(ctx).await.unwrap();
@@ -565,10 +595,37 @@ mod tests {
             repo_root: &tmp,
             github: None,
             verify_links: false,
+            require_changelog: true,
             job: &job,
         };
         let err = run(ctx).await.unwrap_err();
         assert!(matches!(err, Error::Llm(_)));
+    }
+
+    #[tokio::test]
+    async fn test_max_tokens_text_is_not_published_as_release_notes() {
+        let client = MockLlmClient::new(vec![TurnResponse {
+            tool_calls: vec![],
+            text: Some("# Partial title\n\nTruncated body".into()),
+            stop_reason: StopReason::MaxTokens,
+            usage: fake_usage(),
+        }]);
+        let job = Arc::new(ProgressJobBuilder::new().build());
+        let tmp = std::env::temp_dir();
+        let ctx = AgentContext {
+            client: &client,
+            system: "",
+            user_message: "",
+            tool_defs: vec![],
+            repo_root: &tmp,
+            github: None,
+            verify_links: false,
+            require_changelog: false,
+            job: &job,
+        };
+        let err = run(ctx).await.unwrap_err();
+        assert!(matches!(err, Error::Llm(_)));
+        assert!(err.to_string().contains("reached max_tokens"));
     }
 
     #[tokio::test]
@@ -604,6 +661,7 @@ mod tests {
             repo_root: &tmp,
             github: None,
             verify_links: false,
+            require_changelog: true,
             job: &job,
         };
         let result = run(ctx).await.unwrap();
@@ -645,6 +703,7 @@ mod tests {
             repo_root: &tmp,
             github: None,
             verify_links: false,
+            require_changelog: true,
             job: &job,
         };
         let result = run(ctx).await.unwrap();
@@ -686,6 +745,7 @@ mod tests {
             repo_root: &tmp,
             github: None,
             verify_links: false,
+            require_changelog: true,
             job: &job,
         };
         let result = run(ctx).await.unwrap();
@@ -695,10 +755,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_malformed_submission_salvages_partial() {
-        // Model submits changelog + release_title but never release_body across
-        // three attempts. Rather than failing, we salvage the partial submission
-        // by deriving release_body from changelog.
+    async fn test_malformed_submission_does_not_replace_body_with_changelog() {
+        // A changelog is not a safe substitute for editorial release notes.
         let partial = |id: &str| ToolCall {
             id: id.into(),
             name: "submit_release_notes".into(),
@@ -737,12 +795,11 @@ mod tests {
             repo_root: &tmp,
             github: None,
             verify_links: false,
+            require_changelog: true,
             job: &job,
         };
-        let result = run(ctx).await.unwrap();
-        assert_eq!(result.changelog, "- Added X\n- Fixed Y");
-        assert_eq!(result.release_title, "v1.0");
-        assert_eq!(result.release_body, "- Added X\n- Fixed Y");
+        let err = run(ctx).await.unwrap_err();
+        assert!(matches!(err, Error::MalformedSubmission { .. }));
     }
 
     #[tokio::test]
@@ -784,6 +841,7 @@ mod tests {
             repo_root: &tmp,
             github: None,
             verify_links: false,
+            require_changelog: true,
             job: &job,
         };
         let err = run(ctx).await.unwrap_err();
@@ -801,7 +859,7 @@ mod tests {
             assert!(reasons.contains("changelog"), "reasons: {reasons}");
             assert!(reasons.contains("release_title"), "reasons: {reasons}");
             assert!(reasons.contains("release_body"), "reasons: {reasons}");
-            assert!(span.len() > 0, "span should point into source");
+            assert!(!span.is_empty(), "span should point into source");
         }
     }
 
@@ -811,7 +869,7 @@ mod tests {
         // error. With {} input, only `changelog` was reported, which made the
         // diagnostic list three identical lines instead of all three missing
         // fields.
-        let err = parse_submission(&json!({}), &fake_usage()).unwrap_err();
+        let err = parse_submission(&json!({}), &fake_usage(), true).unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("changelog"), "msg: {msg}");
         assert!(msg.contains("release_title"), "msg: {msg}");
@@ -861,6 +919,7 @@ mod tests {
             repo_root: &tmp,
             github: None,
             verify_links: false,
+            require_changelog: true,
             job: &job,
         };
         let result = run(ctx).await.unwrap();
@@ -902,6 +961,7 @@ mod tests {
             repo_root: &tmp,
             github: None,
             verify_links: true,
+            require_changelog: true,
             job: &job,
         };
         let result = run(ctx).await.unwrap();
@@ -952,6 +1012,7 @@ mod tests {
             repo_root: &tmp,
             github: None,
             verify_links: true,
+            require_changelog: true,
             job: &job,
         };
         let result = run(ctx).await.unwrap();
@@ -983,6 +1044,7 @@ mod tests {
             repo_root: &tmp,
             github: None,
             verify_links: false,
+            require_changelog: true,
             job: &job,
         };
         let err = run(ctx).await.unwrap_err();

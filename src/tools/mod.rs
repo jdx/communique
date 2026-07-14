@@ -44,14 +44,14 @@ impl ToolCache {
     }
 }
 
-pub fn all_definitions(has_github: bool) -> Vec<ToolDefinition> {
+pub fn all_definitions(has_github: bool, include_changelog: bool) -> Vec<ToolDefinition> {
     let mut defs = vec![
         read_file::definition(),
         list_files::definition(),
         grep::definition(),
         git_show::definition(),
         get_commits::definition(),
-        submit_release_notes::definition(),
+        submit_release_notes::definition(include_changelog),
     ];
     if has_github {
         defs.push(get_pr::definition());
@@ -102,7 +102,7 @@ mod tests {
 
     #[test]
     fn test_all_definitions_without_github() {
-        let defs = all_definitions(false);
+        let defs = all_definitions(false, false);
         assert_eq!(defs.len(), 6);
         let names: Vec<&str> = defs.iter().map(|d| d.name.as_str()).collect();
         assert!(names.contains(&"read_file"));
@@ -115,7 +115,7 @@ mod tests {
 
     #[test]
     fn test_all_definitions_with_github() {
-        let defs = all_definitions(true);
+        let defs = all_definitions(true, true);
         assert_eq!(defs.len(), 9);
         let names: Vec<&str> = defs.iter().map(|d| d.name.as_str()).collect();
         assert!(names.contains(&"get_pr"));
