@@ -141,7 +141,7 @@ Avoid marketing language.
 [defaults]
 model = "claude-opus-4-8"
 repo = "owner/repo"
-max_tokens = 4096
+max_tokens = 16384
 ```
 
 CLI flags override config defaults.
