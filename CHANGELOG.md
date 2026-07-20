@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bumped the default model from `claude-opus-4-7` to `claude-opus-4-8`.
 
+## [1.2.4](https://github.com/jdx/communique/releases/tag/v1.2.4) - 2026-07-20
+
+## Changed
+
+- *(deps)* Update `jdx/mise-action` digest to `dad1bfd` ([#229](https://github.com/jdx/communique/pull/229))
+- *(deps)* Lock file maintenance ([#230](https://github.com/jdx/communique/pull/230))
+
 ## [1.2.3](https://github.com/jdx/communique/releases/tag/v1.2.3) - 2026-07-14
 
 ### Changed
