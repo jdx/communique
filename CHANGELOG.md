@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bumped the default model from `claude-opus-4-7` to `claude-opus-4-8`.
 
+## [1.2.4](https://github.com/jdx/communique/releases/tag/v1.2.4) - 2026-07-24
+
+## Fixed
+
+- Updated `clx` to v2.1.1, polishing the live progress display: in-place redraws are now wrapped in synchronized terminal updates and duplicate frames from `println()` alongside the spinner are prevented ([#235](https://github.com/jdx/communique/pull/235)).
+
 ## [1.2.3](https://github.com/jdx/communique/releases/tag/v1.2.3) - 2026-07-14
 
 ### Changed
