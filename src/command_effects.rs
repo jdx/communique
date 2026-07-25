@@ -13,23 +13,38 @@
 //!   getting it back means redoing work. Deserves a confirmation prompt.
 //!
 //! **An unlisted command means "unknown", not "safe".** Consumers treat the
-//! absence of a value as "ask", so leaving a command out is the conservative
-//! choice and mislabeling one `read` is the dangerous one.
+//! absence of a value as "ask", so an unset effect is never dangerous the way
+//! a wrong `read` is. That said, the tests below require every command to be
+//! listed: for a CLI this small there is no reason to leave one undecided, and
+//! "unknown" should be a deliberate choice rather than something forgotten.
 
 use std::collections::HashMap;
 
-use usage::SpecCommandEffect::{self, Read, Write};
+use usage::SpecCommandEffect::{self, Destructive, Read, Write};
 
 /// Commands whose effect is fixed, keyed by their full path under `communique`.
 pub const EFFECTS: &[(&str, SpecCommandEffect)] = &[
-    // Bare `generate` only prints, but `--changelog` rewrites CHANGELOG.md and
-    // `--github-release` replaces the body of a published release. `write` is
-    // the honest floor: it keeps the command out of any read-only allowlist,
-    // which is the distinction that actually matters here.
-    ("generate", Write),
+    // Bare `generate` only prints; the danger is in its flags, below.
+    ("generate", Read),
     ("init", Write),
     ("sponsors", Read),
     ("usage", Read),
+];
+
+/// Flags that raise the effect of their command, keyed by (command, flag).
+///
+/// usage 4 takes the effect of an invocation to be the maximum of the
+/// command's effect and that of every flag supplied, so these only ever raise.
+/// Most flags belong nowhere near this table — it is for the few that change
+/// what the command does to the world.
+pub const FLAG_EFFECTS: &[(&str, &str, SpecCommandEffect)] = &[
+    // Rewrites CHANGELOG.md in place.
+    ("generate", "changelog", Write),
+    // Replaces the body of an already-published GitHub release.
+    ("generate", "github-release", Write),
+    ("generate", "output", Write),
+    // Overwrites an existing communique.toml.
+    ("init", "force", Destructive),
 ];
 
 /// Annotate every command in the spec that has a declared effect.
@@ -45,8 +60,17 @@ fn annotate(
 ) {
     for (name, sub) in cmd.subcommands.iter_mut() {
         path.push(name.clone());
-        if let Some(effect) = effects.get(path.join(" ").as_str()) {
+        let full = path.join(" ");
+        if let Some(effect) = effects.get(full.as_str()) {
             sub.effect = Some(*effect);
+        }
+        for (cmd_path, flag_name, effect) in FLAG_EFFECTS {
+            if *cmd_path != full {
+                continue;
+            }
+            if let Some(flag) = sub.flags.iter_mut().find(|f| f.name == *flag_name) {
+                flag.effect = Some(*effect);
+            }
         }
         annotate(sub, path, effects);
         path.pop();
@@ -109,6 +133,25 @@ mod tests {
             stale.is_empty(),
             "these entries no longer match a command:\n  {}",
             stale.join("\n  ")
+        );
+    }
+
+    /// A renamed or removed flag would otherwise silently stop being annotated.
+    #[test]
+    fn every_flag_effect_matches_a_real_flag() {
+        let spec: usage::Spec = Cli::command().into();
+        let mut missing = vec![];
+        for (cmd_path, flag_name, _) in FLAG_EFFECTS {
+            let cmd = spec.cmd.subcommands.get(*cmd_path);
+            match cmd {
+                Some(c) if c.flags.iter().any(|f| f.name == *flag_name) => {}
+                _ => missing.push(format!("{cmd_path} --{flag_name}")),
+            }
+        }
+        assert!(
+            missing.is_empty(),
+            "these FLAG_EFFECTS entries do not match a real flag:\n  {}",
+            missing.join("\n  ")
         );
     }
 

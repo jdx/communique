@@ -2,5 +2,6 @@
 # `communique sponsors`
 
 - **Usage**: `communique sponsors`
+- **Effect**: read-only
 
 Show the companies sponsoring communique and the jdx.dev open source tools

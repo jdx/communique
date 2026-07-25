@@ -42,7 +42,8 @@
               "github-release"
             ],
             "hide": false,
-            "global": false
+            "global": false,
+            "effect": "write"
           },
           {
             "name": "changelog",
@@ -54,7 +55,8 @@
               "changelog"
             ],
             "hide": false,
-            "global": false
+            "global": false,
+            "effect": "write"
           },
           {
             "name": "concise",
@@ -196,10 +198,12 @@
               "required": true,
               "double_dash": "Optional",
               "hide": false
-            }
+            },
+            "effect": "write"
           }
         ],
         "mounts": [],
+        "effect": "read",
         "hide": false,
         "help": "Generate release notes for a git tag",
         "name": "generate",
@@ -225,10 +229,12 @@
               "force"
             ],
             "hide": false,
-            "global": false
+            "global": false,
+            "effect": "destructive"
           }
         ],
         "mounts": [],
+        "effect": "write",
         "hide": false,
         "help": "Generate a communique.toml config file in the repo root",
         "name": "init",
@@ -245,6 +251,7 @@
         "args": [],
         "flags": [],
         "mounts": [],
+        "effect": "read",
         "hide": false,
         "help": "Show the companies sponsoring communique and the jdx.dev open source tools",
         "name": "sponsors",
@@ -261,6 +268,7 @@
         "args": [],
         "flags": [],
         "mounts": [],
+        "effect": "read",
         "hide": true,
         "help": "Generates a usage spec for the CLI",
         "help_long": "Generates a usage spec for the CLI\n\nhttps://usage.jdx.dev",
@@ -335,5 +343,6 @@
   "version": "1.2.3",
   "usage": "Usage: communique [OPTIONS] <COMMAND>",
   "complete": {},
-  "about": "Editorialized release notes powered by AI"
+  "about": "Editorialized release notes powered by AI",
+  "min_usage_version": "4.0"
 }

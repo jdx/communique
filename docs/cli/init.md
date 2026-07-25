@@ -2,11 +2,14 @@
 # `communique init`
 
 - **Usage**: `communique init [--force]`
+- **Effect**: modifies state
 
 Generate a communique.toml config file in the repo root
 
 ## Flags
 
 ### `--force`
+
+**Effect**: destructive — may delete or irreversibly overwrite
 
 Overwrite existing config file
