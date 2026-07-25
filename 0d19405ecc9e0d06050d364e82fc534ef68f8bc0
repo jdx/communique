@@ -1,0 +1,1 @@
+{"v":1,"bench":"startup","tool":"communique","version":"0.1.8","runner":"local-linux-x86_64","ts":"2026-02-18T14:49:42Z","metrics":{"instructions":1550242.0,"wall_max_ms":2.8017749999999997,"wall_mean_ms":2.6072497,"wall_min_ms":2.3993629999999997,"wall_n":10.0,"wall_p50_ms":2.657973}}
