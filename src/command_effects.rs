@@ -20,7 +20,8 @@
 
 use std::collections::HashMap;
 
-use usage::SpecCommandEffect::{self, Destructive, Read, Write};
+use clap_usage::usage;
+use clap_usage::usage::SpecCommandEffect::{self, Destructive, Read, Write};
 
 /// Commands whose effect is fixed, keyed by their full path under `communique`.
 pub const EFFECTS: &[(&str, SpecCommandEffect)] = &[
@@ -133,6 +134,41 @@ mod tests {
             stale.is_empty(),
             "these entries no longer match a command:\n  {}",
             stale.join("\n  ")
+        );
+    }
+
+    /// The tables are only worth having if they reach the spec. Everything
+    /// else here checks the tables against the CLI; this checks that `apply`
+    /// actually transfers them, including onto flags.
+    #[test]
+    fn apply_annotates_commands_and_flags() {
+        let mut spec: usage::Spec = Cli::command().into();
+        apply(&mut spec);
+
+        let generate = &spec.cmd.subcommands["generate"];
+        assert_eq!(generate.effect, Some(Read));
+
+        let flag = |name: &str| {
+            generate
+                .flags
+                .iter()
+                .find(|f| f.name == name)
+                .unwrap_or_else(|| panic!("no --{name}"))
+        };
+        assert_eq!(flag("changelog").effect, Some(Write));
+        assert_eq!(flag("github-release").effect, Some(Write));
+        // A flag with no entry must be left alone rather than inheriting one.
+        assert_eq!(flag("concise").effect, None);
+
+        let init = &spec.cmd.subcommands["init"];
+        assert_eq!(init.effect, Some(Write));
+        assert_eq!(
+            init.flags
+                .iter()
+                .find(|f| f.name == "force")
+                .unwrap()
+                .effect,
+            Some(Destructive)
         );
     }
 

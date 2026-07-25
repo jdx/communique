@@ -11,9 +11,8 @@ pub struct Usage {}
 /// The spec written to communique.usage.kdl, shared by `communique usage` and
 /// the test that keeps the checked-in copy in sync.
 fn generate_to_string() -> String {
-    let cmd = Cli::command();
-    let mut spec: usage::Spec = cmd.into();
-    spec.bin = "communique".to_string();
+    let mut cmd = Cli::command();
+    let mut spec = clap_usage::spec(&mut cmd, "communique");
     // Declare what each command does to the world; clap cannot express it.
     crate::command_effects::apply(&mut spec);
     // 3.6 added `effect=`; older `usage` CLIs reject the spec outright with
