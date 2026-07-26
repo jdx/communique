@@ -376,6 +376,7 @@ async fn publish(
             Some(release) => {
                 gh.update_release(
                     release.id,
+                    &release.tag_name,
                     Some(&parsed.release_title),
                     Some(&parsed.release_body),
                 )
