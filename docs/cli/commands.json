@@ -332,7 +332,7 @@
   "config": {
     "props": {}
   },
-  "version": "1.2.3",
+  "version": "1.2.4",
   "usage": "Usage: communique [OPTIONS] <COMMAND>",
   "complete": {},
   "about": "Editorialized release notes powered by AI"

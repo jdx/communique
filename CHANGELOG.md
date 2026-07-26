@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bumped the default model from `claude-opus-4-7` to `claude-opus-4-8`.
 
+## [1.2.4](https://github.com/jdx/communique/releases/tag/v1.2.4) - 2026-07-26
+
+## Fixed
+
+- *(github)* Keep a draft release's tag when rewriting its notes, so it stays attached to its version instead of becoming `untagged-<hash>` ([#241](https://github.com/jdx/communique/pull/241))
+
+## Changed
+
+- Updated `clx` to v2.1.1 for cleaner progress display (synchronized in-place redraws, no duplicated frames) ([#235](https://github.com/jdx/communique/pull/235))
+
 ## [1.2.3](https://github.com/jdx/communique/releases/tag/v1.2.3) - 2026-07-14
 
 ### Changed

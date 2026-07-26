@@ -165,7 +165,7 @@ async fn gather_context(opts: &GenerateOptions, job: &Arc<ProgressJob>) -> miett
     let github_token = std::env::var("GITHUB_TOKEN").ok();
 
     if opts.github_release && github_token.is_none() {
-        return Err(crate::error::Error::GitHub(
+        Err(crate::error::Error::GitHub(
             "GITHUB_TOKEN is required for --github-release".into(),
         ))?;
     }
@@ -216,7 +216,7 @@ async fn gather_context(opts: &GenerateOptions, job: &Arc<ProgressJob>) -> miett
         .base_url
         .clone()
         .or(defaults.base_url.clone())
-        .and_then(|u| if u.is_empty() { None } else { Some(u) });
+        .filter(|u| !u.is_empty());
 
     let client = providers::build_client(&provider, api_key, model, max_tokens, base_url);
 
