@@ -51,6 +51,14 @@ pub struct Label {
 
 #[derive(Debug, Serialize)]
 struct UpdateRelease {
+    /// Always sent, never skipped.
+    ///
+    /// GitHub regenerates a *draft* release's `tag_name` as `untagged-<hash>`
+    /// when a PATCH omits it. The draft then no longer answers to its tag, and
+    /// anything downstream that addresses it by tag — `gh release upload`, for
+    /// one — fails with "release not found". Re-sending the tag we already know
+    /// keeps the association intact and is a no-op for published releases.
+    tag_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -108,14 +116,20 @@ impl GitHubClient {
         Ok(releases.into_iter().find(|r| r.tag_name == tag))
     }
 
+    /// Update a release's title and body, preserving its tag.
+    ///
+    /// `tag` is required rather than optional because omitting it is precisely
+    /// the bug this signature exists to prevent — see [`UpdateRelease::tag_name`].
     pub async fn update_release(
         &self,
         release_id: u64,
+        tag: &str,
         title: Option<&str>,
         body: Option<&str>,
     ) -> Result<()> {
         let url = self.api_url(&format!("/releases/{release_id}"));
         let payload = UpdateRelease {
+            tag_name: tag.to_string(),
             name: title.map(String::from),
             body: body.map(String::from),
         };
@@ -228,7 +242,7 @@ impl GitHubClient {
 mod tests {
     use super::*;
     use serde_json::json;
-    use wiremock::matchers::{method, path};
+    use wiremock::matchers::{body_partial_json, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     async fn setup() -> (MockServer, GitHubClient) {
@@ -299,7 +313,31 @@ mod tests {
             .await;
 
         client
-            .update_release(123, Some("Title"), Some("Body"))
+            .update_release(123, "v1.0.0", Some("Title"), Some("Body"))
+            .await
+            .unwrap();
+    }
+
+    /// The PATCH must carry `tag_name`.
+    ///
+    /// GitHub regenerates a draft release's tag as `untagged-<hash>` when a
+    /// PATCH omits it, and the draft stops answering to its own tag. That broke
+    /// a real release: `gh release upload v0.0.3` failed with "release not
+    /// found" after this call had rewritten the notes, leaving seven built
+    /// binaries with nowhere to go.
+    #[tokio::test]
+    async fn update_release_preserves_the_tag() {
+        let (server, client) = setup().await;
+        Mock::given(method("PATCH"))
+            .and(path("/repos/owner/repo/releases/42"))
+            .and(body_partial_json(json!({"tag_name": "v0.0.3"})))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"id": 42})))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        client
+            .update_release(42, "v0.0.3", Some("Title"), Some("Body"))
             .await
             .unwrap();
     }
