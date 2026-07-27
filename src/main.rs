@@ -1,5 +1,6 @@
 mod agent;
 mod cli;
+mod command_effects;
 mod config;
 mod error;
 mod generate;

@@ -2,6 +2,7 @@
 # `communique generate`
 
 - **Usage**: `communique generate [FLAGS] <TAG> [PREV_TAG]`
+- **Effect**: read-only
 
 Generate release notes for a git tag
 
@@ -19,9 +20,13 @@ Previous tag (auto-detected if omitted)
 
 ### `--github-release`
 
+**Effect**: modifies state
+
 Push editorialized notes to the GitHub release
 
 ### `--changelog`
+
+**Effect**: modifies state
 
 Update CHANGELOG.md with the generated changelog entry
 
@@ -54,5 +59,7 @@ LLM provider (anthropic or openai, auto-detected from model if omitted)
 Base URL for the LLM API
 
 ### `-o --output <OUTPUT>`
+
+**Effect**: modifies state
 
 Write output to a file instead of stdout
