@@ -33,6 +33,14 @@ impl Usage {
 mod tests {
     use super::*;
 
+    /// `run` is thin, but it is the only path that actually emits the spec —
+    /// leaving it untested meant nothing checked that `communique usage`
+    /// succeeds at all.
+    #[test]
+    fn run_succeeds() {
+        assert!(Usage {}.run().is_ok());
+    }
+
     #[test]
     fn test_usage_kdl_in_sync() {
         let generated = generate_to_string();
