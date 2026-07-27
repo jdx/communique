@@ -113,11 +113,11 @@ mod tests {
             .into_iter()
             .filter(|cmd| !known.contains(cmd.as_str()))
             .collect();
+        let detail = missing.join("\n  ");
         assert!(
             missing.is_empty(),
             "these commands have no entry in EFFECTS (src/command_effects.rs) — \
-             decide whether each is read, write or destructive:\n  {}",
-            missing.join("\n  ")
+             decide whether each is read, write or destructive:\n  {detail}"
         );
     }
 
@@ -130,10 +130,10 @@ mod tests {
             .map(|(name, _)| *name)
             .filter(|name| !present.contains(*name))
             .collect();
+        let detail = stale.join("\n  ");
         assert!(
             stale.is_empty(),
-            "these entries no longer match a command:\n  {}",
-            stale.join("\n  ")
+            "these entries no longer match a command:\n  {detail}"
         );
     }
 
@@ -176,18 +176,23 @@ mod tests {
     #[test]
     fn every_flag_effect_matches_a_real_flag() {
         let spec: usage::Spec = Cli::command().into();
-        let mut missing = vec![];
-        for (cmd_path, flag_name, _) in FLAG_EFFECTS {
-            let cmd = spec.cmd.subcommands.get(*cmd_path);
-            match cmd {
-                Some(c) if c.flags.iter().any(|f| f.name == *flag_name) => {}
-                _ => missing.push(format!("{cmd_path} --{flag_name}")),
-            }
-        }
+        // `then_some` rather than `then`, so the label is built for every entry
+        // instead of only on the failing path — otherwise the line never runs.
+        let missing: Vec<String> = FLAG_EFFECTS
+            .iter()
+            .filter_map(|(cmd_path, flag_name, _)| {
+                let found = spec
+                    .cmd
+                    .subcommands
+                    .get(*cmd_path)
+                    .is_some_and(|c| c.flags.iter().any(|f| f.name == *flag_name));
+                (!found).then_some(format!("{cmd_path} --{flag_name}"))
+            })
+            .collect();
+        let detail = missing.join("\n  ");
         assert!(
             missing.is_empty(),
-            "these FLAG_EFFECTS entries do not match a real flag:\n  {}",
-            missing.join("\n  ")
+            "these FLAG_EFFECTS entries do not match a real flag:\n  {detail}"
         );
     }
 
