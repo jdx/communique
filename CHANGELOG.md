@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bumped the default model from `claude-opus-4-7` to `claude-opus-4-8`.
 
+## [1.3.0](https://github.com/jdx/communique/releases/tag/v1.3.0) - 2026-07-28
+
+## Added
+
+- *(usage)* Declare what each command does to the world — every command and its state-changing flags now carry a `read`/`write`/`destructive` effect in the usage spec ([#240](https://github.com/jdx/communique/pull/240))
+
+## Changed
+
+- Updated `clx` to v3: no cursor escapes in text or quiet mode, and reflowed frames are cleared after a terminal resize ([#248](https://github.com/jdx/communique/pull/248))
+
 ## [1.2.4](https://github.com/jdx/communique/releases/tag/v1.2.4) - 2026-07-26
 
 ## Fixed
