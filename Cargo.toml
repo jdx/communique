@@ -17,7 +17,7 @@ miette = { version = "7", features = ["fancy"] }
 thiserror = "2"
 regex = "1"
 log = "0.4"
-clap_usage = "4"
+clap_usage = "5"
 clx = { version = "3", features = ["log"] }
 console = "0.16"
 toml = "1.0"
