@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bumped the default model from `claude-opus-4-7` to `claude-opus-4-8`.
 
+## [1.3.1](https://github.com/jdx/communique/releases/tag/v1.3.1) - 2026-08-04
+
+## Changed
+
+- Update `clap_usage`/`usage-lib` and the `usage` tool to v5 ([#255](https://github.com/jdx/communique/pull/255), [#254](https://github.com/jdx/communique/pull/254), [#253](https://github.com/jdx/communique/pull/253))
+- Lock file maintenance and CI action updates ([#250](https://github.com/jdx/communique/pull/250), [#251](https://github.com/jdx/communique/pull/251), [#252](https://github.com/jdx/communique/pull/252))
+
 ## [1.3.0](https://github.com/jdx/communique/releases/tag/v1.3.0) - 2026-07-28
 
 ## Added
