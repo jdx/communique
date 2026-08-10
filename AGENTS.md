@@ -1,5 +1,11 @@
 # Communiqué Development Guide
 
+## Dependency Updates
+
+- Use the lowest compatibility-significant specificity in `Cargo.toml` (for example, `"1"` for stable 1.x dependencies).
+- When the existing manifest requirement accepts a routine dependency update, change only `Cargo.lock`.
+- Keep lockfile updates focused and avoid unrelated transitive dependency churn.
+
 ## GitHub Interactions
 
 When AI contributes GitHub content—including a pull request description, review, pull request

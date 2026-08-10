@@ -20,10 +20,10 @@ log = "0.4"
 clap_usage = "5"
 clx = { version = "3", features = ["log"] }
 console = "0.16"
-toml = "1.0"
+toml = "1"
 xx = "2"
-strum = { version = "0.28.0", features = ["derive"] }
-futures-util = { version = "0.3.31", default-features = false }
+strum = { version = "0.28", features = ["derive"] }
+futures-util = { version = "0.3", default-features = false }
 
 [dev-dependencies]
 wiremock = "0.6"

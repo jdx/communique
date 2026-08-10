@@ -36,3 +36,9 @@ Communiqué is a Rust CLI tool that generates AI-powered editorialized release n
 - Link verification (`links.rs`) checks all URLs in output before accepting submission
 - Tests use `wiremock` for HTTP mocking and `test_helpers::TempRepo` for git fixtures
 - The project dogfoods itself via `release-plz.yml` to generate its own release notes
+
+## Dependency Updates
+
+- Use the lowest compatibility-significant specificity in `Cargo.toml` (for example, `"1"` for stable 1.x dependencies).
+- When the existing manifest requirement accepts a routine dependency update, change only `Cargo.lock`.
+- Keep lockfile updates focused and avoid unrelated transitive dependency churn.
