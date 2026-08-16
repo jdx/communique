@@ -27,7 +27,7 @@ use config::Config;
 
 #[tokio::main]
 async fn main() -> miette::Result<()> {
-    let cli = parse_args();
+    let cli = Cli::parse();
 
     if cli.quiet {
         // SAFETY: called before spawning any threads (pre-tokio runtime work)
@@ -91,39 +91,6 @@ async fn main() -> miette::Result<()> {
 
     clx::progress::flush();
     result
-}
-
-/// The command line, or a clap-shaped message and a non-zero exit.
-///
-/// `Cli::parse` renders a failure with `{:?}`, which is the error's *shape* rather than
-/// something to read. usage-argv has the rendering — `diagnostic::render` is held to clap's
-/// wording on purpose — so this reaches for it directly. Worth pushing back into the derive.
-fn parse_args() -> Cli {
-    let raw: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
-    let argv: Vec<&std::ffi::OsStr> = raw.iter().map(|a| a.as_os_str()).collect();
-    match Cli::parse_from(&argv) {
-        Ok(cli) => cli,
-        // Not a failure: someone asked a question, and the answer goes to stdout.
-        Err(usage_argv::Error::Help { cmd, long }) => {
-            match usage_argv::help::render(Cli::spec(), cmd, long) {
-                Some(page) => print!("{page}"),
-                None => unreachable!("help was asked for a command this program does not have"),
-            }
-            std::process::exit(0);
-        }
-        Err(e) => {
-            eprint!(
-                "{}",
-                usage_argv::diagnostic::render(
-                    Cli::spec(),
-                    &argv,
-                    &e,
-                    usage_argv::diagnostic::Style::auto(),
-                )
-            );
-            std::process::exit(2);
-        }
-    }
 }
 
 fn init(force: bool) -> miette::Result<()> {
