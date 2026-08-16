@@ -1,6 +1,5 @@
 mod agent;
 mod cli;
-mod command_effects;
 mod config;
 mod error;
 mod generate;
@@ -20,7 +19,6 @@ mod test_helpers;
 
 use std::time::Duration;
 
-use clap::Parser;
 use log::LevelFilter;
 use miette::IntoDiagnostic;
 
@@ -29,7 +27,7 @@ use config::Config;
 
 #[tokio::main]
 async fn main() -> miette::Result<()> {
-    let cli = Cli::parse();
+    let cli = parse_args();
 
     if cli.quiet {
         // SAFETY: called before spawning any threads (pre-tokio runtime work)
@@ -50,37 +48,41 @@ async fn main() -> miette::Result<()> {
         clx::progress::set_output(clx::progress::ProgressOutput::Text);
     }
 
-    let result = match cli.command {
+    // A root with no subcommand prints help and stops, which is what clap did for a CLI
+    // whose `command` was not optional.
+    let Some(command) = cli.command else {
+        print!(
+            "{}",
+            usage_argv::help::render(Cli::spec(), Cli::command(), false)
+                .expect("the root is this CLI's own")
+        );
+        return Ok(());
+    };
+
+    let result = match command {
         Command::Usage(usage) => usage.run(),
-        Command::Sponsors => sponsors(),
-        Command::Init { force } => init(force),
-        Command::Generate {
-            tag,
-            prev_tag,
-            github_release,
-            changelog,
-            concise,
-            dry_run,
-            repo,
-            model,
-            max_tokens,
-            provider,
-            base_url,
-            output,
-        } => {
+        // Destructured rather than ignored: `Sponsors` has no fields, and a `_` leaves the
+        // variant's payload unread, which is a `dead_code` warning and an error in CI. A
+        // command that takes nothing still needs a struct here — clap allowed a bare variant.
+        Command::Sponsors(args) => {
+            let cli::Sponsors {} = *args;
+            sponsors()
+        }
+        Command::Init(init_args) => init(init_args.force),
+        Command::Generate(g) => {
             generate::run(generate::GenerateOptions {
-                tag,
-                prev_tag,
-                github_release,
-                changelog,
-                concise,
-                dry_run,
-                repo,
-                model,
-                max_tokens,
-                provider,
-                base_url,
-                output,
+                tag: g.tag,
+                prev_tag: g.prev_tag,
+                github_release: g.github_release,
+                changelog: g.changelog,
+                concise: g.concise,
+                dry_run: g.dry_run,
+                repo: g.repo,
+                model: g.model,
+                max_tokens: g.max_tokens,
+                provider: g.provider,
+                base_url: g.base_url,
+                output: g.output,
                 config: cli.config,
             })
             .await
@@ -89,6 +91,39 @@ async fn main() -> miette::Result<()> {
 
     clx::progress::flush();
     result
+}
+
+/// The command line, or a clap-shaped message and a non-zero exit.
+///
+/// `Cli::parse` renders a failure with `{:?}`, which is the error's *shape* rather than
+/// something to read. usage-argv has the rendering — `diagnostic::render` is held to clap's
+/// wording on purpose — so this reaches for it directly. Worth pushing back into the derive.
+fn parse_args() -> Cli {
+    let raw: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    let argv: Vec<&std::ffi::OsStr> = raw.iter().map(|a| a.as_os_str()).collect();
+    match Cli::parse_from(&argv) {
+        Ok(cli) => cli,
+        // Not a failure: someone asked a question, and the answer goes to stdout.
+        Err(usage_argv::Error::Help { cmd, long }) => {
+            match usage_argv::help::render(Cli::spec(), cmd, long) {
+                Some(page) => print!("{page}"),
+                None => unreachable!("help was asked for a command this program does not have"),
+            }
+            std::process::exit(0);
+        }
+        Err(e) => {
+            eprint!(
+                "{}",
+                usage_argv::diagnostic::render(
+                    Cli::spec(),
+                    &argv,
+                    &e,
+                    usage_argv::diagnostic::Style::auto(),
+                )
+            );
+            std::process::exit(2);
+        }
+    }
 }
 
 fn init(force: bool) -> miette::Result<()> {

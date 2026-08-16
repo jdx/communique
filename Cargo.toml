@@ -8,7 +8,8 @@ repository = "https://github.com/jdx/communique"
 license = "MIT"
 
 [dependencies]
-clap = { version = "4", features = ["derive", "env"] }
+usage-derive = { path = "/home/coder/src/usage-bound/derive" }
+usage-argv = { path = "/home/coder/src/usage-bound/argv", features = ["spec", "diagnostics"] }
 reqwest = { version = "0.13", features = ["rustls", "json"], default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -17,7 +18,6 @@ miette = { version = "7", features = ["fancy"] }
 thiserror = "2"
 regex = "1"
 log = "0.4"
-clap_usage = "5"
 clx = { version = "3", features = ["log"] }
 console = "0.16"
 toml = "1"
@@ -26,6 +26,7 @@ strum = { version = "0.28", features = ["derive"] }
 futures-util = { version = "0.3", default-features = false }
 
 [dev-dependencies]
+usage-lib = { path = "/home/coder/src/usage-bound/lib" }
 wiremock = "0.6"
 tempfile = "3"
 
