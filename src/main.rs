@@ -61,13 +61,7 @@ async fn main() -> miette::Result<()> {
 
     let result = match command {
         Command::Usage(usage) => usage.run(),
-        // Destructured rather than ignored: `Sponsors` has no fields, and a `_` leaves the
-        // variant's payload unread, which is a `dead_code` warning and an error in CI. A
-        // command that takes nothing still needs a struct here — clap allowed a bare variant.
-        Command::Sponsors(args) => {
-            let cli::Sponsors {} = *args;
-            sponsors()
-        }
+        Command::Sponsors => sponsors(),
         Command::Init(init_args) => init(init_args.force),
         Command::Generate(g) => {
             generate::run(generate::GenerateOptions {

@@ -67,11 +67,6 @@ pub struct Init {
     pub force: bool,
 }
 
-/// Show the companies sponsoring communique and the jdx.dev open source tools
-#[derive(Debug, Args)]
-#[usage(effect = "read")]
-pub struct Sponsors {}
-
 #[derive(Debug, Subcommands)]
 pub enum Command {
     /// Generate release notes for a git tag
@@ -79,7 +74,7 @@ pub enum Command {
     /// Generate a communique.toml config file in the repo root
     Init(Box<Init>),
     /// Show the companies sponsoring communique and the jdx.dev open source tools
-    Sponsors(Box<Sponsors>),
+    Sponsors,
     #[usage(hide)]
     Usage(Box<usage::Usage>),
 }
