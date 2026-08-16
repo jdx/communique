@@ -38,7 +38,7 @@ cmd "generate" help="Generate release notes for a git tag" effect="read" {
 cmd "init" help="Generate a communique.toml config file in the repo root" effect="write" {
     flag "--force" help="Overwrite existing config file" effect="destructive"
 }
-cmd "sponsors" help="Show the companies sponsoring communique and the jdx.dev open source tools" effect="read" {
+cmd "sponsors" help="Show the companies sponsoring communique and the jdx.dev open source tools" {
 }
 cmd "usage" help="Generates a usage spec for the CLI" hide=#true effect="read" {
     long_help "Generates a usage spec for the CLI\n\nhttps://usage.jdx.dev"
