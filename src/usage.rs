@@ -5,7 +5,7 @@ use crate::cli::Cli;
 /// https://usage.jdx.dev
 #[derive(Debug, usage_rs::Args)]
 #[usage(effect = "read")]
-pub struct Usage {}
+pub struct Usage;
 
 /// The spec written to communique.usage.kdl, shared by `communique usage` and
 /// the test that keeps the checked-in copy in sync.
