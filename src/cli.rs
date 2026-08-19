@@ -87,7 +87,8 @@ pub enum Command {
     bin = "communique",
     version,
     usage = "Usage: communique [OPTIONS] <COMMAND>",
-    min_usage_version = "4.0"
+    min_usage_version = "4.0",
+    unknown_flags = "error"
 )]
 pub struct Cli {
     #[usage(subcommand)]

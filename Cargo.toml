@@ -8,8 +8,8 @@ repository = "https://github.com/jdx/communique"
 license = "MIT"
 
 [dependencies]
-usage-derive = { git = "https://github.com/jdx/usage", rev = "cc60dcb7fd01c8b61d7665fc7dc7c8210551601a" }
-usage-argv = { git = "https://github.com/jdx/usage", rev = "cc60dcb7fd01c8b61d7665fc7dc7c8210551601a", features = ["spec", "diagnostics"] }
+usage-derive = { git = "https://github.com/jdx/usage", rev = "7f8aeb47486bb4edfe3282fd640e3caea04d24ee" }
+usage-argv = { git = "https://github.com/jdx/usage", rev = "7f8aeb47486bb4edfe3282fd640e3caea04d24ee", features = ["spec", "diagnostics"] }
 reqwest = { version = "0.13", features = ["rustls", "json"], default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -26,7 +26,7 @@ strum = { version = "0.28", features = ["derive"] }
 futures-util = { version = "0.3", default-features = false }
 
 [dev-dependencies]
-usage-lib = { git = "https://github.com/jdx/usage", rev = "cc60dcb7fd01c8b61d7665fc7dc7c8210551601a" }
+usage-lib = { git = "https://github.com/jdx/usage", rev = "7f8aeb47486bb4edfe3282fd640e3caea04d24ee" }
 wiremock = "0.6"
 tempfile = "3"
 
