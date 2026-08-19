@@ -61,7 +61,7 @@ mod tests {
                 .iter()
                 .copied()
                 .find(|command| command.cmd.name == name)
-                .unwrap_or_else(|| panic!("missing {name}"))
+                .unwrap()
         };
 
         assert_eq!(command("init").effect, Some(usage_rs::spec::Effect::Write));
