@@ -3,7 +3,7 @@ use crate::cli::Cli;
 /// Generates a usage spec for the CLI
 ///
 /// https://usage.jdx.dev
-#[derive(Debug, usage_derive::Args)]
+#[derive(Debug, usage_rs::Args)]
 #[usage(effect = "read")]
 pub struct Usage {}
 
@@ -49,41 +49,46 @@ mod tests {
         );
     }
 
-    /// The spec still parses as a spec, which is the whole reason it is emitted.
-    ///
-    /// `usage` reads it to generate completions, docs and a manpage, so a spec that
-    /// only *looks* right is a CLI whose tooling silently stops working.
+    /// The facade metadata is the source of the emitted spec, so inspect that
+    /// metadata directly instead of reparsing KDL through usage-lib.
     #[test]
     fn the_spec_is_a_spec() {
-        let spec: usage::Spec = generate_to_string().parse().expect("a valid spec");
-        assert_eq!(spec.bin, "communique");
+        let spec = Cli::spec();
+        assert_eq!(spec.bin, Some("communique"));
+        let command = |name: &str| {
+            spec.root
+                .subcommands
+                .iter()
+                .copied()
+                .find(|command| command.cmd.name == name)
+                .unwrap_or_else(|| panic!("missing {name}"))
+        };
 
-        // The effects survive the trip, which is what `command_effects.rs` used to apply by
-        // hand and what a consumer reads to decide whether to prompt.
-        let effect = |name: &str| spec.cmd.subcommands.get(name).expect(name).effect;
-        assert_eq!(effect("init"), Some(usage::SpecCommandEffect::Write));
-        assert_eq!(effect("generate"), Some(usage::SpecCommandEffect::Read));
+        assert_eq!(command("init").effect, Some(usage_rs::spec::Effect::Write));
+        assert_eq!(
+            command("generate").effect,
+            Some(usage_rs::spec::Effect::Read)
+        );
 
-        let generate = spec.cmd.subcommands.get("generate").expect("generate");
-        let force = spec.cmd.subcommands.get("init").expect("init");
+        let generate = command("generate");
+        let init = command("init");
         assert_eq!(
             generate
                 .flags
                 .iter()
-                .find(|f| f.name == "github-release")
+                .find(|flag| flag.flag.longs.contains(&"github-release"))
                 .expect("--github-release")
                 .effect,
-            Some(usage::SpecCommandEffect::Write),
+            Some(usage_rs::spec::Effect::Write),
             "a flag raises what its command does"
         );
         assert_eq!(
-            force
-                .flags
+            init.flags
                 .iter()
-                .find(|f| f.name == "force")
+                .find(|flag| flag.flag.longs.contains(&"force"))
                 .expect("--force")
                 .effect,
-            Some(usage::SpecCommandEffect::Destructive)
+            Some(usage_rs::spec::Effect::Destructive)
         );
     }
 }

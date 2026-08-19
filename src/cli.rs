@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use usage_derive::{Args, Cli, Subcommands};
+use usage_rs::{Args, Cli, Subcommands};
 
 use crate::providers::Provider;
 use crate::usage;
