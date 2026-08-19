@@ -92,7 +92,7 @@ pub enum Command {
 )]
 pub struct Cli {
     #[usage(subcommand)]
-    pub command: Option<Command>,
+    pub command: Command,
 
     /// Enable verbose logging output
     #[usage(long, short, global)]

@@ -48,18 +48,7 @@ async fn main() -> miette::Result<()> {
         clx::progress::set_output(clx::progress::ProgressOutput::Text);
     }
 
-    // A root with no subcommand prints help and stops, which is what clap did for a CLI
-    // whose `command` was not optional.
-    let Some(command) = cli.command else {
-        print!(
-            "{}",
-            usage_argv::help::render(Cli::spec(), Cli::command(), false)
-                .expect("the root is this CLI's own")
-        );
-        return Ok(());
-    };
-
-    let result = match command {
+    let result = match cli.command {
         Command::Usage(usage) => usage.run(),
         Command::Sponsors => sponsors(),
         Command::Init(init_args) => init(init_args.force),
