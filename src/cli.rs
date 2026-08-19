@@ -67,7 +67,7 @@ pub struct Init {
     pub force: bool,
 }
 
-#[derive(Debug, Subcommands)]
+#[derive(Subcommands)]
 pub enum Command {
     /// Generate release notes for a git tag
     Generate(Box<Generate>),
@@ -81,7 +81,7 @@ pub enum Command {
 }
 
 /// Editorialized release notes powered by AI
-#[derive(Debug, Cli)]
+#[derive(Cli)]
 #[usage(
     name = "communique",
     bin = "communique",

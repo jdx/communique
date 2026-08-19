@@ -33,6 +33,23 @@ fn test_sponsors_command() {
     );
 }
 
+#[test]
+fn test_init_command() {
+    let dir = tempfile::tempdir().unwrap();
+    git(dir.path(), &["init"]);
+
+    let result = Command::new(env!("CARGO_BIN_EXE_communique"))
+        .current_dir(dir.path())
+        .arg("init")
+        .env("CLX_NO_PROGRESS", "1")
+        .output()
+        .expect("failed to run communique init");
+
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert!(result.status.success(), "communique init failed: {stderr}");
+    assert!(dir.path().join("communique.toml").is_file());
+}
+
 /// Spin up a wiremock server that responds to OpenAI chat completions
 /// with a `submit_release_notes` tool call, then run the full CLI
 /// pipeline against a temporary git repo.
