@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bumped the default model from `claude-opus-4-7` to `claude-opus-4-8`.
 
+## [1.3.2](https://github.com/jdx/communique/releases/tag/v1.3.2) - 2026-08-19
+
+## Fixed
+
+- Docs: prevent mobile announcement banner layout shifts via cached banner height and expiration handling ([#266](https://github.com/jdx/communique/pull/266))
+- Docs: fix sponsor logo sizing so SVGs without intrinsic dimensions no longer collapse ([#263](https://github.com/jdx/communique/pull/263))
+
+## Changed
+
+- Update `usage` to v5.1.0 ([#261](https://github.com/jdx/communique/pull/261))
+
 ## [1.3.1](https://github.com/jdx/communique/releases/tag/v1.3.1) - 2026-08-10
 
 ### Changed
