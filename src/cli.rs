@@ -74,6 +74,7 @@ pub enum Command {
     /// Generate a communique.toml config file in the repo root
     Init(Box<Init>),
     /// Show the companies sponsoring communique and the jdx.dev open source tools
+    #[usage(effect = "read")]
     Sponsors,
     #[usage(hide)]
     Usage(Box<usage::Usage>),
@@ -84,7 +85,8 @@ pub enum Command {
 #[usage(
     name = "communique",
     bin = "communique",
-    version = "1.3.1",
+    version,
+    usage = "Usage: communique [OPTIONS] <COMMAND>",
     min_usage_version = "4.0"
 )]
 pub struct Cli {
