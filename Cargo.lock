@@ -2034,10 +2034,12 @@ dependencies = [
 [[package]]
 name = "usage-argv"
 version = "5.1.0"
+source = "git+https://github.com/jdx/usage?rev=cc60dcb7fd01c8b61d7665fc7dc7c8210551601a#cc60dcb7fd01c8b61d7665fc7dc7c8210551601a"
 
 [[package]]
 name = "usage-derive"
 version = "5.1.0"
+source = "git+https://github.com/jdx/usage?rev=cc60dcb7fd01c8b61d7665fc7dc7c8210551601a#cc60dcb7fd01c8b61d7665fc7dc7c8210551601a"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2047,6 +2049,7 @@ dependencies = [
 [[package]]
 name = "usage-lib"
 version = "5.1.0"
+source = "git+https://github.com/jdx/usage?rev=cc60dcb7fd01c8b61d7665fc7dc7c8210551601a#cc60dcb7fd01c8b61d7665fc7dc7c8210551601a"
 dependencies = [
  "heck",
  "indexmap",
