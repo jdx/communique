@@ -8,7 +8,7 @@ repository = "https://github.com/jdx/communique"
 license = "MIT"
 
 [dependencies]
-usage-rs = { git = "https://github.com/jdx/usage", rev = "054db7f27add07d26ee9bbf81e2aeddf1d4d5147", features = ["diagnostics"] }
+usage-rs = { git = "https://github.com/jdx/usage", rev = "616fcfc3061957adc5ebddb05226ca97ae78f71f", features = ["diagnostics"] }
 reqwest = { version = "0.13", features = ["rustls", "json"], default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
