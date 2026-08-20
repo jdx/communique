@@ -106,3 +106,41 @@ pub struct Cli {
     #[usage(long, short, global)]
     pub config: Option<PathBuf>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::OsStr;
+
+    #[test]
+    fn typed_commands_bind_their_fields() {
+        let argv: &[&OsStr] = &[
+            OsStr::new("--verbose"),
+            OsStr::new("generate"),
+            OsStr::new("v1.2.3"),
+            OsStr::new("v1.2.2"),
+            OsStr::new("--github-release"),
+            OsStr::new("--max-tokens"),
+            OsStr::new("2048"),
+            OsStr::new("--provider"),
+            OsStr::new("openai"),
+        ];
+        let cli = Cli::parse_from(argv).expect("generate should parse");
+        assert!(cli.verbose);
+        let Command::Generate(generate) = cli.command else {
+            panic!("generate should select its command variant");
+        };
+        assert_eq!(generate.tag, "v1.2.3");
+        assert_eq!(generate.prev_tag.as_deref(), Some("v1.2.2"));
+        assert!(generate.github_release);
+        assert_eq!(generate.max_tokens, Some(2048));
+        assert_eq!(generate.provider, Some(Provider::OpenAI));
+
+        let cli = Cli::parse_from(&[OsStr::new("init"), OsStr::new("--force")])
+            .expect("init should parse");
+        let Command::Init(init) = cli.command else {
+            panic!("init should select its command variant");
+        };
+        assert!(init.force);
+    }
+}
