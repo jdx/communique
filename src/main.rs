@@ -27,7 +27,7 @@ use config::Config;
 
 #[tokio::main]
 async fn main() -> miette::Result<()> {
-    let cli = parse_cli();
+    let cli = Cli::parse();
 
     if cli.quiet {
         // SAFETY: called before spawning any threads (pre-tokio runtime work)
@@ -74,10 +74,6 @@ async fn main() -> miette::Result<()> {
 
     clx::progress::flush();
     result
-}
-
-fn parse_cli() -> Cli {
-    Cli::parse()
 }
 
 fn init(force: bool) -> miette::Result<()> {

@@ -127,20 +127,34 @@ mod tests {
         ];
         let cli = Cli::parse_from(argv).expect("generate should parse");
         assert!(cli.verbose);
-        let Command::Generate(generate) = cli.command else {
-            panic!("generate should select its command variant");
-        };
-        assert_eq!(generate.tag, "v1.2.3");
-        assert_eq!(generate.prev_tag.as_deref(), Some("v1.2.2"));
-        assert!(generate.github_release);
-        assert_eq!(generate.max_tokens, Some(2048));
-        assert_eq!(generate.provider, Some(Provider::OpenAI));
+        check_command(cli.command, "generate");
 
-        let cli = Cli::parse_from(&[OsStr::new("init"), OsStr::new("--force")])
-            .expect("init should parse");
-        let Command::Init(init) = cli.command else {
-            panic!("init should select its command variant");
-        };
-        assert!(init.force);
+        for (argv, expected) in [
+            (&[OsStr::new("init"), OsStr::new("--force")][..], "init"),
+            (&[OsStr::new("sponsors")][..], "sponsors"),
+            (&[OsStr::new("usage")][..], "usage"),
+        ] {
+            let cli = Cli::parse_from(argv).expect("command should parse");
+            check_command(cli.command, expected);
+        }
+    }
+
+    fn check_command(command: Command, expected: &str) {
+        match command {
+            Command::Generate(generate) => {
+                assert_eq!(expected, "generate");
+                assert_eq!(generate.tag, "v1.2.3");
+                assert_eq!(generate.prev_tag.as_deref(), Some("v1.2.2"));
+                assert!(generate.github_release);
+                assert_eq!(generate.max_tokens, Some(2048));
+                assert_eq!(generate.provider, Some(Provider::OpenAI));
+            }
+            Command::Init(init) => {
+                assert_eq!(expected, "init");
+                assert!(init.force);
+            }
+            Command::Sponsors => assert_eq!(expected, "sponsors"),
+            Command::Usage(_) => assert_eq!(expected, "usage"),
+        }
     }
 }
