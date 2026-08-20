@@ -341,6 +341,7 @@
     "mounts": [],
     "unknown_flags": null,
     "hide": false,
+    "subcommand_required": true,
     "args_override_self": true,
     "name": "communique",
     "aliases": [],

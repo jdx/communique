@@ -6,6 +6,7 @@ version "1.3.1"
 about "Editorialized release notes powered by AI"
 usage "Usage: communique [OPTIONS] <COMMAND>"
 unknown_flags error
+subcommand_required #true
 flag "-v --verbose" help="Enable verbose logging output" global=#true
 flag "-q --quiet" help="Suppress progress output" global=#true
 flag "-c --config" help="Path to config file (default: communique.toml in repo root)" global=#true {
