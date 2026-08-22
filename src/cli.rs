@@ -139,6 +139,29 @@ mod tests {
         }
     }
 
+    /// A second command line merges into a parsed value rather than replacing it,
+    /// which is what keeps globals set on the first line in force.
+    #[test]
+    fn a_later_command_line_merges_into_the_parsed_value() {
+        let mut cli = Cli::parse_from(&[OsStr::new("--verbose"), OsStr::new("sponsors")])
+            .expect("sponsors should parse");
+
+        cli.try_update_from(&[
+            OsStr::new("generate"),
+            OsStr::new("v1.2.3"),
+            OsStr::new("v1.2.2"),
+            OsStr::new("--github-release"),
+            OsStr::new("--max-tokens"),
+            OsStr::new("2048"),
+            OsStr::new("--provider"),
+            OsStr::new("openai"),
+        ])
+        .expect("the second command line should merge");
+
+        assert!(cli.verbose, "the standing global survives the merge");
+        check_command(cli.command, "generate");
+    }
+
     fn check_command(command: Command, expected: &str) {
         match command {
             Command::Generate(generate) => {
