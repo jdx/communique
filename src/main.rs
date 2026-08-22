@@ -1,6 +1,5 @@
 mod agent;
 mod cli;
-mod command_effects;
 mod config;
 mod error;
 mod generate;
@@ -20,7 +19,6 @@ mod test_helpers;
 
 use std::time::Duration;
 
-use clap::Parser;
 use log::LevelFilter;
 use miette::IntoDiagnostic;
 
@@ -53,34 +51,21 @@ async fn main() -> miette::Result<()> {
     let result = match cli.command {
         Command::Usage(usage) => usage.run(),
         Command::Sponsors => sponsors(),
-        Command::Init { force } => init(force),
-        Command::Generate {
-            tag,
-            prev_tag,
-            github_release,
-            changelog,
-            concise,
-            dry_run,
-            repo,
-            model,
-            max_tokens,
-            provider,
-            base_url,
-            output,
-        } => {
+        Command::Init(init_args) => init(init_args.force),
+        Command::Generate(g) => {
             generate::run(generate::GenerateOptions {
-                tag,
-                prev_tag,
-                github_release,
-                changelog,
-                concise,
-                dry_run,
-                repo,
-                model,
-                max_tokens,
-                provider,
-                base_url,
-                output,
+                tag: g.tag,
+                prev_tag: g.prev_tag,
+                github_release: g.github_release,
+                changelog: g.changelog,
+                concise: g.concise,
+                dry_run: g.dry_run,
+                repo: g.repo,
+                model: g.model,
+                max_tokens: g.max_tokens,
+                provider: g.provider,
+                base_url: g.base_url,
+                output: g.output,
                 config: cli.config,
             })
             .await
