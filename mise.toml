@@ -5,14 +5,19 @@ _.path = "target/debug"
 run = "cargo build"
 
 [tasks.render]
-depends = ["build"]
+depends = ["build", "build-usage"]
 run = [
   "communique usage > communique.usage.kdl",
   "rm -rf docs/cli && mkdir -p docs/cli",
-  "usage g markdown -mf communique.usage.kdl --out-dir docs/cli --url-prefix /cli",
-  "usage g json -f communique.usage.kdl > docs/cli/commands.json",
+  "target/usage-cli/bin/usage g markdown -mf communique.usage.kdl --out-dir docs/cli --url-prefix /cli",
+  "target/usage-cli/bin/usage g json -f communique.usage.kdl > docs/cli/commands.json",
   "git add communique.usage.kdl docs/cli",
 ]
+
+[tasks.build-usage]
+run = "cargo install --locked --root target/usage-cli usage-cli --version 6.0.0"
+sources = ["Cargo.lock", "mise.toml"]
+outputs = ["target/usage-cli/bin/usage"]
 
 [tasks.lint]
 run = "hk check --all"
@@ -29,4 +34,3 @@ run = "npm i && exec npm run docs:dev"
 hk = "latest"
 pkl = "latest"
 ripgrep = "latest"
-usage = "5.1.0"
