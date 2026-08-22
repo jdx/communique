@@ -69,6 +69,10 @@ mod tests {
             command("generate").effect,
             Some(usage_rs::spec::Effect::Read)
         );
+        assert_eq!(
+            command("sponsors").effect,
+            Some(usage_rs::spec::Effect::Read)
+        );
 
         let generate = command("generate");
         let init = command("init");
