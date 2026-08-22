@@ -44,5 +44,9 @@ cmd init help="Generate a communique.toml config file in the repo root" effect=w
 cmd sponsors help="Show the companies sponsoring communique and the jdx.dev open source tools" effect=read {
 }
 cmd usage help="Generates a usage spec for the CLI" hide=#true effect=read {
-    long_help "Generates a usage spec for the CLI\n\nhttps://usage.jdx.dev"
+    long_help #"""
+Generates a usage spec for the CLI
+
+https://usage.jdx.dev
+"""#
 }
