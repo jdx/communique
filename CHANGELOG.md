@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bumped the default model from `claude-opus-4-7` to `claude-opus-4-8`.
 
+## [1.3.2](https://github.com/jdx/communique/releases/tag/v1.3.2) - 2026-08-22
+
+## Changed
+
+- Replaced clap with the typed `usage-rs` CLI; the CLI, usage spec, and docs are now generated from the same derive metadata, with subcommand-required and unknown-flag-error behavior declared explicitly in the spec ([#265](https://github.com/jdx/communique/pull/265))
+
+## Fixed
+
+- Docs: prevent announcement banner layout shifts, honor the banner `expires` field, and enlarge the mobile dismiss target to 44px ([#266](https://github.com/jdx/communique/pull/266))
+- Docs: fix sponsor logo sizing so SVGs without intrinsic dimensions no longer collapse ([#263](https://github.com/jdx/communique/pull/263))
+
 ## [1.3.1](https://github.com/jdx/communique/releases/tag/v1.3.1) - 2026-08-10
 
 ### Changed
