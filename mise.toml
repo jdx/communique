@@ -5,19 +5,14 @@ _.path = "target/debug"
 run = "cargo build"
 
 [tasks.render]
-depends = ["build", "build-usage"]
+depends = ["build"]
 run = [
   "communique usage > communique.usage.kdl",
   "rm -rf docs/cli && mkdir -p docs/cli",
-  "target/usage-cli/bin/usage g markdown -mf communique.usage.kdl --out-dir docs/cli --url-prefix /cli",
-  "target/usage-cli/bin/usage g json -f communique.usage.kdl > docs/cli/commands.json",
+  "usage g markdown -mf communique.usage.kdl --out-dir docs/cli --url-prefix /cli",
+  "usage g json -f communique.usage.kdl > docs/cli/commands.json",
   "git add communique.usage.kdl docs/cli",
 ]
-
-[tasks.build-usage]
-run = "cargo install --locked --root target/usage-cli --version 6.1.0 usage-cli"
-sources = ["Cargo.lock", "mise.toml"]
-outputs = ["target/usage-cli/bin/usage"]
 
 [tasks.lint]
 run = "hk check --all"
@@ -31,6 +26,7 @@ run = "npm i && exec npm run docs:dev"
 
 # rust is managed by rustup, not mise
 [tools]
+usage = "6.1.0"
 hk = "latest"
 pkl = "latest"
 ripgrep = "latest"
