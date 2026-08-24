@@ -26,7 +26,7 @@ run = "npm i && exec npm run docs:dev"
 
 # rust is managed by rustup, not mise
 [tools]
-usage = "6.1.0"
+usage = "6.4.0"
 hk = "latest"
 pkl = "latest"
 ripgrep = "latest"
