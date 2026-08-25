@@ -22,7 +22,7 @@ fn test_sponsors_command() {
         stderr
     );
     assert!(stdout.contains("entire.io"), "stdout: {stdout}");
-    assert!(stdout.contains("37signals"), "stdout: {stdout}");
+    assert!(stdout.contains("Omacom Foundation"), "stdout: {stdout}");
     assert!(
         stdout.contains("https://jdx.dev/sponsors.html"),
         "stdout: {stdout}"
