@@ -2,7 +2,9 @@ amends "package://github.com/jdx/hk/releases/download/v1.44.3/hk@1.44.3#/Config.
 import "package://github.com/jdx/hk/releases/download/v1.44.3/hk@1.44.3#/Builtins.pkl"
 
 local linters = new Mapping<String, Step> {
-    ["cargo-clippy"] = Builtins.cargo_clippy
+    ["cargo-clippy"] = (Builtins.cargo_clippy) {
+        check = "mbx build clippy --manifest-path {{workspace_indicator}} --quiet"
+    }
     ["cargo-fmt"] = Builtins.cargo_fmt
 }
 
