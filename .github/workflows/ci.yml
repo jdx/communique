@@ -10,7 +10,7 @@ permissions: {}
 
 jobs:
   ci:
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || 'namespace-profile-endev-linux-amd64' }}
+    runs-on: ${{ github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login == 'dependabot[bot]') && 'ubuntu-latest' || 'namespace-profile-endev-linux-amd64' }}
     permissions:
       contents: read
       id-token: write
@@ -36,7 +36,7 @@ jobs:
       - run: cargo audit
 
   coverage:
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || 'namespace-profile-endev-linux-amd64' }}
+    runs-on: ${{ github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login == 'dependabot[bot]') && 'ubuntu-latest' || 'namespace-profile-endev-linux-amd64' }}
     permissions:
       contents: read
       id-token: write
