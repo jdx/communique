@@ -2,7 +2,7 @@
 _.path = "target/debug"
 
 [tasks.build]
-run = "mbx build build"
+run = "mbx build"
 
 [tasks.render]
 depends = ["build"]
