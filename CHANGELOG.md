@@ -127,6 +127,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - *(generate)* Support `communique generate HEAD --changelog` as an intentional `[Unreleased]` target — replaces the existing `## [Unreleased]` section in place instead of inserting a literal `## [HEAD]` entry, with prompt/title labels switched to "unreleased" wording and an early guard rejecting `HEAD --github-release`. ([#121](https://github.com/jdx/communique/pull/121)) (@ThomasK33)
 
+## [1.3.3](https://github.com/jdx/communique/compare/v1.3.2...v1.3.3) - 2026-08-26
+
+### Fixed
+
+- *(ci)* preserve clippy warning failures ([#280](https://github.com/jdx/communique/pull/280))
+- update mbx to 0.4.0 ([#275](https://github.com/jdx/communique/pull/275))
+- use direct mbx command syntax ([#273](https://github.com/jdx/communique/pull/273))
+
+### Other
+
+- notarize the macOS release binary ([#285](https://github.com/jdx/communique/pull/285))
+- seed mbx cache for fork PRs ([#284](https://github.com/jdx/communique/pull/284))
+- add sponsor logos to readme ([#278](https://github.com/jdx/communique/pull/278))
+- *(deps)* update jdx/mise-action action to v4.2.5 ([#274](https://github.com/jdx/communique/pull/274))
+- disable caches in release workflows ([#277](https://github.com/jdx/communique/pull/277))
+- *(sponsors)* replace 37signals with omacom foundation ([#276](https://github.com/jdx/communique/pull/276))
+- *(ci)* adopt mbx for Rust builds ([#272](https://github.com/jdx/communique/pull/272))
+- *(deps)* bump usage to 6.4.0 ([#271](https://github.com/jdx/communique/pull/271))
+- generate release notes before publishing ([#270](https://github.com/jdx/communique/pull/270))
+- manage usage cli with mise ([#269](https://github.com/jdx/communique/pull/269))
+
+### Security
+
+- *(ci)* avoid inheriting workflow secrets ([#283](https://github.com/jdx/communique/pull/283))
+- *(ci)* isolate mbx OIDC permissions ([#282](https://github.com/jdx/communique/pull/282))
+- *(ci)* restrict trusted mbx runs to jdx ([#281](https://github.com/jdx/communique/pull/281))
+- *(ci)* route dependabot through fork-safe path ([#279](https://github.com/jdx/communique/pull/279))
+
 ## [1.0.4](https://github.com/jdx/communique/releases/tag/v1.0.4) - 2026-04-24
 
 ## Fixed
