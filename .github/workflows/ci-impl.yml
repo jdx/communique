@@ -3,14 +3,9 @@ name: CI implementation
 on:
   workflow_call:
 
-permissions: {}
-
 jobs:
   ci:
     runs-on: ${{ github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login != 'jdx') && 'ubuntu-latest' || 'namespace-profile-endev-linux-amd64' }}
-    permissions:
-      contents: read
-      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -34,9 +29,6 @@ jobs:
 
   coverage:
     runs-on: ${{ github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login != 'jdx') && 'ubuntu-latest' || 'namespace-profile-endev-linux-amd64' }}
-    permissions:
-      contents: read
-      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
