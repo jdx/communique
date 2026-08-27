@@ -3,7 +3,7 @@
 
 **Usage:** `communique [FLAGS] <SUBCOMMAND>`
 
-**Version:** 1.3.2
+**Version:** 1.3.3
 
 - **Usage:** `communique [FLAGS] <SUBCOMMAND>`
 
