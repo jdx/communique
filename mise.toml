@@ -26,7 +26,7 @@ run = "npm i && exec npm run docs:dev"
 
 # rust is managed by rustup, not mise
 [tools]
-mr-boxington = { version = "1.1.0", postinstall = "mbx setup --yes" }
+mr-boxington = { version = "1.1.0", postinstall = "mbx setup --global" }
 usage = "6.4.0"
 hk = "latest"
 pkl = "latest"
