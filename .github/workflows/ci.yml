@@ -32,6 +32,7 @@ jobs:
     permissions: {}
     needs: [trusted, untrusted]
     runs-on: ubuntu-latest
+    timeout-minutes: 1
     steps:
       - name: Check selected workflow result
         env:
