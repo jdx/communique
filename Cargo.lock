@@ -186,7 +186,7 @@ dependencies = [
 
 [[package]]
 name = "communique"
-version = "1.3.3"
+version = "1.3.4"
 dependencies = [
  "clx",
  "console",
