@@ -23,7 +23,6 @@ jobs:
       - uses: ./.github/actions/mbx
         with:
           backend: ${{ inputs.trusted && 'local' || 'github' }}
-          mirror-github-cache: "true"
       - run: rustup component add clippy rustfmt
       - uses: taiki-e/install-action@c030abdc26abd91eb618a6c9d1963825f7ce5a90 # zizmor: ignore[impostor-commit] cargo-audit (tag-only ref by design)
       - run: mise run render
