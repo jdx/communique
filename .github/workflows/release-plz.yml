@@ -7,6 +7,9 @@ on:
 
 permissions: {}
 
+env:
+  MBX_DISABLE: "1"
+
 jobs:
   release-plz-release:
     name: Release-plz release
