@@ -22,6 +22,7 @@ jobs:
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2 # zizmor: ignore[cache-poisoning]
         with:
+          shared-key: ci-rust
           save-if: ${{ inputs.trusted && github.ref == 'refs/heads/main' }}
       - run: rustup component add clippy rustfmt
       - uses: taiki-e/install-action@c030abdc26abd91eb618a6c9d1963825f7ce5a90 # zizmor: ignore[impostor-commit] cargo-audit (tag-only ref by design)
