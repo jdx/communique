@@ -11,6 +11,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  MBX_DISABLE: "1"
+
 jobs:
   ci:
     runs-on: ${{ github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login != 'jdx') && 'ubuntu-latest' || 'namespace-profile-endev-linux-amd64;overrides.cache-tag=cache' }}
@@ -20,9 +23,10 @@ jobs:
         with:
           persist-credentials: false
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
-      - uses: ./.github/actions/mbx
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2 # zizmor: ignore[cache-poisoning]
         with:
-          backend: ${{ inputs.trusted && 'local' || 'server' }}
+          shared-key: ci-rust
+          save-if: ${{ inputs.trusted && github.ref == 'refs/heads/main' }}
       - run: rustup component add clippy rustfmt
       - uses: taiki-e/install-action@c030abdc26abd91eb618a6c9d1963825f7ce5a90 # zizmor: ignore[impostor-commit] cargo-audit (tag-only ref by design)
       - run: mise run render
@@ -46,9 +50,9 @@ jobs:
         with:
           persist-credentials: false
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
-      - uses: ./.github/actions/mbx
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2 # zizmor: ignore[cache-poisoning]
         with:
-          backend: ${{ inputs.trusted && 'local' || 'server' }}
+          save-if: ${{ inputs.trusted && github.ref == 'refs/heads/main' }}
       - run: rustup component add llvm-tools-preview
       - uses: taiki-e/install-action@4c7e9f3bb4ca35f54341be8fc8d3608f71e4d24e # zizmor: ignore[impostor-commit] cargo-llvm-cov (tag-only ref by design)
       - run: cargo llvm-cov --codecov --output-path codecov.json
