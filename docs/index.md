@@ -1,5 +1,6 @@
 ---
 layout: home
+title: AI-powered release notes from git history
 
 hero:
   name: communiqué

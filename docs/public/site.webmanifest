@@ -1,0 +1,10 @@
+{
+  "name": "communiqué",
+  "short_name": "communiqué",
+  "icons": [
+    { "src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" }
+  ],
+  "theme_color": "#b967ff",
+  "background_color": "#0d0221",
+  "display": "standalone"
+}
