@@ -151,6 +151,11 @@ h3 {
 
 .VPNav {
   border-bottom: 1px solid rgba(185, 103, 255, 0.15) !important;
+}
+
+/* Keep the filter off .VPNav so Firefox does not use it as the containing
+   block for VitePress's fixed mobile navigation screen. */
+.VPNavBar {
   backdrop-filter: blur(16px) saturate(1.2);
 }
 
