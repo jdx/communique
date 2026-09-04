@@ -20,13 +20,17 @@ function getCommands(cmd: Cmd): string[][] {
 }
 
 const commands = getCommands(spec.cmd);
+const siteUrl = "https://communique.jdx.dev";
+const siteDescription =
+  "Generate polished release notes from git history and pull requests with AI, producing concise changelogs and detailed narratives for GitHub Releases.";
 
 export default defineConfig({
   title: "communiqué",
-  description: "Editorialized release notes powered by AI",
+  description: siteDescription,
   appearance: "force-dark",
   cleanUrls: true,
   lastUpdated: true,
+  sitemap: { hostname: siteUrl },
 
   head: [
     [
@@ -65,31 +69,80 @@ export default defineConfig({
     ["link", { rel: "icon", href: "/favicon.ico", sizes: "48x48" }],
     ["link", { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" }],
     ["link", { rel: "apple-touch-icon", href: "/apple-touch-icon.png" }],
+    ["link", { rel: "manifest", href: "/site.webmanifest" }],
     ["meta", { name: "theme-color", content: "#b967ff" }],
     [
       "meta",
-      { property: "og:title", content: "communiqué" },
+      {
+        property: "og:title",
+        content: "communiqué — AI-powered release notes",
+      },
     ],
     [
       "meta",
       {
         property: "og:description",
-        content: "Editorialized release notes powered by AI",
+        content: siteDescription,
       },
     ],
     ["meta", { property: "og:type", content: "website" }],
+    ["meta", { property: "og:site_name", content: "communiqué" }],
+    ["meta", { property: "og:locale", content: "en_US" }],
     [
       "meta",
       { property: "og:image", content: "https://communique.jdx.dev/og.png" },
     ],
     ["meta", { property: "og:image:width", content: "1200" }],
     ["meta", { property: "og:image:height", content: "630" }],
+    [
+      "meta",
+      {
+        property: "og:image:alt",
+        content: "communiqué — AI-powered release notes",
+      },
+    ],
     ["meta", { name: "twitter:card", content: "summary_large_image" }],
+    ["meta", { name: "twitter:site", content: "@jdxcode" }],
     [
       "meta",
       { name: "twitter:image", content: "https://communique.jdx.dev/og.png" },
     ],
+    [
+      "meta",
+      {
+        name: "twitter:image:alt",
+        content: "communiqué — AI-powered release notes",
+      },
+    ],
   ],
+
+  transformHead({ pageData, title, description }) {
+    const url = new URL(
+      pageData.relativePath.replace(/index\.md$/, "").replace(/\.md$/, ""),
+      `${siteUrl}/`,
+    ).toString();
+
+    return [
+      ["link", { rel: "canonical", href: url }],
+      ["meta", { property: "og:url", content: url }],
+      ["meta", { property: "og:title", content: title }],
+      ["meta", { property: "og:description", content: description }],
+      ["meta", { name: "twitter:title", content: title }],
+      ["meta", { name: "twitter:description", content: description }],
+      [
+        "script",
+        { type: "application/ld+json" },
+        JSON.stringify({
+          "@context": "https://schema.org",
+          "@type": "WebPage",
+          name: title,
+          description,
+          url,
+          isPartOf: { "@type": "WebSite", name: "communiqué", url: siteUrl },
+        }),
+      ],
+    ];
+  },
 
   themeConfig: {
     logo: "/logo.svg",
@@ -125,8 +178,7 @@ export default defineConfig({
     ],
 
     editLink: {
-      pattern:
-        "https://github.com/jdx/communique/edit/main/docs/:path",
+      pattern: "https://github.com/jdx/communique/edit/main/docs/:path",
       text: "Edit this page on GitHub",
     },
 
