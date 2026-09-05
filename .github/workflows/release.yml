@@ -202,7 +202,7 @@ jobs:
           tar -xzf dist/communique-x86_64-unknown-linux-gnu.tar.gz -C bin
           bin/communique usage > communique.usage.kdl
           gh release upload "$TAG" communique.usage.kdl --repo "$REPO" --clobber
-      - uses: jdx/packslip@433c0c0f033e64c22f12433471768c255ef2bd93 # v0.3.0
+      - uses: jdx/packslip@a6eddff2d884891faa2efbec374b48e7053df2c4 # v1.0.1
         # The action uploads with `gh release upload` and no `--repo`, and
         # this job has no checkout for gh to infer the repository from.
         env:
