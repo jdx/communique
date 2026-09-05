@@ -4,6 +4,42 @@ use std::process::Command;
 use serde_json::json;
 
 #[test]
+fn test_native_completions_without_project_configuration() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("communique.toml"), "not valid toml [").unwrap();
+    let bin = env!("CARGO_BIN_EXE_communique");
+    for shell in ["bash", "zsh", "fish", "powershell"] {
+        let output = Command::new(bin)
+            .current_dir(dir.path())
+            .args(["completion", shell])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{:?}", output);
+        assert!(String::from_utf8_lossy(&output.stdout).contains("__complete_word__"));
+        let candidates = Command::new(bin)
+            .current_dir(dir.path())
+            .args([
+                "__complete_word__",
+                "--shell",
+                shell,
+                "--line",
+                "communique ge",
+            ])
+            .output()
+            .unwrap();
+        assert!(candidates.status.success(), "{:?}", candidates);
+        assert!(String::from_utf8_lossy(&candidates.stdout).contains("generate"));
+    }
+    let invalid = Command::new(bin)
+        .current_dir(dir.path())
+        .args(["completion", "unknown"])
+        .output()
+        .unwrap();
+    assert!(!invalid.status.success());
+    assert!(String::from_utf8_lossy(&invalid.stderr).contains("unsupported shell"));
+}
+
+#[test]
 fn test_sponsors_command() {
     let bin = env!("CARGO_BIN_EXE_communique");
 
