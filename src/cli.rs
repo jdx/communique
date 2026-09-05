@@ -69,6 +69,13 @@ pub struct Init {
 
 #[derive(Subcommands)]
 pub enum Command {
+    /// Generate a self-contained shell completion script
+    #[usage(effect = "read")]
+    Completion {
+        /// Shell: bash, zsh, fish, or powershell
+        #[usage(arg)]
+        shell: String,
+    },
     /// Generate release notes for a git tag
     Generate(Box<Generate>),
     /// Generate a communique.toml config file in the repo root
@@ -82,6 +89,7 @@ pub enum Command {
 
 /// Editorialized release notes powered by AI
 #[derive(Cli)]
+#[usage(completion = true)]
 #[usage(
     name = "communique",
     bin = "communique",
@@ -133,6 +141,10 @@ mod tests {
             (&[OsStr::new("init"), OsStr::new("--force")][..], "init"),
             (&[OsStr::new("sponsors")][..], "sponsors"),
             (&[OsStr::new("usage")][..], "usage"),
+            (
+                &[OsStr::new("completion"), OsStr::new("bash")][..],
+                "completion",
+            ),
         ] {
             let cli = Cli::parse_from(argv).expect("command should parse");
             check_command(cli.command, expected);
@@ -178,6 +190,10 @@ mod tests {
             }
             Command::Sponsors => assert_eq!(expected, "sponsors"),
             Command::Usage(_) => assert_eq!(expected, "usage"),
+            Command::Completion { shell } => {
+                assert_eq!(expected, "completion");
+                assert_eq!(shell, "bash");
+            }
         }
     }
 }

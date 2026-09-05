@@ -18,6 +18,7 @@
 
 ## Subcommands
 
+- [`communique completion <SHELL>`](/cli/completion.md)
 - [`communique generate [FLAGS] <TAG> [PREV_TAG]`](/cli/generate.md)
 - [`communique init [--force]`](/cli/init.md)
 - [`communique sponsors`](/cli/sponsors.md)

@@ -14,6 +14,10 @@ flag "-c --config" help="Path to config file (default: communique.toml in repo r
 }
 flag "-h --help" help="Print help" action=help builtin=#true
 flag "-V --version" help="Print version" action=version builtin=#true
+cmd completion help="Generate a self-contained shell completion script" effect=read {
+    flag "-h --help" help="Print help" action=help builtin=#true
+    arg <SHELL> help="Shell: bash, zsh, fish, or powershell"
+}
 cmd generate help="Generate release notes for a git tag" effect=read {
     flag --github-release help="Push editorialized notes to the GitHub release" effect=write
     flag --changelog help="Update CHANGELOG.md with the generated changelog entry" effect=write

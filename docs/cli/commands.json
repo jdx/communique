@@ -5,6 +5,53 @@
     "full_cmd": [],
     "usage": "[FLAGS] <SUBCOMMAND>",
     "subcommands": {
+      "completion": {
+        "full_cmd": [
+          "completion"
+        ],
+        "usage": "completion <SHELL>",
+        "subcommands": {},
+        "args": [
+          {
+            "name": "SHELL",
+            "usage": "<SHELL>",
+            "help": "Shell: bash, zsh, fish, or powershell",
+            "help_first_line": "Shell: bash, zsh, fish, or powershell",
+            "required": true,
+            "double_dash": "Optional",
+            "hide": false
+          }
+        ],
+        "flags": [
+          {
+            "name": "help",
+            "usage": "-h --help",
+            "help": "Print help",
+            "help_first_line": "Print help",
+            "short": [
+              "h"
+            ],
+            "long": [
+              "help"
+            ],
+            "hide": false,
+            "global": false,
+            "action": "help",
+            "builtin": true
+          }
+        ],
+        "mounts": [],
+        "effect": "read",
+        "unknown_flags": null,
+        "hide": false,
+        "args_override_self": true,
+        "help": "Generate a self-contained shell completion script",
+        "name": "completion",
+        "aliases": [],
+        "hidden_aliases": [],
+        "examples": [],
+        "headings": []
+      },
       "generate": {
         "full_cmd": [
           "generate"

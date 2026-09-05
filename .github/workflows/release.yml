@@ -192,7 +192,7 @@ jobs:
       # A consumer that has this file can generate completions, a man page,
       # and documentation with its own copy of usage, so nothing of
       # Communiqué's runs on the machine it is installed on.
-      - name: Publish the CLI specification
+      - name: Publish the CLI specification and completions
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ inputs.tag }}
@@ -201,7 +201,14 @@ jobs:
           mkdir -p bin
           tar -xzf dist/communique-x86_64-unknown-linux-gnu.tar.gz -C bin
           bin/communique usage > communique.usage.kdl
-          gh release upload "$TAG" communique.usage.kdl --repo "$REPO" --clobber
+          for shell in bash zsh fish powershell; do
+            bin/communique completion "$shell" > communique.$shell
+            test -s communique.$shell
+            grep -Fq '__complete_word__' communique.$shell
+            bin/communique __complete_word__ --shell "$shell" --line 'communique ge' | grep -Fq -- 'generate'
+          done
+          bash -n communique.bash
+          gh release upload "$TAG" communique.usage.kdl communique.bash communique.zsh communique.fish communique.powershell --repo "$REPO" --clobber
       - uses: jdx/packslip@a0d434ad57571c62dbd0ab5095b4eff607a71fd3 # v1.1.1
         # The action uploads with `gh release upload` and no `--repo`, and
         # this job has no checkout for gh to infer the repository from.
@@ -211,4 +218,9 @@ jobs:
           tag: ${{ inputs.tag }}
           artifacts: dist/communique-*.tar.gz dist/communique-*.zip
           bin: communique
-          resources: cli-spec/usage=asset:communique.usage.kdl
+          resources: |
+            cli-spec/usage=asset:communique.usage.kdl
+            completion/bash=asset:communique.bash
+            completion/zsh=asset:communique.zsh
+            completion/fish=asset:communique.fish
+            completion/powershell=asset:communique.powershell

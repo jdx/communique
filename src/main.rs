@@ -49,6 +49,12 @@ async fn main() -> miette::Result<()> {
     }
 
     let result = match cli.command {
+        Command::Completion { shell } => {
+            let shell = usage_rs::complete::Shell::from_name(&shell)
+                .ok_or_else(|| miette::miette!("unsupported shell: {shell}"))?;
+            print!("{}", Cli::completion_script(shell));
+            Ok(())
+        }
         Command::Usage(usage) => usage.run(),
         Command::Sponsors => sponsors(),
         Command::Init(init_args) => init(init_args.force),
