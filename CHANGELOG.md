@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bumped the default model from `claude-opus-4-7` to `claude-opus-4-8`.
 
+## [1.3.4](https://github.com/jdx/communique/releases/tag/v1.3.4) - 2026-09-01
+
+## Changed
+
+- Release workflow now fails closed when notarization credentials are missing, preventing signed-but-unnotarized macOS binaries from shipping ([#296](https://github.com/jdx/communique/pull/296))
+- Tightened the sponsor message appended to GitHub release notes ([#300](https://github.com/jdx/communique/pull/300))
+
+_Otherwise a maintenance release: CI hardening, `mbx`/`mr-boxington` tooling updates, and dependency bumps (`log` 0.4.34, `usage` 6.6.1, `mise-action` 4.3.0)._
+
 ## [1.3.2](https://github.com/jdx/communique/releases/tag/v1.3.2) - 2026-08-22
 
 ## Changed
