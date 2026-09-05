@@ -162,9 +162,6 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_PLZ_TOKEN }}
-      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
-        with:
-          cache: false
       - name: Run release-plz
         id: release-plz
         uses: release-plz/action@2eb1d8bcb770b4c48ccfaad919734b38b51958c9 # v0.5.131
@@ -172,6 +169,16 @@ jobs:
           command: release-pr
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
+      # mise is set up only after release-plz has run. mise.toml wraps `cargo`
+      # with mbx, and release-plz runs `cargo package` in temporary checkouts
+      # of older commits and of the published crate, each carrying its own
+      # mise.toml. Whenever one of those pins a mr-boxington version that is
+      # not installed on the runner, mise cannot exec mbx and release-plz
+      # fails. release-plz itself only needs rustup's cargo.
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        if: steps.release-plz.outputs.prs_created == 'true'
+        with:
+          cache: false
       - name: Update release PR
         if: steps.release-plz.outputs.prs_created == 'true'
         continue-on-error: true
