@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bumped the default model from `claude-opus-4-7` to `claude-opus-4-8`.
 
+## [1.3.6](https://github.com/jdx/communique/releases/tag/v1.3.6) - 2026-09-05
+
+### Changed
+
+- No user-facing changes. Maintenance only: added conventional-commit enforcement for PR titles, prefixed release PR titles with `chore(release):`, bumped the `jdx/packslip` action to v1.0.0 ([#323](https://github.com/jdx/communique/pull/323)), and consolidated contributor docs into `AGENTS.md`.
+
 ## [1.3.5](https://github.com/jdx/communique/releases/tag/v1.3.5) - 2026-09-05
 
 ## Fixed
