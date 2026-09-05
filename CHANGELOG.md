@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bumped the default model from `claude-opus-4-7` to `claude-opus-4-8`.
 
+## [1.3.5](https://github.com/jdx/communique/releases/tag/v1.3.5) - 2026-09-05
+
+## Fixed
+
+- *(ci)* Unbroke release-plz version PRs and packslip uploads by reordering mise setup and setting `GH_REPO` ([#319](https://github.com/jdx/communique/pull/319))
+
+### Other
+
+- *(deps)* Bumped `mr-boxington` to 1.8.1 ([#318](https://github.com/jdx/communique/pull/318))
+
 ## [1.3.4](https://github.com/jdx/communique/releases/tag/v1.3.4) - 2026-09-01
 
 ## Changed
