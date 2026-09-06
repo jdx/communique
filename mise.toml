@@ -28,7 +28,7 @@ run = "npm i && exec npm run docs:dev"
 
 # rust is managed by rustup, not mise
 [tools]
-mr-boxington = "1.8.1"
+mr-boxington = "1.8.3"
 usage = "6.6.1"
 hk = "latest"
 pkl = "latest"
