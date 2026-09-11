@@ -3,7 +3,7 @@
   "checkpoint_id": "01M291NEWJ2A3Z7QN80C9MEM8H",
   "strategy": "manual-commit",
   "branch": "codex/fable-5-1-default",
-  "checkpoints_count": 2,
+  "checkpoints_count": 4,
   "files_touched": [
     "README.md"
   ],
@@ -15,6 +15,20 @@
     {
       "metadata": "/1/metadata.json",
       "prompt": ""
+    },
+    {
+      "metadata": "/2/metadata.json",
+      "transcript": "/2/full.jsonl",
+      "compact_transcript": "/2/transcript.jsonl",
+      "content_hash": "/2/content_hash.txt",
+      "prompt": "/2/prompt.txt"
     }
-  ]
+  ],
+  "token_usage": {
+    "input_tokens": 49675,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1897344,
+    "output_tokens": 5654,
+    "api_call_count": 34
+  }
 }
