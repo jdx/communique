@@ -3,7 +3,7 @@
   "checkpoint_id": "01M293EA25XGTKZ6WDXXS8D90P",
   "strategy": "manual-commit",
   "branch": "codex/reviewable-release-workflow",
-  "checkpoints_count": 2,
+  "checkpoints_count": 4,
   "files_touched": [
     "README.md",
     "communique.usage.kdl",
@@ -18,6 +18,10 @@
     },
     {
       "metadata": "/1/metadata.json",
+      "prompt": ""
+    },
+    {
+      "metadata": "/2/metadata.json",
       "prompt": ""
     }
   ]
