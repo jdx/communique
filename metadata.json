@@ -3,13 +3,25 @@
   "checkpoint_id": "01M293EA25XGTKZ6WDXXS8D90P",
   "strategy": "manual-commit",
   "branch": "codex/reviewable-release-workflow",
-  "checkpoints_count": 4,
+  "checkpoints_count": 6,
   "files_touched": [
     "README.md",
     "communique.usage.kdl",
     "docs/cli/commands.json",
+    "docs/cli/generate.md",
+    "docs/cli/index.md",
+    "docs/cli/publish.md",
+    "docs/guide/configuration.md",
+    "src/agent.rs",
     "src/cli.rs",
-    "src/main.rs"
+    "src/config.rs",
+    "src/generate.rs",
+    "src/git.rs",
+    "src/main.rs",
+    "src/output.rs",
+    "src/tools/submit_release_notes.rs",
+    "src/workflow.rs",
+    "tests/workflow.rs"
   ],
   "sessions": [
     {
@@ -23,6 +35,20 @@
     {
       "metadata": "/2/metadata.json",
       "prompt": ""
+    },
+    {
+      "metadata": "/3/metadata.json",
+      "transcript": "/3/full.jsonl",
+      "compact_transcript": "/3/transcript.jsonl",
+      "content_hash": "/3/content_hash.txt",
+      "prompt": "/3/prompt.txt"
     }
-  ]
+  ],
+  "token_usage": {
+    "input_tokens": 152877,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 5967744,
+    "output_tokens": 25903,
+    "api_call_count": 61
+  }
 }

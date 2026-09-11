@@ -1,0 +1,108 @@
+{
+  "cli_version": "0.10.5",
+  "checkpoint_id": "01M293EA25XGTKZ6WDXXS8D90P",
+  "session_id": "01a09226-456d-7bd3-8720-20c721bfdd4e",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-11T20:44:44.120584Z",
+  "branch": "codex/reviewable-release-workflow",
+  "checkpoints_count": 2,
+  "save_step_count": 2,
+  "files_touched": [
+    "README.md",
+    "communique.usage.kdl",
+    "docs/cli/commands.json",
+    "docs/cli/generate.md",
+    "docs/cli/index.md",
+    "docs/cli/publish.md",
+    "docs/guide/configuration.md",
+    "src/agent.rs",
+    "src/cli.rs",
+    "src/config.rs",
+    "src/generate.rs",
+    "src/git.rs",
+    "src/main.rs",
+    "src/output.rs",
+    "src/tools/submit_release_notes.rs",
+    "src/workflow.rs",
+    "tests/workflow.rs"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "turn_id": "b52136f98f27",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 152877,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 5967744,
+    "output_tokens": 25903,
+    "api_call_count": 61
+  },
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-11T20:44:44.066951Z",
+    "agent_lines": 1232,
+    "agent_removed": 132,
+    "human_added": 690,
+    "human_modified": 290,
+    "human_removed": 0,
+    "total_committed": 2206,
+    "total_lines_changed": 2344,
+    "agent_percentage": 58.19112627986348,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 163,
+      "user_lines_removed": 17,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".github/workflows/release-plz.yml": 3,
+        "CHANGELOG.md": 1,
+        "README.md": 2,
+        "communique.usage.kdl": 1,
+        "docs/.vitepress/config.mts": 3,
+        "docs/.vitepress/theme/EndevFooter.vue": 3,
+        "docs/.vitepress/theme/EndevSponsors.vue": 2,
+        "docs/cli/commands.json": 1,
+        "docs/cli/sponsors.md": 1,
+        "docs/public/favicon.svg": 41,
+        "docs/public/logo-mark.svg": 41,
+        "docs/public/logo.svg": 60,
+        "src/cli.rs": 1,
+        "src/main.rs": 1,
+        "tests/integration.rs": 2
+      },
+      "user_removed_per_file": {
+        ".github/workflows/release-plz.yml": 3,
+        "CHANGELOG.md": 1,
+        "README.md": 2,
+        "communique.usage.kdl": 1,
+        "docs/.vitepress/theme/EndevFooter.vue": 3,
+        "docs/.vitepress/theme/EndevSponsors.vue": 2,
+        "docs/cli/commands.json": 1,
+        "docs/cli/sponsors.md": 1,
+        "src/cli.rs": 1,
+        "src/main.rs": 1,
+        "tests/integration.rs": 1
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 163,
+      "agent_lines_removed": 17
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1702,
+      "agent_lines_removed": 182
+    }
+  ]
+}
