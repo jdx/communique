@@ -63,6 +63,13 @@ fn validate_generate_options(opts: &GenerateOptions) -> miette::Result<()> {
     Ok(())
 }
 
+fn resolve_model(opts: &GenerateOptions, defaults: &Defaults) -> String {
+    opts.model
+        .clone()
+        .or(defaults.model.clone())
+        .unwrap_or_else(|| "claude-fable-5-1".into())
+}
+
 fn release_title_description<'a>(title: &'a str, label: &str) -> Option<&'a str> {
     let rest = title.strip_prefix(label)?;
     if rest.chars().next().is_some_and(char::is_alphanumeric) {
@@ -180,11 +187,7 @@ async fn gather_context(opts: &GenerateOptions, job: &Arc<ProgressJob>) -> miett
     .unwrap_or_default();
     let defaults = config.defaults.unwrap_or_default();
 
-    let model = opts
-        .model
-        .clone()
-        .or(defaults.model.clone())
-        .unwrap_or_else(|| "claude-opus-4-8".into());
+    let model = resolve_model(opts, &defaults);
     let max_tokens = opts
         .max_tokens
         .or(defaults.max_tokens)
@@ -469,6 +472,20 @@ mod tests {
         };
 
         validate_generate_options(&opts).unwrap();
+    }
+
+    #[test]
+    fn test_resolve_model_precedence_and_default() {
+        let mut opts = test_opts("v1.0.0");
+        let mut defaults = Defaults::default();
+
+        assert_eq!(resolve_model(&opts, &defaults), "claude-fable-5-1");
+
+        defaults.model = Some("config-model".into());
+        assert_eq!(resolve_model(&opts, &defaults), "config-model");
+
+        opts.model = Some("cli-model".into());
+        assert_eq!(resolve_model(&opts, &defaults), "cli-model");
     }
 
     #[tokio::test]
