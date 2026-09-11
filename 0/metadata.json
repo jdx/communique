@@ -1,0 +1,44 @@
+{
+  "cli_version": "0.10.5",
+  "checkpoint_id": "01M292GJCP499WCSF9YGT2360P",
+  "session_id": "01a09228-019d-7592-9ba3-96b826e14aec",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-11T20:28:29.202966Z",
+  "branch": "codex/fable-thinking-blocks",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/providers/anthropic.rs"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "turn_id": "4a1bb2deb9b8",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 33576,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 30720,
+    "output_tokens": 367,
+    "api_call_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-11T20:28:29.185269Z",
+    "agent_lines": 55,
+    "agent_removed": 52,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 55,
+    "total_lines_changed": 107,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
