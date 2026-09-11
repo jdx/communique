@@ -8,11 +8,11 @@ pub fn definition(include_release_notes: bool, include_changelog: bool) -> ToolD
     if include_release_notes {
         properties["release_title"] = json!({
             "type": "string",
-            "description": "A catchy, concise title for the GitHub release (no # prefix, no version tag — the version will be prepended automatically as 'vX.Y.Z: your title')."
+            "description": "A concise, concrete title naming the main user-visible change for the GitHub release (no # prefix, no version tag — the version will be prepended automatically as 'vX.Y.Z: your title')."
         });
         properties["release_body"] = json!({
             "type": "string",
-            "description": "Detailed GitHub release notes in markdown. Follow the template from the system prompt: narrative summary, optional Highlights only for broad releases where they synthesize themes instead of duplicating categorized bullets, categorized sections (Added, Fixed, Changed, etc.), optional Breaking Changes, optional New Contributors, and a Full Changelog link."
+            "description": "GitHub release notes in markdown following the editorial guidelines in the system prompt. Scale the length and sections to user impact, explain each change once, and preserve essential examples and upgrade instructions. For maintenance-only releases, use one sentence and the Full Changelog link. Reference material supplies terminology and formatting, not requirements to copy its structure or footers."
         });
         required.extend(["release_title", "release_body"]);
     }
