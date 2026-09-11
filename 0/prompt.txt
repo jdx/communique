@@ -1,5 +1,1 @@
-could we improve communqiue's release notes? look at jdx.dev projects and their release notes and how it's doing
-
----
-
 make a pr for 1 and 2
