@@ -7,6 +7,35 @@ about "Editorialized release notes powered by AI"
 usage "Usage: communique [OPTIONS] <COMMAND>"
 unknown_flags error
 subcommand_required #true
+flagset workflow-options {
+    flag --draft help="Save editable release title, body, changelog, and review as JSON" effect=write {
+        arg <DRAFT>
+    }
+    flag --review-report help="Write a Markdown coverage report with sources and omission reasons" effect=write {
+        arg <REVIEW_REPORT>
+    }
+    flag --migration-guide help="Write an upgrade guide with affected users and before/after examples" effect=write {
+        arg <MIGRATION_GUIDE>
+    }
+    flag --package help="Generate notes for a package configured in communique.toml" {
+        arg <PACKAGE>
+    }
+    flag --path help="Limit changes to repository-relative paths (repeatable)" var=#true {
+        arg <PATH>
+    }
+    flag --tag-pattern help="Only consider baseline tags matching this git glob" {
+        arg <TAG_PATTERN>
+    }
+    flag --channel help="Baseline channel: stable excludes prereleases; all includes them" {
+        arg <CHANNEL> {
+            choices stable all
+        }
+    }
+    flag --changelog-path help="Changelog destination relative to the repository root" {
+        arg <CHANGELOG_PATH>
+    }
+    flag --preserve-sections help="Replace only the communique-marked section of a GitHub release"
+}
 flag "-v --verbose" help="Enable verbose logging output" global=#true
 flag "-q --quiet" help="Suppress progress output" global=#true
 flag "-c --config" help="Path to config file (default: communique.toml in repo root)" global=#true {
@@ -19,7 +48,8 @@ cmd completion help="Generate a self-contained shell completion script" effect=r
     arg <SHELL> help="Shell: bash, zsh, fish, or powershell"
 }
 cmd generate help="Generate release notes for a git tag" effect=read {
-    flag --github-release help="Push editorialized notes to the GitHub release" effect=write
+    use workflow-options
+    flag --github-release help="Push editorialized notes to the GitHub release" effect=write conflicts=--draft
     flag --changelog help="Update CHANGELOG.md with the generated changelog entry" effect=write
     flag --concise help="Output concise changelog entry instead of detailed notes"
     flag "-n --dry-run" help="Generate notes without updating GitHub or verifying links"
@@ -44,6 +74,11 @@ cmd generate help="Generate release notes for a git tag" effect=read {
     flag "-h --help" help="Print help" action=help builtin=#true
     arg <TAG> help="Git tag to generate release notes for"
     arg "[PREV_TAG]" help="Previous tag (auto-detected if omitted)"
+}
+cmd publish help="Publish an edited JSON draft without invoking an LLM" effect=write {
+    flag --dry-run help="Preview the final release body without writing to GitHub"
+    flag "-h --help" help="Print help" action=help builtin=#true
+    arg <DRAFT> help="JSON artifact written by generate --draft"
 }
 cmd init help="Generate a communique.toml config file in the repo root" effect=write {
     flag --force help="Overwrite existing config file" effect=destructive

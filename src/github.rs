@@ -90,6 +90,36 @@ impl GitHubClient {
         format!("{}/repos/{}/{}{path}", self.base_url, self.owner, self.repo)
     }
 
+    /// Resolve the remote tag to its commit (including annotated tags).
+    /// Qualifying the ref prevents a same-named branch from being selected.
+    pub async fn tag_commit(&self, tag: &str) -> Result<String> {
+        let mut url = reqwest::Url::parse(&self.api_url("/commits/refs/tags/"))
+            .map_err(|e| Error::GitHub(format!("Invalid GitHub URL: {e}")))?;
+        url.path_segments_mut()
+            .map_err(|_| Error::GitHub("Invalid GitHub base URL".into()))?
+            .pop_if_empty()
+            .push(tag);
+        let resp = crate::retry::retry_request("GitHub API", || {
+            self.client
+                .get(url.clone())
+                .bearer_auth(&self.token)
+                .header("Accept", "application/vnd.github+json")
+                .send()
+        })
+        .await?;
+        if !resp.status().is_success() {
+            return Err(Error::GitHub(format!(
+                "Cannot resolve remote tag {tag}: {}",
+                resp.status()
+            )));
+        }
+        #[derive(Deserialize)]
+        struct Commit {
+            sha: String,
+        }
+        Ok(resp.json::<Commit>().await?.sha)
+    }
+
     pub async fn get_release_by_tag(&self, tag: &str) -> Result<Option<Release>> {
         // Try the direct endpoint first (works for published releases)
         let url = self.api_url(&format!("/releases/tags/{tag}"));
@@ -262,6 +292,28 @@ mod tests {
                 .unwrap()
                 .to_string()
                 .contains("invalid owner/repo")
+        );
+    }
+
+    #[tokio::test]
+    async fn tag_commit_uses_a_qualified_and_encoded_tag_ref() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(
+                "/repos/test/repo/commits/refs/tags/cli%2Fv2.0.0%23release",
+            ))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(json!({"sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        let client =
+            GitHubClient::with_base_url("token".into(), "test/repo", server.uri()).unwrap();
+        assert_eq!(
+            client.tag_commit("cli/v2.0.0#release").await.unwrap(),
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         );
     }
 

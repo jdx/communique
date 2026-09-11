@@ -103,6 +103,22 @@ Write the output to a file:
 communique generate v1.2.0 --output RELEASE_NOTES.md
 ```
 
+## Review Before Publishing
+
+Save an editable draft, a coverage report, and an upgrade guide:
+
+```sh
+communique generate v1.2.0 --draft release.json --review-report review.md --migration-guide upgrade.md
+# Edit release.json, then preview and publish the edited content.
+communique publish release.json --dry-run
+communique publish release.json
+```
+
+Publishing a saved draft does not invoke the model again. Use
+`--preserve-sections` when generating to keep hand-written release text outside
+communiqué's marked section. [Configuration](docs/guide/configuration.md) covers
+package scopes, tag patterns, release channels, and editorial label rules.
+
 ## Update GitHub Releases
 
 Publish generated notes to an existing GitHub Release:

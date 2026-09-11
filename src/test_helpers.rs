@@ -1,7 +1,7 @@
 use std::future::Future;
 use std::path::Path;
 use std::pin::Pin;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use serde_json::json;
 
@@ -62,18 +62,21 @@ fn git(dir: &Path, args: &[&str]) {
 
 pub struct MockLlmClient {
     responses: Mutex<Vec<TurnResponse>>,
+    pub prompts: Arc<Mutex<Vec<String>>>,
 }
 
 impl MockLlmClient {
     pub fn new(responses: Vec<TurnResponse>) -> Self {
         Self {
             responses: Mutex::new(responses),
+            prompts: Arc::default(),
         }
     }
 }
 
 impl LlmClient for MockLlmClient {
-    fn new_conversation(&self, _user_message: &str) -> Conversation {
+    fn new_conversation(&self, user_message: &str) -> Conversation {
+        self.prompts.lock().unwrap().push(user_message.to_owned());
         Conversation {
             messages: Vec::new(),
         }

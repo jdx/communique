@@ -42,6 +42,7 @@ fn parse_submission(
         changelog: changelog.transpose()?.unwrap_or_default(),
         release_title: release_title.transpose()?.unwrap_or_default(),
         release_body: release_body.transpose()?.unwrap_or_default(),
+        review: crate::workflow::Review::from_submission(input),
         usage: usage.clone(),
     })
 }
@@ -99,6 +100,7 @@ fn parse_submission_lenient(
         changelog,
         release_title,
         release_body,
+        review: crate::workflow::Review::from_submission(input),
         usage: usage.clone(),
     })
 }

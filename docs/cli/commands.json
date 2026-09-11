@@ -80,6 +80,180 @@
         ],
         "flags": [
           {
+            "name": "draft",
+            "usage": "--draft <DRAFT>",
+            "help": "Save editable release title, body, changelog, and review as JSON",
+            "help_first_line": "Save editable release title, body, changelog, and review as JSON",
+            "short": [],
+            "long": [
+              "draft"
+            ],
+            "hide": false,
+            "global": false,
+            "arg": {
+              "name": "DRAFT",
+              "usage": "<DRAFT>",
+              "required": true,
+              "double_dash": "Optional",
+              "hide": false
+            },
+            "effect": "write"
+          },
+          {
+            "name": "review-report",
+            "usage": "--review-report <REVIEW_REPORT>",
+            "help": "Write a Markdown coverage report with sources and omission reasons",
+            "help_first_line": "Write a Markdown coverage report with sources and omission reasons",
+            "short": [],
+            "long": [
+              "review-report"
+            ],
+            "hide": false,
+            "global": false,
+            "arg": {
+              "name": "REVIEW_REPORT",
+              "usage": "<REVIEW_REPORT>",
+              "required": true,
+              "double_dash": "Optional",
+              "hide": false
+            },
+            "effect": "write"
+          },
+          {
+            "name": "migration-guide",
+            "usage": "--migration-guide <MIGRATION_GUIDE>",
+            "help": "Write an upgrade guide with affected users and before/after examples",
+            "help_first_line": "Write an upgrade guide with affected users and before/after examples",
+            "short": [],
+            "long": [
+              "migration-guide"
+            ],
+            "hide": false,
+            "global": false,
+            "arg": {
+              "name": "MIGRATION_GUIDE",
+              "usage": "<MIGRATION_GUIDE>",
+              "required": true,
+              "double_dash": "Optional",
+              "hide": false
+            },
+            "effect": "write"
+          },
+          {
+            "name": "package",
+            "usage": "--package <PACKAGE>",
+            "help": "Generate notes for a package configured in communique.toml",
+            "help_first_line": "Generate notes for a package configured in communique.toml",
+            "short": [],
+            "long": [
+              "package"
+            ],
+            "hide": false,
+            "global": false,
+            "arg": {
+              "name": "PACKAGE",
+              "usage": "<PACKAGE>",
+              "required": true,
+              "double_dash": "Optional",
+              "hide": false
+            }
+          },
+          {
+            "name": "path",
+            "usage": "--path <PATH>",
+            "help": "Limit changes to repository-relative paths (repeatable)",
+            "help_first_line": "Limit changes to repository-relative paths (repeatable)",
+            "short": [],
+            "long": [
+              "path"
+            ],
+            "var": true,
+            "hide": false,
+            "global": false,
+            "arg": {
+              "name": "PATH",
+              "usage": "<PATH>",
+              "required": true,
+              "double_dash": "Optional",
+              "hide": false
+            }
+          },
+          {
+            "name": "tag-pattern",
+            "usage": "--tag-pattern <TAG_PATTERN>",
+            "help": "Only consider baseline tags matching this git glob",
+            "help_first_line": "Only consider baseline tags matching this git glob",
+            "short": [],
+            "long": [
+              "tag-pattern"
+            ],
+            "hide": false,
+            "global": false,
+            "arg": {
+              "name": "TAG_PATTERN",
+              "usage": "<TAG_PATTERN>",
+              "required": true,
+              "double_dash": "Optional",
+              "hide": false
+            }
+          },
+          {
+            "name": "channel",
+            "usage": "--channel <CHANNEL>",
+            "help": "Baseline channel: stable excludes prereleases; all includes them",
+            "help_first_line": "Baseline channel: stable excludes prereleases; all includes them",
+            "short": [],
+            "long": [
+              "channel"
+            ],
+            "hide": false,
+            "global": false,
+            "arg": {
+              "name": "CHANNEL",
+              "usage": "<CHANNEL>",
+              "required": true,
+              "double_dash": "Optional",
+              "hide": false,
+              "choices": {
+                "choices": [
+                  "stable",
+                  "all"
+                ]
+              }
+            }
+          },
+          {
+            "name": "changelog-path",
+            "usage": "--changelog-path <CHANGELOG_PATH>",
+            "help": "Changelog destination relative to the repository root",
+            "help_first_line": "Changelog destination relative to the repository root",
+            "short": [],
+            "long": [
+              "changelog-path"
+            ],
+            "hide": false,
+            "global": false,
+            "arg": {
+              "name": "CHANGELOG_PATH",
+              "usage": "<CHANGELOG_PATH>",
+              "required": true,
+              "double_dash": "Optional",
+              "hide": false
+            }
+          },
+          {
+            "name": "preserve-sections",
+            "usage": "--preserve-sections",
+            "help": "Replace only the communique-marked section of a GitHub release",
+            "help_first_line": "Replace only the communique-marked section of a GitHub release",
+            "short": [],
+            "long": [
+              "preserve-sections"
+            ],
+            "hide": false,
+            "global": false
+          },
+          {
             "name": "github-release",
             "usage": "--github-release",
             "help": "Push editorialized notes to the GitHub release",
@@ -90,6 +264,9 @@
             ],
             "hide": false,
             "global": false,
+            "conflicts": [
+              "--draft"
+            ],
             "effect": "write"
           },
           {
@@ -272,6 +449,65 @@
         "args_override_self": true,
         "help": "Generate release notes for a git tag",
         "name": "generate",
+        "aliases": [],
+        "hidden_aliases": [],
+        "examples": [],
+        "headings": []
+      },
+      "publish": {
+        "full_cmd": [
+          "publish"
+        ],
+        "usage": "publish [--dry-run] <DRAFT>",
+        "subcommands": {},
+        "args": [
+          {
+            "name": "DRAFT",
+            "usage": "<DRAFT>",
+            "help": "JSON artifact written by generate --draft",
+            "help_first_line": "JSON artifact written by generate --draft",
+            "required": true,
+            "double_dash": "Optional",
+            "hide": false
+          }
+        ],
+        "flags": [
+          {
+            "name": "dry-run",
+            "usage": "--dry-run",
+            "help": "Preview the final release body without writing to GitHub",
+            "help_first_line": "Preview the final release body without writing to GitHub",
+            "short": [],
+            "long": [
+              "dry-run"
+            ],
+            "hide": false,
+            "global": false
+          },
+          {
+            "name": "help",
+            "usage": "-h --help",
+            "help": "Print help",
+            "help_first_line": "Print help",
+            "short": [
+              "h"
+            ],
+            "long": [
+              "help"
+            ],
+            "hide": false,
+            "global": false,
+            "action": "help",
+            "builtin": true
+          }
+        ],
+        "mounts": [],
+        "effect": "write",
+        "unknown_flags": null,
+        "hide": false,
+        "args_override_self": true,
+        "help": "Publish an edited JSON draft without invoking an LLM",
+        "name": "publish",
         "aliases": [],
         "hidden_aliases": [],
         "examples": [],

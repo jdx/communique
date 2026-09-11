@@ -13,6 +13,7 @@ mod providers;
 mod retry;
 mod tools;
 mod usage;
+mod workflow;
 
 #[cfg(test)]
 mod test_helpers;
@@ -57,10 +58,12 @@ async fn main() -> miette::Result<()> {
         }
         Command::Usage(usage) => usage.run(),
         Command::Sponsors => sponsors(),
+        Command::Publish { draft, dry_run } => workflow::publish_draft(&draft, dry_run).await,
         Command::Init(init_args) => init(init_args.force),
         Command::Generate(g) => {
             generate::run(generate::GenerateOptions {
                 tag: g.tag,
+                workflow: g.workflow,
                 prev_tag: g.prev_tag,
                 github_release: g.github_release,
                 changelog: g.changelog,
