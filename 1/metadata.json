@@ -3,7 +3,7 @@
   "checkpoint_id": "01M291NEWJ2A3Z7QN80C9MEM8H",
   "session_id": "01a06f7e-624d-7c60-99aa-9fbe4a26639f",
   "strategy": "manual-commit",
-  "created_at": "2026-09-11T20:13:40.813033Z",
+  "created_at": "2026-09-11T20:16:50.78373Z",
   "branch": "codex/fable-5-1-default",
   "checkpoints_count": 1,
   "files_touched": [
@@ -16,15 +16,15 @@
     "turn_count": 1
   },
   "initial_attribution": {
-    "calculated_at": "2026-09-11T20:13:40.812354Z",
+    "calculated_at": "2026-09-11T20:16:50.783028Z",
     "agent_lines": 0,
     "agent_removed": 2,
-    "human_added": 23,
+    "human_added": 44,
     "human_modified": 6,
     "human_removed": 0,
-    "total_committed": 25,
-    "total_lines_changed": 35,
-    "agent_percentage": 5.714285714285714,
+    "total_committed": 46,
+    "total_lines_changed": 60,
+    "agent_percentage": 3.3333333333333335,
     "metric_version": 2
   }
 }
