@@ -229,6 +229,13 @@ impl Draft {
         if self.release_title.trim().is_empty() || self.release_body.trim().is_empty() {
             return Err(miette::miette!("Draft title and body cannot be empty"));
         }
+        if self.target_commit.len() != 40
+            || !self.target_commit.bytes().all(|b| b.is_ascii_hexdigit())
+        {
+            return Err(miette::miette!(
+                "Draft target_commit must be a full 40-character commit SHA"
+            ));
+        }
         let parts: Vec<_> = self.repo.split('/').collect();
         if parts.len() != 2
             || parts.iter().any(|p| {
@@ -247,16 +254,31 @@ impl Draft {
 pub const START: &str = "<!-- communique:start -->";
 pub const END: &str = "<!-- communique:end -->";
 
+/// Locate only the managed content, sharing the same marker validation as publishing.
+fn managed_range(existing: &str) -> miette::Result<Option<std::ops::Range<usize>>> {
+    let starts: Vec<_> = existing.match_indices(START).collect();
+    let ends: Vec<_> = existing.match_indices(END).collect();
+    match (starts.as_slice(), ends.as_slice()) {
+        ([], []) => Ok(None),
+        ([(start, _)], [(end, _)]) if start < end => Ok(Some(start + START.len()..*end)),
+        _ => Err(miette::miette!(
+            "Release must contain either no communique markers or exactly one ordered start/end pair"
+        )),
+    }
+}
+
+pub fn managed_content(existing: &str) -> miette::Result<Option<&str>> {
+    Ok(managed_range(existing)?.map(|range| existing[range].trim()))
+}
+
 pub fn merge_body(existing: &str, generated: &str) -> miette::Result<String> {
     if generated.contains(START) || generated.contains(END) {
         return Err(miette::miette!(
             "Generated body must not contain communique section markers"
         ));
     }
-    let starts: Vec<_> = existing.match_indices(START).collect();
-    let ends: Vec<_> = existing.match_indices(END).collect();
-    match (starts.as_slice(), ends.as_slice()) {
-        ([], []) => Ok(format!(
+    match managed_range(existing)? {
+        None => Ok(format!(
             "{}{}{}\n{}\n{}",
             existing,
             if existing.is_empty() { "" } else { "\n\n" },
@@ -264,14 +286,11 @@ pub fn merge_body(existing: &str, generated: &str) -> miette::Result<String> {
             generated,
             END
         )),
-        ([(start, _)], [(end, _)]) if start < end => Ok(format!(
+        Some(range) => Ok(format!(
             "{}\n{}\n{}",
-            &existing[..start + START.len()],
+            &existing[..range.start],
             generated,
-            &existing[*end..]
-        )),
-        _ => Err(miette::miette!(
-            "Release must contain either no communique markers or exactly one ordered start/end pair"
+            &existing[range.end..]
         )),
     }
 }
@@ -313,6 +332,15 @@ async fn publish_with_client(draft: Draft, dry_run: bool, gh: &GitHubClient) -> 
         };
         println!("# {title}\n\n{body}");
     } else {
+        let remote_commit = gh.tag_commit(&draft.tag).await?;
+        if remote_commit != draft.target_commit {
+            return Err(miette::miette!(
+                "Tag {} now resolves to {}, but this draft was generated for {}. Regenerate and review the draft before publishing.",
+                draft.tag,
+                remote_commit,
+                draft.target_commit
+            ));
+        }
         gh.update_release(
             release.id,
             &release.tag_name,
@@ -332,6 +360,94 @@ async fn publish_with_client(draft: Draft, dry_run: bool, gh: &GitHubClient) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn stale_or_missing_remote_tag_never_updates_release() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+        for status in [200, 404, 403] {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/repos/owner/repo/releases/tags/v1"))
+                .respond_with(
+                    ResponseTemplate::new(200)
+                        .set_body_json(serde_json::json!({"id": 7, "tag_name": "v1"})),
+                )
+                .mount(&server)
+                .await;
+            Mock::given(method("GET"))
+                .and(path("/repos/owner/repo/commits/refs/tags/v1"))
+                .respond_with(ResponseTemplate::new(status).set_body_json(
+                    serde_json::json!({"sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}),
+                ))
+                .mount(&server)
+                .await;
+            Mock::given(method("PATCH"))
+                .respond_with(ResponseTemplate::new(200))
+                .expect(0)
+                .mount(&server)
+                .await;
+            let gh =
+                GitHubClient::with_base_url("token".into(), "owner/repo", server.uri()).unwrap();
+            let notes = ParsedOutput {
+                changelog: "Change".into(),
+                release_title: "Title".into(),
+                release_body: "Body".into(),
+                usage: Default::default(),
+                review: Default::default(),
+            };
+            let draft = Draft::new(
+                "owner/repo",
+                "v1",
+                "v0",
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                &notes,
+                false,
+            );
+            let err = publish_with_client(draft, false, &gh).await.unwrap_err();
+            assert!(err.to_string().contains(if status == 200 {
+                "Regenerate and review"
+            } else {
+                "Cannot resolve remote tag"
+            }));
+            server.verify().await;
+        }
+    }
+
+    #[test]
+    fn malformed_draft_fields_are_rejected() {
+        let notes = ParsedOutput {
+            changelog: "Change".into(),
+            release_title: "Title".into(),
+            release_body: "Body".into(),
+            usage: Default::default(),
+            review: Default::default(),
+        };
+        let draft = Draft::new(
+            "owner/repo",
+            "v1",
+            "v0",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            &notes,
+            false,
+        );
+        let value = serde_json::to_value(draft).unwrap();
+        for (field, invalid) in [
+            ("repo", "owner"),
+            ("repo", "owner//repo"),
+            ("repo", "owner/repo?bad"),
+            ("release_title", " "),
+            ("release_body", " "),
+            ("target_commit", ""),
+            ("target_commit", "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"),
+            ("tag", ""),
+        ] {
+            let mut invalid_value = value.clone();
+            invalid_value[field] = serde_json::json!(invalid);
+            let draft: Draft = serde_json::from_value(invalid_value).unwrap();
+            assert!(draft.validate().is_err(), "accepted {field}: {invalid}");
+        }
+    }
 
     #[tokio::test]
     async fn publish_sends_exact_edited_content_and_preview_does_not_patch() {
@@ -357,6 +473,14 @@ mod tests {
             .expect(1)
             .mount(&server)
             .await;
+        Mock::given(method("GET"))
+            .and(path("/repos/owner/repo/commits/refs/tags/v1"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                serde_json::json!({"sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}),
+            ))
+            .expect(1)
+            .mount(&server)
+            .await;
         let gh = GitHubClient::with_base_url("token".into(), "owner/repo", server.uri()).unwrap();
         let notes = ParsedOutput {
             changelog: "Change".into(),
@@ -366,14 +490,28 @@ mod tests {
             review: Default::default(),
         };
         publish_with_client(
-            Draft::new("owner/repo", "v1", "v0", "abc", &notes, false),
+            Draft::new(
+                "owner/repo",
+                "v1",
+                "v0",
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                &notes,
+                false,
+            ),
             true,
             &gh,
         )
         .await
         .unwrap();
         publish_with_client(
-            Draft::new("owner/repo", "v1", "v0", "abc", &notes, false),
+            Draft::new(
+                "owner/repo",
+                "v1",
+                "v0",
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                &notes,
+                false,
+            ),
             false,
             &gh,
         )
@@ -404,6 +542,14 @@ mod tests {
             .expect(1)
             .mount(&server)
             .await;
+        Mock::given(method("GET"))
+            .and(path("/repos/owner/repo/commits/refs/tags/v1"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                serde_json::json!({"sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}),
+            ))
+            .expect(1)
+            .mount(&server)
+            .await;
         let gh = GitHubClient::with_base_url("token".into(), "owner/repo", server.uri()).unwrap();
         let notes = ParsedOutput {
             changelog: "Change".into(),
@@ -413,14 +559,28 @@ mod tests {
             review: Default::default(),
         };
         publish_with_client(
-            Draft::new("owner/repo", "v1", "v0", "abc", &notes, true),
+            Draft::new(
+                "owner/repo",
+                "v1",
+                "v0",
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                &notes,
+                true,
+            ),
             true,
             &gh,
         )
         .await
         .unwrap();
         publish_with_client(
-            Draft::new("owner/repo", "v1", "v0", "abc", &notes, true),
+            Draft::new(
+                "owner/repo",
+                "v1",
+                "v0",
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                &notes,
+                true,
+            ),
             false,
             &gh,
         )
@@ -505,7 +665,14 @@ changelog_path = "crates/cli/CHANGELOG.md"
             usage: Default::default(),
             review: Default::default(),
         };
-        let mut draft = Draft::new("owner/repo", "v1", "v0", "abc", &notes, false);
+        let mut draft = Draft::new(
+            "owner/repo",
+            "v1",
+            "v0",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            &notes,
+            false,
+        );
         draft.release_body = "Hand-edited body\n\n".into();
         let serialized = serde_json::to_string(&draft).unwrap();
         let decoded: Draft = serde_json::from_str(&serialized).unwrap();

@@ -32,6 +32,7 @@ struct Context {
     #[allow(dead_code)]
     owner_repo: String,
     tag: String,
+    target_commit: String,
     prev_tag: String,
     client: Box<dyn LlmClient>,
     defaults: Defaults,
@@ -167,7 +168,7 @@ pub async fn run(mut opts: GenerateOptions) -> miette::Result<()> {
             &ctx.owner_repo,
             &ctx.tag,
             &ctx.prev_tag,
-            &git::resolve_ref(&ctx.repo_root, &ctx.tag)?,
+            &ctx.target_commit,
             &parsed,
             opts.workflow.preserve_sections,
         )
@@ -285,10 +286,12 @@ async fn gather_context(opts: &GenerateOptions, job: &Arc<ProgressJob>) -> miett
         .map(|token| github::GitHubClient::new(token.clone(), &owner_repo))
         .transpose()?;
 
+    let target_commit = git::resolve_ref(&repo_root, &opts.tag)?;
     Ok(Context {
         repo_root,
         owner_repo,
         tag: opts.tag.clone(),
+        target_commit,
         prev_tag,
         client,
         defaults,
@@ -307,8 +310,12 @@ async fn generate_notes(
     include_changelog: bool,
     job: &Arc<ProgressJob>,
 ) -> miette::Result<ParsedOutput> {
-    let raw_log =
-        git::log_between_paths(&ctx.repo_root, &ctx.prev_tag, &ctx.tag, &ctx.workflow.paths)?;
+    let raw_log = git::log_between_paths(
+        &ctx.repo_root,
+        &ctx.prev_tag,
+        &ctx.target_commit,
+        &ctx.workflow.paths,
+    )?;
     let (git_log, excluded, rule_context) = apply_rules(ctx, &raw_log).await?;
     let pr_numbers = git::extract_pr_numbers(&git_log);
     info!(
@@ -383,6 +390,27 @@ async fn generate_notes(
         (None, vec![])
     };
 
+    let (existing_release, recent_releases) = if ctx.workflow.preserve_sections {
+        let existing = existing_release
+            .as_deref()
+            .map(crate::workflow::managed_content)
+            .transpose()?
+            .flatten()
+            .map(str::to_owned);
+        let recent = recent_releases
+            .into_iter()
+            .filter_map(|(tag, body)| {
+                crate::workflow::managed_content(&body)
+                    .ok()
+                    .flatten()
+                    .map(|content| (tag, content.to_owned()))
+            })
+            .collect();
+        (existing, recent)
+    } else {
+        (existing_release, recent_releases)
+    };
+
     let emoji = ctx.defaults.emoji.unwrap_or(true);
     let system = prompt::system_prompt(
         ctx.system_extra.as_deref(),
@@ -404,6 +432,9 @@ async fn generate_notes(
     });
 
     user_msg.push_str(&format!("\n\nEditorial rules and scope:\n{rule_context}\nOnly describe changes from the supplied git log. Paths in scope: {:?}. Other repository files are context only. Explicit exclusions must not appear in release notes. Include-label overrides take priority over exclusions and the default internal-change filter.\n", ctx.workflow.paths));
+    if ctx.workflow.preserve_sections {
+        user_msg.push_str("\nReturn only the managed release-note content in release_body. Do not include communique section markers or reproduce hand-written introductions, installation instructions, or footers outside the managed section. When no managed section exists, generate fresh notes from the supplied changes.\n");
+    }
     if ctx.workflow.review_report.is_some() || ctx.workflow.draft.is_some() {
         user_msg.push_str("Return coverage for EVERY commit in the supplied log, using its exact commit ID, status included/omitted/uncertain, and a specific reason. Do not claim a change is included unless it appears in the final notes.\n");
     }
@@ -519,6 +550,7 @@ mod tests {
             repo_root,
             owner_repo: "test/repo".into(),
             tag: tag.into(),
+            target_commit: tag.into(),
             prev_tag: prev_tag.into(),
             client: Box::new(MockLlmClient::new(vec![])),
             workflow: Default::default(),
@@ -538,6 +570,142 @@ mod tests {
             review: crate::workflow::Review::default(),
             usage: Usage::default(),
         }
+    }
+
+    #[tokio::test]
+    async fn direct_publish_preserves_manual_text_and_refuses_invalid_markers() {
+        use crate::workflow::{END, START};
+        for malformed in [false, true] {
+            let server = MockServer::start().await;
+            let body = if malformed {
+                START.to_owned()
+            } else {
+                format!("Manual intro\n{START}\nOld\n{END}\nManual footer")
+            };
+            Mock::given(method("GET"))
+                .and(path("/repos/test/repo/releases/tags/v2"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(
+                    json!({"id": 7, "tag_name": "v2", "name": "Manual title", "body": body}),
+                ))
+                .mount(&server)
+                .await;
+            Mock::given(method("PATCH")).and(path("/repos/test/repo/releases/7"))
+                .and(wiremock::matchers::body_json(json!({"tag_name": "v2", "body": format!("Manual intro\n{START}\nBody\n{END}\nManual footer")})))
+                .respond_with(ResponseTemplate::new(200)).expect(if malformed { 0 } else { 1 }).mount(&server).await;
+            let repo = TempRepo::new();
+            let mut ctx = test_context(repo.path().to_path_buf(), "v2", "v1");
+            ctx.github_client = Some(
+                github::GitHubClient::with_base_url("token".into(), "test/repo", server.uri())
+                    .unwrap(),
+            );
+            let mut opts = test_opts("v2");
+            opts.github_release = true;
+            opts.workflow.preserve_sections = true;
+            let job = Arc::new(ProgressJobBuilder::new().build());
+            assert_eq!(
+                publish(&opts, &ctx, &test_parsed_output("Change"), &job)
+                    .await
+                    .is_err(),
+                malformed
+            );
+            server.verify().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn preserve_sections_prompt_contains_only_managed_content() {
+        use crate::workflow::{END, START};
+        for body in [
+            format!("PRIVATE INTRO\n{START}\nExisting managed text\n{END}\nPRIVATE FOOTER"),
+            "PRIVATE UNMARKED BODY".into(),
+            format!("{START} invalid"),
+        ] {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/repos/test/repo/releases/tags/v2.0.0"))
+                .respond_with(
+                    ResponseTemplate::new(200)
+                        .set_body_json(json!({"id": 1, "tag_name": "v2.0.0", "body": body})),
+                )
+                .mount(&server)
+                .await;
+            Mock::given(method("GET")).and(path("/repos/test/repo/releases"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+                    {"id": 2, "tag_name": "v1.0.0", "body": format!("PRIVATE STYLE INTRO\n{START}\nManaged style example\n{END}\nPRIVATE STYLE FOOTER")},
+                    {"id": 3, "tag_name": "v0.9.0", "body": "PRIVATE UNMARKED STYLE"}
+                ]))).mount(&server).await;
+            let repo = TempRepo::new();
+            repo.write_file("file", "old");
+            repo.commit("Initial");
+            repo.tag("v1.0.0");
+            repo.write_file("file", "new");
+            repo.commit("Feature");
+            repo.tag("v2.0.0");
+            let client = MockLlmClient::new(vec![TurnResponse {
+                tool_calls: vec![submit_tool_call("Change", "Title", "Notes")],
+                text: None,
+                stop_reason: StopReason::ToolUse,
+                usage: fake_usage(),
+            }]);
+            let prompts = client.prompts.clone();
+            let mut ctx = test_context(repo.path().to_path_buf(), "v2.0.0", "v1.0.0");
+            ctx.client = Box::new(client);
+            ctx.workflow.preserve_sections = true;
+            ctx.github_client = Some(
+                github::GitHubClient::with_base_url("token".into(), "test/repo", server.uri())
+                    .unwrap(),
+            );
+            let job = Arc::new(ProgressJobBuilder::new().build());
+            let result = generate_notes(&ctx, true, true, true, &job).await;
+            let prompts = prompts.lock().unwrap();
+            if body.ends_with("invalid") {
+                assert!(result.is_err());
+                assert!(
+                    prompts.is_empty(),
+                    "invalid markers must fail before a model call"
+                );
+            } else {
+                result.unwrap();
+                let prompt = &prompts[0];
+                assert!(!prompt.contains("PRIVATE"));
+                assert!(!prompt.contains(START));
+                assert!(!prompt.contains(END));
+                assert!(prompt.contains("Managed style example"));
+                assert!(prompt.contains("Return only the managed release-note content"));
+                assert_eq!(
+                    prompt.contains("Existing managed text"),
+                    body.contains(START)
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn generation_uses_the_pinned_target_after_head_moves() {
+        let repo = TempRepo::new();
+        repo.write_file("file", "old");
+        repo.commit("Initial");
+        repo.tag("v1.0.0");
+        repo.write_file("file", "reviewed");
+        repo.commit("Reviewed feature");
+        let target = git::verify_ref(repo.path(), "HEAD").unwrap();
+        repo.write_file("file", "later");
+        repo.commit("Later unrelated feature");
+        let mut ctx = test_context(repo.path().to_path_buf(), "HEAD", "v1.0.0");
+        ctx.target_commit = target;
+        let client = MockLlmClient::new(vec![TurnResponse {
+            tool_calls: vec![submit_tool_call("Change", "Title", "Notes")],
+            text: None,
+            stop_reason: StopReason::ToolUse,
+            usage: fake_usage(),
+        }]);
+        let prompts = client.prompts.clone();
+        ctx.client = Box::new(client);
+        let job = Arc::new(ProgressJobBuilder::new().build());
+        generate_notes(&ctx, true, true, true, &job).await.unwrap();
+        let prompt = &prompts.lock().unwrap()[0];
+        assert!(prompt.contains("Reviewed feature"));
+        assert!(!prompt.contains("Later unrelated feature"));
     }
 
     #[tokio::test]
@@ -723,6 +891,7 @@ mod tests {
             repo_root: repo.path().to_path_buf(),
             owner_repo: "test/repo".into(),
             tag: "v1.0.0".into(),
+            target_commit: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
             client: Box::new(mock_client),
             workflow: Default::default(),
@@ -767,6 +936,7 @@ mod tests {
             repo_root: repo.path().to_path_buf(),
             owner_repo: "test/repo".into(),
             tag: "v1.0.0".into(),
+            target_commit: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
             client: Box::new(mock_client),
             workflow: Default::default(),
@@ -831,6 +1001,7 @@ mod tests {
             repo_root: repo.path().to_path_buf(),
             owner_repo: "test/repo".into(),
             tag: "v1.0.0".into(),
+            target_commit: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
             client: Box::new(mock_client),
             workflow: Default::default(),
@@ -875,6 +1046,7 @@ mod tests {
             repo_root: PathBuf::from("/tmp"),
             owner_repo: "test/repo".into(),
             tag: "v1.0.0".into(),
+            target_commit: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
             client: Box::new(MockLlmClient::new(vec![])),
             workflow: Default::default(),
@@ -910,6 +1082,7 @@ mod tests {
             repo_root: PathBuf::from("/tmp"),
             owner_repo: "test/repo".into(),
             tag: "v1.0.0".into(),
+            target_commit: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
             client: Box::new(MockLlmClient::new(vec![])),
             workflow: Default::default(),
@@ -961,6 +1134,7 @@ mod tests {
             repo_root: PathBuf::from("/tmp"),
             owner_repo: "test/repo".into(),
             tag: "v1.0.0".into(),
+            target_commit: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
             client: Box::new(MockLlmClient::new(vec![])),
             workflow: Default::default(),
@@ -1125,6 +1299,7 @@ mod tests {
             repo_root: repo.path().to_path_buf(),
             owner_repo: "test/repo".into(),
             tag: "v1.0.0".into(),
+            target_commit: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
             client: Box::new(mock_client),
             workflow: Default::default(),
@@ -1209,6 +1384,7 @@ mod tests {
             repo_root: repo.path().to_path_buf(),
             owner_repo: "test/repo".into(),
             tag: "v1.0.0".into(),
+            target_commit: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
             client: Box::new(mock_client),
             workflow: Default::default(),
@@ -1348,6 +1524,7 @@ mod tests {
             repo_root: repo.path().to_path_buf(),
             owner_repo: "test/repo".into(),
             tag: "v1.0.0".into(),
+            target_commit: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
             client: Box::new(mock_client),
             workflow: Default::default(),
@@ -1423,6 +1600,7 @@ mod tests {
             repo_root: repo.path().to_path_buf(),
             owner_repo: "test/repo".into(),
             tag: "v1.0.0".into(),
+            target_commit: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
             client: Box::new(mock_client),
             workflow: Default::default(),
@@ -1487,6 +1665,7 @@ mod tests {
             repo_root: repo.path().to_path_buf(),
             owner_repo: "test/repo".into(),
             tag: "v1.0.0".into(),
+            target_commit: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
             client: Box::new(mock_client),
             workflow: Default::default(),
@@ -1837,6 +2016,7 @@ mod tests {
             repo_root: repo.path().to_path_buf(),
             owner_repo: "test/repo".into(),
             tag: "v1.0.0".into(),
+            target_commit: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
             client: Box::new(mock_client),
             workflow: Default::default(),
@@ -1896,6 +2076,7 @@ mod tests {
             repo_root: repo.path().to_path_buf(),
             owner_repo: "test/repo".into(),
             tag: "v1.0.0".into(),
+            target_commit: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
             client: Box::new(mock_client),
             workflow: Default::default(),
@@ -1944,6 +2125,7 @@ mod tests {
             repo_root: repo.path().to_path_buf(),
             owner_repo: "test/repo".into(),
             tag: "v1.0.0".into(),
+            target_commit: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
             client: Box::new(mock_client),
             workflow: Default::default(),
@@ -2035,6 +2217,7 @@ mod tests {
             repo_root: repo.path().to_path_buf(),
             owner_repo: "test/repo".into(),
             tag: "v4.0.0".into(),
+            target_commit: "v4.0.0".into(),
             prev_tag: "v3.0.0".into(),
             client: Box::new(mock_client),
             workflow: Default::default(),
@@ -2108,6 +2291,7 @@ mod tests {
             repo_root: repo.path().to_path_buf(),
             owner_repo: "test/repo".into(),
             tag: "v1.1.0".into(),
+            target_commit: "v1.1.0".into(),
             prev_tag: "v1.0.0".into(),
             client: Box::new(mock_client),
             workflow: Default::default(),

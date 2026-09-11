@@ -116,3 +116,26 @@ async fn generate_edit_and_preview_draft_without_model_credentials() {
     assert!(String::from_utf8_lossy(&preview.stdout).contains("Edited by maintainer."));
     server.verify().await;
 }
+
+#[test]
+fn publish_rejects_unreadable_invalid_and_unauthenticated_drafts() {
+    let dir = tempfile::tempdir().unwrap();
+    let draft_path = dir.path().join("draft.json");
+    let publish = || {
+        Command::new(env!("CARGO_BIN_EXE_communique"))
+            .arg("publish")
+            .arg(&draft_path)
+            .env_remove("GITHUB_TOKEN")
+            .current_dir(dir.path())
+            .output()
+            .unwrap()
+    };
+    assert!(!publish().status.success(), "missing draft should fail");
+    std::fs::write(&draft_path, "not JSON").unwrap();
+    assert!(!publish().status.success(), "malformed JSON should fail");
+    let draft = json!({"schema_version": 1, "repo": "owner/repo", "tag": "v1", "previous_ref": "v0", "target_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "release_title": "Title", "release_body": "Body", "changelog": "Change", "preserve_sections": false, "review": {}});
+    std::fs::write(&draft_path, serde_json::to_string(&draft).unwrap()).unwrap();
+    let result = publish();
+    assert!(!result.status.success());
+    assert!(String::from_utf8_lossy(&result.stderr).contains("GITHUB_TOKEN is required"));
+}

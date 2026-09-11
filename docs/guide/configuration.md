@@ -110,7 +110,11 @@ communique publish release.json
 
 The JSON draft records the repository, tag, target commit, previous reference,
 title, body, changelog, and review. Publishing uses the edited title and body
-without another model request. It updates an existing GitHub Release and requires
+without another model request. Before updating, it resolves the remote tag and
+requires it to match the commit recorded when generation began. A moved or missing
+tag stops publication; regenerate and review the draft before trying again.
+The plain `--dry-run` preview is offline and does not check the remote tag.
+Publishing updates an existing GitHub Release and requires
 `GITHUB_TOKEN`; it does not write the saved changelog to disk. Draft generation
 cannot be combined with `--github-release`.
 
@@ -136,6 +140,8 @@ Generated release notes go here.
 Maintainer notes stay here too.
 ```
 
+The model receives only managed content as existing-release and style context,
+and is instructed to omit markers and surrounding hand-written text.
 If markers are absent, a marked section is appended to the existing body. Invalid
 or repeated markers cause an error. The existing release title is preserved in
 this mode. `publish --dry-run` fetches the existing release when merging a marked
