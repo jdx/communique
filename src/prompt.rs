@@ -26,7 +26,7 @@ When you are done researching, call the `submit_release_notes` tool with the req
             r#"
 
 ### `release_title`
-A concise, concrete title naming the main user-visible change for the GitHub release (no # prefix, no version tag — the version will be prepended automatically as "vX.Y.Z: your title").
+A concise, concrete title naming the main user-visible change, or "Maintenance release" when there are no user-facing changes, for the GitHub release (no # prefix, no version tag — the version will be prepended automatically as "vX.Y.Z: your title").
 
 ### `release_body`
 Detailed GitHub release notes in markdown. Use the following template as a base, including or omitting sections as appropriate for the release:
@@ -55,7 +55,7 @@ Detailed GitHub release notes in markdown. Use the following template as a base,
 **Full Changelog**: https://github.com/OWNER/REPO/compare/PREV_TAG...TAG
 ```
 
-Adapt the template to fit the release. Small releases might only need a single direct summary sentence and compact categorized sections, regardless of whether the version is patch, minor, or major. Lead with what changed instead of boilerplate such as "A small release" or "This release includes". For one or two changes, the opening may carry the details itself without repeating them in categorized sections. Most releases should omit Highlights; use it only when it reduces scanning effort instead of duplicating the sections below. Don't include empty sections.
+Adapt the template to fit the release. Small releases might only need a single direct summary sentence and compact categorized sections, regardless of whether the version is patch, minor, or major. Lead with what changed instead of boilerplate such as "A small release" or "This release includes". For one or two changes, the opening may carry the details itself without repeating them in categorized sections. Most releases should omit Highlights; use it only when it reduces scanning effort instead of duplicating the sections below. Don't include empty sections. For a release with no user-facing changes, `release_body` should contain one sentence saying so and the Full Changelog link.
 
 Each section needs a distinct job:
 - The opening paragraph frames the release in 1-2 sentences.
@@ -77,7 +77,12 @@ Avoid saying the same change three times. If a change appears in Highlights, kee
             r#"
 
 ### `changelog`
-A concise changelog entry using Keep a Changelog categories (## Added, ## Fixed, etc). No version header — just the categorized bullet points. Reference relevant PRs, issues, and commits as markdown links — e.g. `[#123](https://github.com/OWNER/REPO/pull/123)` for PRs/issues or `[abc1234](https://github.com/OWNER/REPO/commit/abc1234)` for commits. {length_guidance}"#,
+A concise changelog entry using Keep a Changelog categories (## Added, ## Fixed, etc). No version header — just the categorized bullet points. Reference relevant PRs, issues, and commits as markdown links — e.g. `[#123](https://github.com/OWNER/REPO/pull/123)` for PRs/issues or `[abc1234](https://github.com/OWNER/REPO/commit/abc1234)` for commits. {length_guidance} If there are no user-facing changes, use the following changelog entry, without a narrative introduction or Full Changelog link:
+
+```
+## Changed
+- No user-facing changes.
+```"#,
         ));
     }
 
@@ -88,7 +93,7 @@ A concise changelog entry using Keep a Changelog categories (## Added, ## Fixed,
 
 Write clearly and concisely. Focus on what matters to END USERS of the software. Do NOT fabricate changes — only describe what you can verify from the git log, PRs, and source code.
 
-IMPORTANT: Only include changes that affect end users. Omit purely internal changes such as CI/CD pipeline updates, linter configurations, pre-commit hooks, build caching, code formatting, internal refactors, dependency updates (unless they fix a user-facing bug or add a user-facing feature), and dev tooling changes. Do not append an inventory of omitted work, even as an "internal only" aside or a sentence about "the rest" of the release. If a release has no user-facing changes, use one sentence saying so; the release body only needs that sentence and the Full Changelog link.
+IMPORTANT: Only include changes that affect end users. Omit purely internal changes such as CI/CD pipeline updates, linter configurations, pre-commit hooks, build caching, code formatting, internal refactors, dependency updates (unless they fix a user-facing bug or add a user-facing feature), and dev tooling changes. Do not append an inventory of omitted work, even as an "internal only" aside or a sentence about "the rest" of the release.
 
 Keep most bullets to one or two sentences: what users can now do, or the symptom and corrected behavior. Include implementation details only when they help readers use the feature, understand a limitation, or decide how to upgrade. Minor documentation or presentation changes rarely need more than one sentence.
 
@@ -225,6 +230,26 @@ mod tests {
         assert!(prompt.contains("include a brief command, usage example, or config sample"));
         assert!(prompt.contains("single direct summary sentence"));
         assert!(!prompt.contains("Do NOT use emoji"));
+    }
+
+    #[test]
+    fn maintenance_guidance_matches_requested_artifacts() {
+        for (release_notes, changelog) in [(true, false), (false, true), (true, true)] {
+            let prompt = system_prompt(None, true, release_notes, changelog);
+            assert_eq!(prompt.contains("Maintenance release"), release_notes);
+            assert_eq!(
+                prompt.contains("`release_body` should contain one sentence"),
+                release_notes
+            );
+            assert_eq!(
+                prompt.contains("## Changed\n- No user-facing changes."),
+                changelog
+            );
+            if !release_notes {
+                assert!(!prompt.contains("### `release_title`"));
+                assert!(!prompt.contains("### `release_body`"));
+            }
+        }
     }
 
     #[test]

@@ -8,7 +8,7 @@ pub fn definition(include_release_notes: bool, include_changelog: bool) -> ToolD
     if include_release_notes {
         properties["release_title"] = json!({
             "type": "string",
-            "description": "A concise, concrete title naming the main user-visible change for the GitHub release (no # prefix, no version tag — the version will be prepended automatically as 'vX.Y.Z: your title')."
+            "description": "A concise, concrete title naming the main user-visible change, or 'Maintenance release' when there are no user-facing changes, for the GitHub release (no # prefix, no version tag — the version will be prepended automatically as 'vX.Y.Z: your title')."
         });
         properties["release_body"] = json!({
             "type": "string",
@@ -19,7 +19,7 @@ pub fn definition(include_release_notes: bool, include_changelog: bool) -> ToolD
     if include_changelog {
         properties["changelog"] = json!({
             "type": "string",
-            "description": "Concise changelog entry using Keep a Changelog categories (## Added, ## Fixed, etc). No version header — just the categorized items. Keep this substantially shorter than the detailed release body."
+            "description": "Concise changelog entry using Keep a Changelog categories (## Added, ## Fixed, etc). No version header — just the categorized items. When detailed release notes are also requested, keep this substantially shorter. For maintenance-only releases, use ## Changed followed by a single bullet: No user-facing changes. Omit a narrative introduction and Full Changelog link."
         });
         required.push("changelog");
     }
