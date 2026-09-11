@@ -146,6 +146,31 @@ _Otherwise a maintenance release: CI hardening, `mbx`/`mr-boxington` tooling upd
 
 - *(generate)* Support `communique generate HEAD --changelog` as an intentional `[Unreleased]` target — replaces the existing `## [Unreleased]` section in place instead of inserting a literal `## [HEAD]` entry, with prompt/title labels switched to "unreleased" wording and an early guard rejecting `HEAD --github-release`. ([#121](https://github.com/jdx/communique/pull/121)) (@ThomasK33)
 
+## [1.4.0](https://github.com/jdx/communique/compare/v1.3.5...v1.4.0) - 2026-09-11
+
+### Added
+
+- add reviewable drafts and scoped release notes ([#335](https://github.com/jdx/communique/pull/335))
+- use Claude Fable 5.1 by default ([#332](https://github.com/jdx/communique/pull/332))
+- *(cli)* publish native completions in packslip ([#325](https://github.com/jdx/communique/pull/325))
+
+### Fixed
+
+- keep release notes concise and avoid copying reference boilerplate ([#334](https://github.com/jdx/communique/pull/334))
+- preserve Anthropic thinking blocks in tool loops ([#333](https://github.com/jdx/communique/pull/333))
+
+### Other
+
+- *(deps)* update dependency usage to v6.8.0 ([#329](https://github.com/jdx/communique/pull/329))
+- write PR titles and descriptions for release notes ([#331](https://github.com/jdx/communique/pull/331))
+- *(deps)* update zizmorcore/zizmor-action action to v0.6.3 ([#328](https://github.com/jdx/communique/pull/328))
+- *(deps)* update actions/deploy-pages action to v5 ([#330](https://github.com/jdx/communique/pull/330))
+- *(deps)* lock file maintenance ([#327](https://github.com/jdx/communique/pull/327))
+- *(deps)* bump mr-boxington to 1.8.3 ([#326](https://github.com/jdx/communique/pull/326))
+- *(ci)* bump packslip to v1.1.1 ([#324](https://github.com/jdx/communique/pull/324))
+- *(release)* bump packslip action to v1.0.0 ([#323](https://github.com/jdx/communique/pull/323))
+- enforce conventional commits
+
 ## [1.3.3](https://github.com/jdx/communique/compare/v1.3.2...v1.3.3) - 2026-08-26
 
 ### Fixed
