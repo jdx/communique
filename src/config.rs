@@ -12,6 +12,10 @@ pub struct Config {
     pub system_extra: Option<String>,
     pub context: Option<String>,
     pub defaults: Option<Defaults>,
+    #[serde(default)]
+    pub packages: std::collections::BTreeMap<String, crate::workflow::Package>,
+    #[serde(default)]
+    pub rules: crate::workflow::Rules,
 }
 
 #[derive(Debug, Deserialize, Default)]

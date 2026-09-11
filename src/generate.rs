@@ -12,6 +12,7 @@ use crate::{agent, config, git, github, prompt, tools};
 
 pub struct GenerateOptions {
     pub tag: String,
+    pub workflow: crate::workflow::WorkflowOptions,
     pub prev_tag: Option<String>,
     pub github_release: bool,
     pub changelog: bool,
@@ -34,6 +35,8 @@ struct Context {
     prev_tag: String,
     client: Box<dyn LlmClient>,
     defaults: Defaults,
+    workflow: crate::workflow::WorkflowOptions,
+    rules: crate::workflow::Rules,
     system_extra: Option<String>,
     context: Option<String>,
     github_client: Option<github::GitHubClient>,
@@ -107,7 +110,14 @@ fn normalize_release_title(title: String, display_tag: &str, raw_tag: &str) -> S
     format!("{display_tag}: {description}")
 }
 
-pub async fn run(opts: GenerateOptions) -> miette::Result<()> {
+pub async fn run(mut opts: GenerateOptions) -> miette::Result<()> {
+    let root = git::repo_root()?;
+    let config = match &opts.config {
+        Some(path) => config::Config::load_from(path)?,
+        None => config::Config::load(&root)?,
+    }
+    .unwrap_or_default();
+    opts.workflow.resolve(&config)?;
     validate_generate_options(&opts)?;
 
     let job = ProgressJobBuilder::new()
@@ -116,8 +126,9 @@ pub async fn run(opts: GenerateOptions) -> miette::Result<()> {
         .start();
 
     let ctx = gather_context(&opts, &job).await?;
-    let include_changelog = opts.changelog || opts.concise;
-    let include_release_notes = opts.github_release || !opts.concise;
+    let include_changelog = opts.changelog || opts.concise || opts.workflow.draft.is_some();
+    let include_release_notes =
+        opts.github_release || !opts.concise || opts.workflow.draft.is_some();
     let mut parsed = generate_notes(
         &ctx,
         opts.dry_run,
@@ -135,6 +146,33 @@ pub async fn run(opts: GenerateOptions) -> miette::Result<()> {
         parsed.release_title = normalize_release_title(parsed.release_title, display_tag, &ctx.tag);
     }
 
+    if let Some(path) = &opts.workflow.review_report {
+        xx::file::write(
+            path,
+            parsed
+                .review
+                .markdown(&ctx.owner_repo, &ctx.prev_tag, &ctx.tag),
+        )?;
+    }
+    if let Some(path) = &opts.workflow.migration_guide {
+        if parsed.review.migration_guide.trim().is_empty() {
+            return Err(miette::miette!(
+                "The model did not return the requested migration guide; no release was published."
+            ));
+        }
+        xx::file::write(path, &parsed.review.migration_guide)?;
+    }
+    if let Some(path) = &opts.workflow.draft {
+        crate::workflow::Draft::new(
+            &ctx.owner_repo,
+            &ctx.tag,
+            &ctx.prev_tag,
+            &git::resolve_ref(&ctx.repo_root, &ctx.tag)?,
+            &parsed,
+            opts.workflow.preserve_sections,
+        )
+        .write(path)?;
+    }
     publish(&opts, &ctx, &parsed, &job).await?;
 
     if opts.changelog {
@@ -172,9 +210,10 @@ async fn gather_context(opts: &GenerateOptions, job: &Arc<ProgressJob>) -> miett
     let github_token = std::env::var("GITHUB_TOKEN").ok();
 
     if opts.github_release && github_token.is_none() {
-        Err(crate::error::Error::GitHub(
+        return Err(crate::error::Error::GitHub(
             "GITHUB_TOKEN is required for --github-release".into(),
-        ))?;
+        )
+        .into());
     }
 
     let repo_root = git::repo_root()?;
@@ -225,9 +264,16 @@ async fn gather_context(opts: &GenerateOptions, job: &Arc<ProgressJob>) -> miett
 
     let prev_tag = match &opts.prev_tag {
         Some(t) => t.clone(),
-        None => git::previous_tag(&repo_root, &opts.tag)?,
+        None => git::previous_tag_filtered(
+            &repo_root,
+            &opts.tag,
+            opts.workflow.tag_pattern.as_deref(),
+            opts.workflow.channel.unwrap_or_default(),
+        )?,
     };
-    info!("range: {prev_tag}..{}", opts.tag);
+    eprintln!("Release range: {prev_tag}..{}", opts.tag);
+    // Validate an explicit baseline before any model request.
+    git::verify_ref(&repo_root, &prev_tag)?;
 
     job.prop(
         "message",
@@ -246,6 +292,8 @@ async fn gather_context(opts: &GenerateOptions, job: &Arc<ProgressJob>) -> miett
         prev_tag,
         client,
         defaults,
+        workflow: opts.workflow.clone(),
+        rules: config.rules,
         system_extra: config.system_extra,
         context: config.context,
         github_client,
@@ -259,7 +307,9 @@ async fn generate_notes(
     include_changelog: bool,
     job: &Arc<ProgressJob>,
 ) -> miette::Result<ParsedOutput> {
-    let git_log = git::log_between(&ctx.repo_root, &ctx.prev_tag, &ctx.tag)?;
+    let raw_log =
+        git::log_between_paths(&ctx.repo_root, &ctx.prev_tag, &ctx.tag, &ctx.workflow.paths)?;
+    let (git_log, excluded, rule_context) = apply_rules(ctx, &raw_log).await?;
     let pr_numbers = git::extract_pr_numbers(&git_log);
     info!(
         "found {} commits, {} PRs",
@@ -269,9 +319,24 @@ async fn generate_notes(
 
     job.prop("message", "Fetching existing release context...");
     let changelog_entry = if ctx.is_unreleased_head() {
-        read_unreleased_section(&ctx.repo_root)?
+        read_unreleased_section_at(
+            &ctx.repo_root.join(
+                ctx.workflow
+                    .changelog_path
+                    .as_deref()
+                    .unwrap_or(Path::new("CHANGELOG.md")),
+            ),
+        )?
     } else {
-        read_changelog_entry(&ctx.repo_root, &ctx.tag)
+        read_changelog_entry_at(
+            &ctx.repo_root.join(
+                ctx.workflow
+                    .changelog_path
+                    .as_deref()
+                    .unwrap_or(Path::new("CHANGELOG.md")),
+            ),
+            &ctx.tag,
+        )
     };
 
     // Fetch existing release and recent releases in parallel
@@ -325,7 +390,7 @@ async fn generate_notes(
         include_release_notes,
         include_changelog,
     );
-    let user_msg = prompt::user_prompt(&prompt::UserPromptContext {
+    let mut user_msg = prompt::user_prompt(&prompt::UserPromptContext {
         tag: &ctx.tag,
         prev_tag: &ctx.prev_tag,
         owner_repo: &ctx.owner_repo,
@@ -338,6 +403,13 @@ async fn generate_notes(
         recent_releases: &recent_releases,
     });
 
+    user_msg.push_str(&format!("\n\nEditorial rules and scope:\n{rule_context}\nOnly describe changes from the supplied git log. Paths in scope: {:?}. Other repository files are context only. Explicit exclusions must not appear in release notes. Include-label overrides take priority over exclusions and the default internal-change filter.\n", ctx.workflow.paths));
+    if ctx.workflow.review_report.is_some() || ctx.workflow.draft.is_some() {
+        user_msg.push_str("Return coverage for EVERY commit in the supplied log, using its exact commit ID, status included/omitted/uncertain, and a specific reason. Do not claim a change is included unless it appears in the final notes.\n");
+    }
+    if ctx.workflow.migration_guide.is_some() {
+        user_msg.push_str("Return migration_guide as a standalone Markdown upgrade guide. For each verified breaking change explain who is affected, required steps, and sourced before/after examples. If no migration is needed, say so explicitly. Flag unknown details instead of inventing steps.\n");
+    }
     job.prop("message", "Generating release notes...");
     let tool_defs = tools::all_definitions(
         ctx.github_client.is_some(),
@@ -347,7 +419,7 @@ async fn generate_notes(
 
     let verify_links = !dry_run && ctx.defaults.verify_links.unwrap_or(true);
 
-    agent::run(agent::AgentContext {
+    let mut parsed = agent::run(agent::AgentContext {
         client: &*ctx.client,
         system: &system,
         user_message: &user_msg,
@@ -359,8 +431,9 @@ async fn generate_notes(
         require_changelog: include_changelog,
         job,
     })
-    .await
-    .map_err(Into::into)
+    .await?;
+    parsed.review.reconcile(&git_log, excluded);
+    Ok(parsed)
 }
 
 async fn publish(
@@ -377,11 +450,23 @@ async fn publish(
         let gh = ctx.github_client.as_ref().unwrap();
         match gh.get_release_by_tag(&ctx.tag).await? {
             Some(release) => {
+                let body = if opts.workflow.preserve_sections {
+                    crate::workflow::merge_body(
+                        release.body.as_deref().unwrap_or_default(),
+                        &parsed.release_body,
+                    )?
+                } else {
+                    parsed.release_body.clone()
+                };
                 gh.update_release(
                     release.id,
                     &release.tag_name,
-                    Some(&parsed.release_title),
-                    Some(&parsed.release_body),
+                    if opts.workflow.preserve_sections {
+                        None
+                    } else {
+                        Some(&parsed.release_title)
+                    },
+                    Some(&body),
                 )
                 .await?;
             }
@@ -413,6 +498,7 @@ mod tests {
     fn test_opts(tag: &str) -> GenerateOptions {
         GenerateOptions {
             tag: tag.into(),
+            workflow: Default::default(),
             prev_tag: None,
             github_release: false,
             changelog: false,
@@ -435,6 +521,8 @@ mod tests {
             tag: tag.into(),
             prev_tag: prev_tag.into(),
             client: Box::new(MockLlmClient::new(vec![])),
+            workflow: Default::default(),
+            rules: Default::default(),
             defaults: Defaults::default(),
             system_extra: None,
             context: None,
@@ -447,8 +535,86 @@ mod tests {
             changelog: changelog.into(),
             release_title: "Title".into(),
             release_body: "Body".into(),
+            review: crate::workflow::Review::default(),
             usage: Usage::default(),
         }
+    }
+
+    #[tokio::test]
+    async fn label_rules_exclude_before_generation_and_include_wins() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/repos/test/repo/pulls/1"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "number": 1, "title": "Internal", "body": "", "user": {"login": "test"},
+                "labels": [{"name": "skip"}]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/repos/test/repo/pulls/2"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "number": 2, "title": "Important", "body": "", "user": {"login": "test"},
+                "labels": [{"name": "skip"}, {"name": "keep"}, {"name": "bug"}]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let repo = TempRepo::new();
+        let mut ctx = test_context(repo.path().to_path_buf(), "v2", "v1");
+        ctx.github_client = Some(
+            github::GitHubClient::with_base_url("token".into(), "test/repo", server.uri()).unwrap(),
+        );
+        ctx.rules.include_labels = vec!["keep".into()];
+        ctx.rules.exclude_labels = vec!["skip".into()];
+        ctx.rules.categories.insert("bug".into(), "Fixed".into());
+        let (log, excluded, guidance) = apply_rules(
+            &ctx,
+            "abc Internal (#1)\ndef Important (#2)\nghi Followup (#2)",
+        )
+        .await
+        .unwrap();
+        assert!(!log.contains("abc"));
+        assert!(log.contains("def"));
+        assert_eq!(excluded.len(), 1);
+        assert!(guidance.contains("def MUST appear"));
+        assert!(guidance.contains("under Fixed"));
+        ctx.github_client = None;
+        assert!(apply_rules(&ctx, "abc (#1)").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn package_changelog_uses_its_own_destination() {
+        let repo = TempRepo::new();
+        repo.write_file("CHANGELOG.md", "Root changelog");
+        repo.write_file("cli/CHANGELOG.md", "# Changelog\n\n## [Unreleased]\n");
+        let mut ctx = test_context(repo.path().to_path_buf(), "cli/v2.0.0", "cli/v1.0.0");
+        ctx.workflow.changelog_path = Some("cli/CHANGELOG.md".into());
+        let job = Arc::new(ProgressJobBuilder::new().build());
+        update_changelog(&ctx, &test_parsed_output("- CLI feature"), false, &job)
+            .await
+            .unwrap();
+        update_changelog(
+            &ctx,
+            &test_parsed_output("- Updated CLI feature"),
+            false,
+            &job,
+        )
+        .await
+        .unwrap();
+        let package_log = std::fs::read_to_string(repo.path().join("cli/CHANGELOG.md")).unwrap();
+        assert_eq!(package_log.matches("## [2.0.0]").count(), 1);
+        assert!(package_log.contains("- Updated CLI feature"));
+        assert_eq!(
+            std::fs::read_to_string(repo.path().join("CHANGELOG.md")).unwrap(),
+            "Root changelog"
+        );
+        assert!(
+            std::fs::read_to_string(repo.path().join("cli/CHANGELOG.md"))
+                .unwrap()
+                .contains("CLI feature")
+        );
     }
 
     #[test]
@@ -559,6 +725,8 @@ mod tests {
             tag: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
             client: Box::new(mock_client),
+            workflow: Default::default(),
+            rules: Default::default(),
             defaults: Defaults {
                 verify_links: Some(false),
                 ..Defaults::default()
@@ -601,6 +769,8 @@ mod tests {
             tag: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
             client: Box::new(mock_client),
+            workflow: Default::default(),
+            rules: Default::default(),
             defaults: Defaults {
                 verify_links: Some(false),
                 ..Defaults::default()
@@ -663,6 +833,8 @@ mod tests {
             tag: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
             client: Box::new(mock_client),
+            workflow: Default::default(),
+            rules: Default::default(),
             defaults: Defaults {
                 verify_links: Some(false),
                 ..Defaults::default()
@@ -705,6 +877,8 @@ mod tests {
             tag: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
             client: Box::new(MockLlmClient::new(vec![])),
+            workflow: Default::default(),
+            rules: Default::default(),
             defaults: Defaults::default(),
             system_extra: None,
             context: None,
@@ -721,6 +895,7 @@ mod tests {
             changelog: "changes".into(),
             release_title: "Title".into(),
             release_body: "Body".into(),
+            review: crate::workflow::Review::default(),
             usage: Usage::default(),
         };
 
@@ -737,6 +912,8 @@ mod tests {
             tag: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
             client: Box::new(MockLlmClient::new(vec![])),
+            workflow: Default::default(),
+            rules: Default::default(),
             defaults: Defaults::default(),
             system_extra: None,
             context: None,
@@ -753,6 +930,7 @@ mod tests {
             changelog: "changes".into(),
             release_title: "Title".into(),
             release_body: "Body".into(),
+            review: crate::workflow::Review::default(),
             usage: Usage::default(),
         };
 
@@ -785,6 +963,8 @@ mod tests {
             tag: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
             client: Box::new(MockLlmClient::new(vec![])),
+            workflow: Default::default(),
+            rules: Default::default(),
             defaults: Defaults::default(),
             system_extra: None,
             context: None,
@@ -801,6 +981,7 @@ mod tests {
             changelog: "changes".into(),
             release_title: "Title".into(),
             release_body: "Body".into(),
+            review: crate::workflow::Review::default(),
             usage: Usage::default(),
         };
 
@@ -946,6 +1127,8 @@ mod tests {
             tag: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
             client: Box::new(mock_client),
+            workflow: Default::default(),
+            rules: Default::default(),
             defaults: Defaults {
                 verify_links: Some(false),
                 ..Defaults::default()
@@ -1028,6 +1211,8 @@ mod tests {
             tag: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
             client: Box::new(mock_client),
+            workflow: Default::default(),
+            rules: Default::default(),
             defaults: Defaults {
                 verify_links: Some(false),
                 ..Defaults::default()
@@ -1165,6 +1350,8 @@ mod tests {
             tag: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
             client: Box::new(mock_client),
+            workflow: Default::default(),
+            rules: Default::default(),
             defaults: Defaults {
                 verify_links: Some(false),
                 ..Defaults::default()
@@ -1238,6 +1425,8 @@ mod tests {
             tag: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
             client: Box::new(mock_client),
+            workflow: Default::default(),
+            rules: Default::default(),
             defaults: Defaults {
                 verify_links: Some(false),
                 ..Defaults::default()
@@ -1300,6 +1489,8 @@ mod tests {
             tag: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
             client: Box::new(mock_client),
+            workflow: Default::default(),
+            rules: Default::default(),
             defaults: Defaults {
                 verify_links: Some(false),
                 ..Defaults::default()
@@ -1648,6 +1839,8 @@ mod tests {
             tag: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
             client: Box::new(mock_client),
+            workflow: Default::default(),
+            rules: Default::default(),
             defaults: Defaults::default(),
             system_extra: None,
             context: None,
@@ -1658,6 +1851,7 @@ mod tests {
             changelog: "### Added\n- Main function".into(),
             release_title: "v1.0.0".into(),
             release_body: "Release notes.".into(),
+            review: crate::workflow::Review::default(),
             usage: Usage::default(),
         };
 
@@ -1704,6 +1898,8 @@ mod tests {
             tag: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
             client: Box::new(mock_client),
+            workflow: Default::default(),
+            rules: Default::default(),
             defaults: Defaults::default(),
             system_extra: None,
             context: None,
@@ -1714,6 +1910,7 @@ mod tests {
             changelog: "### Added\n- Main function".into(),
             release_title: "v1.0.0".into(),
             release_body: "Body.".into(),
+            review: crate::workflow::Review::default(),
             usage: Usage::default(),
         };
 
@@ -1749,6 +1946,8 @@ mod tests {
             tag: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
             client: Box::new(mock_client),
+            workflow: Default::default(),
+            rules: Default::default(),
             defaults: Defaults::default(),
             system_extra: None,
             context: None,
@@ -1759,6 +1958,7 @@ mod tests {
             changelog: "### Added\n- Stuff".into(),
             release_title: "v1.0.0".into(),
             release_body: "Body.".into(),
+            review: crate::workflow::Review::default(),
             usage: Usage::default(),
         };
 
@@ -1837,6 +2037,8 @@ mod tests {
             tag: "v4.0.0".into(),
             prev_tag: "v3.0.0".into(),
             client: Box::new(mock_client),
+            workflow: Default::default(),
+            rules: Default::default(),
             defaults: Defaults::default(),
             system_extra: None,
             context: None,
@@ -1847,6 +2049,7 @@ mod tests {
             changelog: "### Added\n- New feature".into(),
             release_title: "v4.0.0".into(),
             release_body: "Body.".into(),
+            review: crate::workflow::Review::default(),
             usage: Usage::default(),
         };
 
@@ -1907,6 +2110,8 @@ mod tests {
             tag: "v1.1.0".into(),
             prev_tag: "v1.0.0".into(),
             client: Box::new(mock_client),
+            workflow: Default::default(),
+            rules: Default::default(),
             defaults: Defaults::default(),
             system_extra: None,
             context: None,
@@ -1917,6 +2122,7 @@ mod tests {
             changelog: "## Fixed\n- New fix".into(),
             release_title: "v1.1.0".into(),
             release_body: "Body.".into(),
+            review: crate::workflow::Review::default(),
             usage: Usage::default(),
         };
 
@@ -2171,8 +2377,13 @@ impl<'a> Iterator for LinesWithOffsetIter<'a> {
     }
 }
 
+fn changelog_version(tag: &str) -> &str {
+    let version = tag.rsplit('/').next().unwrap_or(tag);
+    version.strip_prefix('v').unwrap_or(version)
+}
+
 fn find_version_section_start(contents: &str, version: &str) -> Option<usize> {
-    let version = version.strip_prefix('v').unwrap_or(version);
+    let version = changelog_version(version);
 
     contents
         .lines_with_offset()
@@ -2205,7 +2416,7 @@ fn join_changelog_head_tail(head: &str, tail: &str) -> String {
 }
 
 fn format_version_header(existing: &str, version: &str, date: &str, release_url: &str) -> String {
-    let version = version.strip_prefix('v').unwrap_or(version);
+    let version = changelog_version(version);
     let template = existing
         .lines_with_offset()
         .find(|(_, line)| is_version_header(line))
@@ -2257,7 +2468,7 @@ fn upsert_version_changelog(
     changelog: &str,
 ) -> miette::Result<String> {
     let existing = repair_changelog_section_boundaries(existing);
-    let version = tag.strip_prefix('v').unwrap_or(tag);
+    let version = changelog_version(tag);
     let header = format_version_header(&existing, version, date, release_url);
     let body = changelog.trim();
     let section = if body.is_empty() {
@@ -2302,9 +2513,12 @@ fn repair_changelog_section_boundaries(content: &str) -> String {
     repaired
 }
 
+#[cfg(test)]
 fn read_changelog_entry(repo_root: &Path, tag: &str) -> Option<String> {
-    let path = repo_root.join("CHANGELOG.md");
-    let contents = xx::file::read_to_string(&path).ok()?;
+    read_changelog_entry_at(&repo_root.join("CHANGELOG.md"), tag)
+}
+fn read_changelog_entry_at(path: &Path, tag: &str) -> Option<String> {
+    let contents = xx::file::read_to_string(path).ok()?;
 
     let start = find_version_section_start(&contents, tag)?;
     let end = find_next_version_section_start(&contents, start).unwrap_or(contents.len());
@@ -2392,9 +2606,12 @@ fn replace_unreleased_section(existing: &str, generated: &str) -> miette::Result
     Ok(format!("{}\n", updated.trim_end()))
 }
 
+#[cfg(test)]
 fn read_unreleased_section(repo_root: &Path) -> miette::Result<Option<String>> {
-    let path = repo_root.join("CHANGELOG.md");
-    let contents = match std::fs::read_to_string(&path) {
+    read_unreleased_section_at(&repo_root.join("CHANGELOG.md"))
+}
+fn read_unreleased_section_at(path: &Path) -> miette::Result<Option<String>> {
+    let contents = match std::fs::read_to_string(path) {
         Ok(contents) => contents,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(err) => return Err(crate::error::Error::Io(err).into()),
@@ -2419,7 +2636,12 @@ async fn update_changelog(
 ) -> miette::Result<()> {
     job.prop("message", "Updating CHANGELOG.md...");
 
-    let changelog_path = ctx.repo_root.join("CHANGELOG.md");
+    let changelog_path = ctx.repo_root.join(
+        ctx.workflow
+            .changelog_path
+            .as_deref()
+            .unwrap_or(Path::new("CHANGELOG.md")),
+    );
     if ctx.is_unreleased_head() {
         debug_assert_eq!(ctx.tag, "HEAD");
         let updated = match std::fs::read_to_string(&changelog_path) {
@@ -2455,4 +2677,71 @@ async fn update_changelog(
     }
 
     Ok(())
+}
+
+async fn apply_rules(
+    ctx: &Context,
+    log: &str,
+) -> miette::Result<(String, Vec<crate::workflow::Coverage>, String)> {
+    let rules = &ctx.rules;
+    let active = !rules.include_labels.is_empty()
+        || !rules.exclude_labels.is_empty()
+        || !rules.categories.is_empty();
+    if !active {
+        return Ok((log.into(), vec![], String::new()));
+    }
+    let gh = ctx.github_client.as_ref().ok_or_else(|| {
+        miette::miette!("GITHUB_TOKEN is required to apply configured label rules")
+    })?;
+    let mut prs = std::collections::BTreeMap::new();
+    for number in git::extract_pr_numbers(log) {
+        if let std::collections::btree_map::Entry::Vacant(entry) = prs.entry(number) {
+            entry.insert(gh.get_pr(number).await?);
+        }
+    }
+    let mut kept = Vec::new();
+    let mut excluded = Vec::new();
+    let mut guidance = String::new();
+    for line in log.lines() {
+        let numbers = git::extract_pr_numbers(line);
+        let labels: Vec<_> = numbers
+            .iter()
+            .filter_map(|n| prs.get(n))
+            .flat_map(|pr| pr.labels.iter().map(|l| l.name.as_str()))
+            .collect();
+        let include = rules
+            .include_labels
+            .iter()
+            .any(|l| labels.contains(&l.as_str()));
+        let skip = rules
+            .exclude_labels
+            .iter()
+            .find(|l| labels.contains(&l.as_str()));
+        let sha = line.split_whitespace().next().unwrap_or_default();
+        if !include && let Some(label) = skip {
+            excluded.push(crate::workflow::Coverage {
+                commit: sha.into(),
+                status: "omitted".into(),
+                reason: format!("Excluded by configured PR label '{label}'."),
+            });
+            guidance.push_str(&format!(
+                "Do not include commit {sha}: excluded by label {label}.\n"
+            ));
+            continue;
+        }
+        kept.push(line);
+        if include {
+            guidance.push_str(&format!(
+                "Commit {sha} MUST appear in the notes (include-label override).\n"
+            ));
+        }
+        for (label, category) in &rules.categories {
+            if labels.contains(&label.as_str()) {
+                guidance.push_str(&format!(
+                    "Categorize commit {sha} under {category} (label {label}).\n"
+                ));
+            }
+        }
+    }
+    Ok((kept.join("\n"), excluded, guidance))
 }

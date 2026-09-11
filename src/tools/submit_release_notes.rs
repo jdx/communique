@@ -3,7 +3,16 @@ use serde_json::json;
 use crate::llm::ToolDefinition;
 
 pub fn definition(include_release_notes: bool, include_changelog: bool) -> ToolDefinition {
-    let mut properties = json!({});
+    let mut properties = json!({                "coverage": {
+                    "type": "array",
+                    "description": "When requested, assess every supplied commit against the final notes with an exact commit ID, status, and reason.",
+                    "items": {"type": "object", "properties": {
+                        "commit": {"type": "string"},
+                        "status": {"type": "string", "enum": ["included", "omitted", "uncertain"]},
+                        "reason": {"type": "string"}
+                    }, "required": ["commit", "status", "reason"]}
+                },
+                "migration_guide": {"type": "string", "description": "When requested, standalone Markdown upgrade steps, affected users, and verified before/after examples. Explicitly state when no migration is needed."}});
     let mut required = Vec::new();
     if include_release_notes {
         properties["release_title"] = json!({

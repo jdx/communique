@@ -13,12 +13,15 @@ pub struct Generate {
     #[usage(arg)]
     pub tag: String,
 
+    #[usage(flatten)]
+    pub workflow: crate::workflow::WorkflowOptions,
+
     /// Previous tag (auto-detected if omitted)
     #[usage(arg)]
     pub prev_tag: Option<String>,
 
     /// Push editorialized notes to the GitHub release
-    #[usage(long, effect = "write")]
+    #[usage(long, effect = "write", conflicts = "--draft")]
     pub github_release: bool,
 
     /// Update CHANGELOG.md with the generated changelog entry
@@ -78,6 +81,16 @@ pub enum Command {
     },
     /// Generate release notes for a git tag
     Generate(Box<Generate>),
+    /// Publish an edited JSON draft without invoking an LLM
+    #[usage(effect = "write")]
+    Publish {
+        /// JSON artifact written by generate --draft
+        #[usage(arg)]
+        draft: PathBuf,
+        /// Preview the final release body without writing to GitHub
+        #[usage(long)]
+        dry_run: bool,
+    },
     /// Generate a communique.toml config file in the repo root
     Init(Box<Init>),
     /// Show the companies sponsoring communique and the jdx.dev open source tools
@@ -119,6 +132,51 @@ pub struct Cli {
 mod tests {
     use super::*;
     use std::ffi::OsStr;
+
+    #[test]
+    fn workflow_flags_bind_and_drafts_cannot_publish_during_generation() {
+        let parse = |args: &[&str]| {
+            Cli::parse_from(&args.iter().map(OsStr::new).collect::<Vec<_>>())
+                .map_err(|err| format!("{err:?}"))
+        };
+        let cli = parse(&[
+            "generate",
+            "v2.0.0",
+            "--draft",
+            "release.json",
+            "--path",
+            "cli",
+            "--path",
+            "shared",
+            "--channel",
+            "stable",
+        ])
+        .unwrap();
+        let Command::Generate(g) = cli.command else {
+            panic!("expected generate")
+        };
+        assert_eq!(g.workflow.paths, ["cli", "shared"]);
+        assert!(matches!(
+            g.workflow.channel,
+            Some(crate::workflow::Channel::Stable)
+        ));
+        assert!(
+            parse(&[
+                "generate",
+                "v2",
+                "--draft",
+                "release.json",
+                "--github-release"
+            ])
+            .is_err()
+        );
+        assert!(parse(&["generate", "v2", "--channel", "unknown"]).is_err());
+        let cli = parse(&["publish", "release.json", "--dry-run"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Publish { dry_run: true, .. }
+        ));
+    }
 
     #[test]
     fn typed_commands_bind_their_fields() {
@@ -188,6 +246,7 @@ mod tests {
                 assert_eq!(expected, "init");
                 assert!(init.force);
             }
+            Command::Publish { .. } => assert_eq!(expected, "publish"),
             Command::Sponsors => assert_eq!(expected, "sponsors"),
             Command::Usage(_) => assert_eq!(expected, "usage"),
             Command::Completion { shell } => {

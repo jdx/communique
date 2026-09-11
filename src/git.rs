@@ -38,41 +38,62 @@ fn parse_owner_repo(url: &str) -> Result<String> {
     )))
 }
 
+#[cfg(test)]
 pub fn previous_tag(repo_root: &Path, current_tag: &str) -> Result<String> {
-    let stdout = process::cmd("git", ["tag", "--sort=-v:refname"])
-        .cwd(repo_root)
-        .read()?;
-
-    let tags: Vec<&str> = stdout
-        .lines()
-        .map(str::trim)
-        .filter(|t| !t.is_empty())
-        .collect();
-
-    // If current_tag is in the tag list, return the one after it (next oldest)
-    let mut found = false;
-    for tag in &tags {
-        if found {
-            return Ok(tag.to_string());
-        }
-        if *tag == current_tag {
-            found = true;
-        }
-    }
-
-    // If current_tag was found but there's no previous tag, or if there are
-    // no tags at all, fall back to the root commit so we capture all history.
-    if found || tags.is_empty() {
-        return root_commit(repo_root);
-    }
-
-    // current_tag is not in the tag list (e.g. HEAD, branch, commit SHA, or
-    // a version that isn't tagged yet). Fall back to the most recent tag.
-    Ok(tags[0].to_string())
+    previous_tag_filtered(repo_root, current_tag, None, crate::workflow::Channel::All)
 }
 
-fn root_commit(repo_root: &Path) -> Result<String> {
-    let sha = process::cmd("git", ["rev-list", "--max-parents=0", "HEAD"])
+pub fn previous_tag_filtered(
+    repo_root: &Path,
+    current_tag: &str,
+    pattern: Option<&str>,
+    channel: crate::workflow::Channel,
+) -> Result<String> {
+    let target = resolve_ref(repo_root, current_tag)?;
+    let stdout = process::cmd(
+        "git",
+        [
+            "tag",
+            "--merged",
+            &target,
+            "--sort=-v:refname",
+            "--list",
+            pattern.unwrap_or("*"),
+        ],
+    )
+    .cwd(repo_root)
+    .read()?;
+    let target_is_tag = stdout.lines().any(|tag| tag.trim() == current_tag);
+    let stable = matches!(channel, crate::workflow::Channel::Stable);
+    let prerelease = Regex::new(r"[0-9]+\.[0-9]+(?:\.[0-9]+)?-").unwrap();
+    for tag in stdout.lines().map(str::trim).filter(|tag| !tag.is_empty()) {
+        if tag == current_tag || (stable && prerelease.is_match(tag)) {
+            continue;
+        }
+        // A different tag on the target commit is not a useful baseline.
+        if target_is_tag && verify_ref(repo_root, tag)? == target {
+            continue;
+        }
+        return Ok(tag.into());
+    }
+    root_commit(repo_root, &target)
+}
+
+pub fn verify_ref(repo_root: &Path, git_ref: &str) -> Result<String> {
+    let commit = format!("{git_ref}^{{commit}}");
+    process::cmd(
+        "git",
+        ["rev-parse", "--verify", "--end-of-options", &commit],
+    )
+    .cwd(repo_root)
+    .stderr_capture()
+    .read()
+    .map(|s| s.trim().to_string())
+    .map_err(|_| Error::Git(format!("Cannot resolve git reference '{git_ref}'")))
+}
+
+fn root_commit(repo_root: &Path, target: &str) -> Result<String> {
+    let sha = process::cmd("git", ["rev-list", "--max-parents=0", target])
         .cwd(repo_root)
         .read()?;
     sha.lines()
@@ -84,29 +105,35 @@ fn root_commit(repo_root: &Path) -> Result<String> {
 /// Resolve a ref to a commit, falling back to HEAD if the ref doesn't exist
 /// (e.g. a version tag that hasn't been created yet).
 pub fn resolve_ref(repo_root: &Path, git_ref: &str) -> Result<String> {
-    let result = process::cmd("git", ["rev-parse", "--verify", "--quiet", git_ref])
-        .cwd(repo_root)
-        .stderr_capture()
-        .read();
-    match result {
-        Ok(sha) => Ok(sha.trim().to_string()),
-        Err(_) => {
-            let sha = process::cmd("git", ["rev-parse", "HEAD"])
-                .cwd(repo_root)
-                .read()?;
-            Ok(sha.trim().to_string())
-        }
-    }
+    verify_ref(repo_root, git_ref).or_else(|_| verify_ref(repo_root, "HEAD"))
 }
 
+#[cfg(test)]
 pub fn log_between(repo_root: &Path, from: &str, to: &str) -> Result<String> {
-    let from = resolve_ref(repo_root, from)?;
+    log_between_paths(repo_root, from, to, &[])
+}
+
+pub fn log_between_paths(
+    repo_root: &Path,
+    from: &str,
+    to: &str,
+    paths: &[String],
+) -> Result<String> {
+    let from = verify_ref(repo_root, from)?;
     let to = resolve_ref(repo_root, to)?;
     let range = format!("{from}..{to}");
-    let output = process::cmd("git", ["log", &range, "--pretty=format:%h %s", "--reverse"])
+    let mut args = vec![
+        "log".to_string(),
+        range,
+        "--pretty=format:%h %s".into(),
+        "--reverse".into(),
+        "--".into(),
+    ];
+    args.extend(paths.iter().map(|p| format!(":(literal){p}")));
+    process::cmd("git", args)
         .cwd(repo_root)
-        .read()?;
-    Ok(output)
+        .read()
+        .map_err(Into::into)
 }
 
 pub fn extract_pr_numbers(log: &str) -> Vec<u64> {
@@ -119,6 +146,60 @@ pub fn extract_pr_numbers(log: &str) -> Vec<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn baseline_respects_ancestry_pattern_and_channel() {
+        let repo = crate::test_helpers::TempRepo::new();
+        repo.write_file("cli/file", "a");
+        repo.commit("base");
+        repo.tag("cli/v1.0.0");
+        repo.write_file("cli/file", "b");
+        repo.commit("beta");
+        repo.tag("cli/v2.0.0-beta.1");
+        repo.write_file("cli/file", "c");
+        repo.commit("target");
+        repo.tag("cli/v2.0.0");
+        repo.write_file("cli/file", "d");
+        repo.commit("future");
+        repo.tag("cli/v3.0.0");
+        assert_eq!(
+            previous_tag_filtered(
+                repo.path(),
+                "cli/v2.0.0",
+                Some("cli/*"),
+                crate::workflow::Channel::Stable
+            )
+            .unwrap(),
+            "cli/v1.0.0"
+        );
+        assert_eq!(
+            previous_tag_filtered(
+                repo.path(),
+                "cli/v2.0.0",
+                Some("cli/*"),
+                crate::workflow::Channel::All
+            )
+            .unwrap(),
+            "cli/v2.0.0-beta.1"
+        );
+    }
+
+    #[test]
+    fn path_filter_omits_other_packages_and_rejects_bad_baseline() {
+        let repo = crate::test_helpers::TempRepo::new();
+        repo.write_file("cli/file", "a");
+        repo.commit("base");
+        repo.tag("v1");
+        repo.write_file("server/file", "a");
+        repo.commit("server feature");
+        repo.write_file("cli/file", "b");
+        repo.commit("cli feature");
+        repo.tag("v2");
+        let log = log_between_paths(repo.path(), "v1", "v2", &["cli".into()]).unwrap();
+        assert!(log.contains("cli feature"));
+        assert!(!log.contains("server feature"));
+        assert!(log_between_paths(repo.path(), "typo", "v2", &[]).is_err());
+    }
 
     #[test]
     fn test_parse_owner_repo_ssh() {

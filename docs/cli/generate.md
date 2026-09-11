@@ -11,6 +11,23 @@ Generate release notes for a git tag
 - **`[PREV_TAG]`** — Previous tag (auto-detected if omitted)
 
 ## Flags
+- **`--draft <DRAFT>`** — Save editable release title, body, changelog, and review as JSON
+
+  **Effect:** modifies state
+- **`--review-report <REVIEW_REPORT>`** — Write a Markdown coverage report with sources and omission reasons
+
+  **Effect:** modifies state
+- **`--migration-guide <MIGRATION_GUIDE>`** — Write an upgrade guide with affected users and before/after examples
+
+  **Effect:** modifies state
+- **`--package <PACKAGE>`** — Generate notes for a package configured in communique.toml
+- **`--path <PATH>`** — Limit changes to repository-relative paths (repeatable)
+- **`--tag-pattern <TAG_PATTERN>`** — Only consider baseline tags matching this git glob
+- **`--channel <CHANNEL>`** — Baseline channel: stable excludes prereleases; all includes them
+
+  **Choices:** `stable`, `all`
+- **`--changelog-path <CHANGELOG_PATH>`** — Changelog destination relative to the repository root
+- **`--preserve-sections`** — Replace only the communique-marked section of a GitHub release
 - **`--github-release`** — Push editorialized notes to the GitHub release
 
   **Effect:** modifies state

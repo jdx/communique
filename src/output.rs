@@ -4,6 +4,7 @@ pub struct ParsedOutput {
     pub release_title: String,
     pub release_body: String,
     pub usage: crate::llm::Usage,
+    pub review: crate::workflow::Review,
 }
 
 /// Attempt to parse raw text from the LLM into a ParsedOutput.
@@ -28,6 +29,7 @@ pub fn parse_text_fallback(text: &str) -> Option<ParsedOutput> {
                 changelog: body.clone(),
                 release_title: title,
                 release_body: body,
+                review: crate::workflow::Review::default(),
                 usage: crate::llm::Usage::default(),
             });
         }
@@ -46,6 +48,7 @@ pub fn parse_text_fallback(text: &str) -> Option<ParsedOutput> {
         changelog: text.to_string(),
         release_title: title,
         release_body: text.to_string(),
+        review: crate::workflow::Review::default(),
         usage: crate::llm::Usage::default(),
     })
 }
