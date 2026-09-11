@@ -17,38 +17,12 @@ pub struct AnthropicProvider {
     base_url: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct Message {
-    role: String,
-    content: Vec<ContentBlock>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
-enum ContentBlock {
-    #[serde(rename = "text")]
-    Text { text: String },
-    #[serde(rename = "tool_use")]
-    ToolUse {
-        id: String,
-        name: String,
-        input: Value,
-    },
-    #[serde(rename = "tool_result")]
-    ToolResult {
-        tool_use_id: String,
-        content: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        is_error: Option<bool>,
-    },
-}
-
 #[derive(Debug, Serialize)]
 struct MessagesRequest {
     model: String,
     max_tokens: u32,
     system: String,
-    messages: Vec<Message>,
+    messages: Vec<Value>,
     tools: Vec<ToolDef>,
 }
 
@@ -61,9 +35,24 @@ struct ToolDef {
 
 #[derive(Debug, Deserialize)]
 struct MessagesResponse {
-    content: Vec<ContentBlock>,
+    content: Vec<Value>,
     stop_reason: Option<String>,
     usage: ApiUsage,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type")]
+enum ExtractedContentBlock {
+    #[serde(rename = "text")]
+    Text { text: String },
+    #[serde(rename = "tool_use")]
+    ToolUse {
+        id: String,
+        name: String,
+        input: Value,
+    },
+    #[serde(other)]
+    Other,
 }
 
 #[derive(Debug, Deserialize)]
@@ -127,12 +116,6 @@ impl LlmClient for AnthropicProvider {
         tools: &'a [ToolDefinition],
     ) -> Pin<Box<dyn Future<Output = Result<TurnResponse>> + Send + 'a>> {
         Box::pin(async move {
-            let messages: Vec<Message> = conversation
-                .messages
-                .iter()
-                .map(|v| serde_json::from_value(v.clone()).expect("invalid conversation message"))
-                .collect();
-
             let tool_defs: Vec<ToolDef> = tools
                 .iter()
                 .map(|t| ToolDef {
@@ -146,7 +129,7 @@ impl LlmClient for AnthropicProvider {
                 model: self.model.clone(),
                 max_tokens: self.max_tokens,
                 system: system.into(),
-                messages,
+                messages: conversation.messages.clone(),
                 tools: tool_defs,
             };
 
@@ -168,33 +151,25 @@ impl LlmClient for AnthropicProvider {
 
             let response: MessagesResponse = resp.json().await?;
 
-            // Append assistant message to conversation
-            let assistant_content: Vec<Value> = response
-                .content
-                .iter()
-                .map(|b| serde_json::to_value(b).unwrap())
-                .collect();
-            conversation.messages.push(json!({
-                "role": "assistant",
-                "content": assistant_content,
-            }));
-
             // Extract text and tool calls
             let mut text_parts = Vec::new();
             let mut tool_calls = Vec::new();
             for block in &response.content {
-                match block {
-                    ContentBlock::Text { text } => text_parts.push(text.as_str()),
-                    ContentBlock::ToolUse { id, name, input } => {
-                        tool_calls.push(ToolCall {
-                            id: id.clone(),
-                            name: name.clone(),
-                            input: input.clone(),
-                        });
+                match serde_json::from_value(block.clone())? {
+                    ExtractedContentBlock::Text { text } => text_parts.push(text),
+                    ExtractedContentBlock::ToolUse { id, name, input } => {
+                        tool_calls.push(ToolCall { id, name, input });
                     }
-                    _ => {}
+                    ExtractedContentBlock::Other => {}
                 }
             }
+
+            // Preserve every assistant content block so Anthropic can verify
+            // signed thinking blocks on the next turn in a tool-use loop.
+            conversation.messages.push(json!({
+                "role": "assistant",
+                "content": response.content,
+            }));
 
             let text = if text_parts.is_empty() {
                 None
@@ -310,6 +285,7 @@ mod tests {
             .respond_with(
                 wiremock::ResponseTemplate::new(200).set_body_json(json!({
                     "content": [
+                        {"type": "thinking", "thinking": "", "signature": "signed-thinking"},
                         {"type": "text", "text": "Let me read that."},
                         {"type": "tool_use", "id": "tc_1", "name": "read_file", "input": {"path": "README.md"}}
                     ],
@@ -327,6 +303,28 @@ mod tests {
         assert_eq!(resp.tool_calls.len(), 1);
         assert_eq!(resp.tool_calls[0].name, "read_file");
         assert_eq!(resp.tool_calls[0].input["path"], "README.md");
+        assert_eq!(conv.messages[1]["content"][0]["type"], "thinking");
+        assert_eq!(
+            conv.messages[1]["content"][0]["signature"],
+            "signed-thinking"
+        );
+
+        provider.append_tool_results(
+            &mut conv,
+            &[ToolResult {
+                tool_call_id: "tc_1".into(),
+                content: "contents".into(),
+                is_error: false,
+            }],
+        );
+        provider.send_turn("system", &mut conv, &[]).await.unwrap();
+
+        let requests = server.received_requests().await.unwrap();
+        let second_request: Value = serde_json::from_slice(&requests[1].body).unwrap();
+        assert_eq!(
+            second_request["messages"][1]["content"][0],
+            json!({"type": "thinking", "thinking": "", "signature": "signed-thinking"})
+        );
     }
 
     #[tokio::test]
