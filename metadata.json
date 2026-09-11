@@ -1,0 +1,20 @@
+{
+  "cli_version": "0.10.5",
+  "checkpoint_id": "01M293EA25XGTKZ6WDXXS8D90P",
+  "strategy": "manual-commit",
+  "branch": "codex/reviewable-release-workflow",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "README.md",
+    "communique.usage.kdl",
+    "docs/cli/commands.json",
+    "src/cli.rs",
+    "src/main.rs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "prompt": ""
+    }
+  ]
+}
