@@ -54,8 +54,8 @@ jobs:
             echo "Manual dispatch; skipping release cadence guards"
           fi
 
-          PR_NUMBER=$(gh pr list -R jdx/communique --base main --state open --limit 100 --json number,headRefName,headRepositoryOwner,updatedAt \
-            --jq '[.[] | select(.headRefName | startswith("release-plz-")) | select(.headRepositoryOwner.login == "jdx")] | sort_by(.updatedAt) | reverse | .[0].number // empty')
+          PR_NUMBER=$(gh pr list -R jdx/communique --base main --state open --limit 100 --json number,headRefName,headRepositoryOwner,isDraft,updatedAt \
+            --jq '[.[] | select(.headRefName | startswith("release-plz-")) | select(.headRepositoryOwner.login == "jdx") | select(.isDraft == false)] | sort_by(.updatedAt) | reverse | .[0].number // empty')
           if [ -z "$PR_NUMBER" ]; then
             echo "No open release-plz release PR to main"
             exit 0
