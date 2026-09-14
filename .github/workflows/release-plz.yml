@@ -162,6 +162,22 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_PLZ_TOKEN }}
+      - name: Hold existing release PR as draft
+        id: release-pr-state
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
+        run: |
+          PR_NUMBER=$(gh pr list -R jdx/communique --base main --state open --limit 100 --json number,headRefName,headRepositoryOwner \
+            --jq '[.[] | select(.headRefName | startswith("release-plz-")) | select(.headRepositoryOwner.login == "jdx")] | .[0].number // empty')
+          echo "number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          if [ -z "$PR_NUMBER" ]; then
+            exit 0
+          fi
+          IS_DRAFT=$(gh pr view "$PR_NUMBER" -R jdx/communique --json isDraft --jq .isDraft)
+          echo "was_draft=$IS_DRAFT" >> "$GITHUB_OUTPUT"
+          if [ "$IS_DRAFT" != "true" ]; then
+            gh pr ready "$PR_NUMBER" -R jdx/communique --undo
+          fi
       - name: Run release-plz
         id: release-plz
         uses: release-plz/action@2eb1d8bcb770b4c48ccfaad919734b38b51958c9 # v0.5.131
@@ -169,6 +185,12 @@ jobs:
           command: release-pr
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
+      - name: Restore unchanged release PR state
+        if: steps.release-plz.outputs.prs_created != 'true' && steps.release-pr-state.outputs.number != '' && steps.release-pr-state.outputs.was_draft != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
+          PR_NUMBER: ${{ steps.release-pr-state.outputs.number }}
+        run: gh pr ready "$PR_NUMBER" -R jdx/communique
       # mise is set up only after release-plz has run. mise.toml wraps `cargo`
       # with mbx, and release-plz runs `cargo package` in temporary checkouts
       # of older commits and of the published crate, each carrying its own
@@ -181,7 +203,6 @@ jobs:
           cache: false
       - name: Update release PR
         if: steps.release-plz.outputs.prs_created == 'true'
-        continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -211,3 +232,4 @@ jobs:
           git reset --soft "$MERGE_BASE"
           git commit -m "chore: release ${TAG}"
           git push --force-with-lease
+          gh pr ready "$PR_NUMBER"
