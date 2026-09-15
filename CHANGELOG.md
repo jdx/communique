@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bumped the default model from `claude-opus-4-7` to `claude-opus-4-8`.
 
+## [1.4.1](https://github.com/jdx/communique/releases/tag/v1.4.1) - 2026-09-15
+
+## Security
+
+- Update `rustls` to 0.23.45 for RUSTSEC-2026-0285 ([#338](https://github.com/jdx/communique/pull/338))
+
+## Fixed
+
+- Refresh the stale 1.3.5 usage spec and generated CLI docs to the current version, and keep release PRs in draft until post-processing succeeds ([#338](https://github.com/jdx/communique/pull/338))
+
 ## [1.3.5](https://github.com/jdx/communique/releases/tag/v1.3.5) - 2026-09-05
 
 ## Fixed
