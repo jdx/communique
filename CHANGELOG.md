@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bumped the default model from `claude-opus-4-7` to `claude-opus-4-8`.
 
-## [1.4.1](https://github.com/jdx/communique/releases/tag/v1.4.1) - 2026-09-17
+## [1.4.1](https://github.com/jdx/communique/releases/tag/v1.4.1) - 2026-09-19
 
 ## Security
 
@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Fixed
 
-- Refresh the generated CLI reference and usage spec, which were left at version 1.3.5 in the v1.4.0 release ([#338](https://github.com/jdx/communique/pull/338))
+- Regenerate the CLI reference and usage spec, which were left at version 1.3.5 in the v1.4.0 release ([#338](https://github.com/jdx/communique/pull/338))
 
 ## [1.3.5](https://github.com/jdx/communique/releases/tag/v1.3.5) - 2026-09-05
 
@@ -155,6 +155,24 @@ _Otherwise a maintenance release: CI hardening, `mbx`/`mr-boxington` tooling upd
 ## Added
 
 - *(generate)* Support `communique generate HEAD --changelog` as an intentional `[Unreleased]` target — replaces the existing `## [Unreleased]` section in place instead of inserting a literal `## [HEAD]` entry, with prompt/title labels switched to "unreleased" wording and an early guard rejecting `HEAD --github-release`. ([#121](https://github.com/jdx/communique/pull/121)) (@ThomasK33)
+
+## [1.4.1](https://github.com/jdx/communique/compare/v1.4.0...v1.4.1) - 2026-09-19
+
+### Fixed
+
+- *(ci)* prevent release PRs from merging before post-processing ([#338](https://github.com/jdx/communique/pull/338))
+
+### Other
+
+- *(release)* v1.4.1: Maintenance release with rustls security advisory fix ([#337](https://github.com/jdx/communique/pull/337))
+- add entire trail runners ([#344](https://github.com/jdx/communique/pull/344))
+- *(deps)* update release-plz/action action to v0.5.134 ([#343](https://github.com/jdx/communique/pull/343))
+- *(deps)* update dependency hk to latest ([#342](https://github.com/jdx/communique/pull/342))
+- *(deps)* lock file maintenance ([#336](https://github.com/jdx/communique/pull/336))
+- *(deps)* update dependency hk to v2 ([#341](https://github.com/jdx/communique/pull/341))
+- *(deps)* update dependency usage to v6.9.1 ([#340](https://github.com/jdx/communique/pull/340))
+- *(deps)* update release-plz/action action to v0.5.133 ([#339](https://github.com/jdx/communique/pull/339))
+- *(deps)* bump mbx to 1.11.1
 
 ## [1.4.0](https://github.com/jdx/communique/compare/v1.3.5...v1.4.0) - 2026-09-11
 
