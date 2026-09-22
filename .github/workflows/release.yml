@@ -231,7 +231,7 @@ jobs:
           POWERSHELL
           pwsh -NoProfile -NonInteractive -File completion-syntax-check.ps1
           gh release upload "$TAG" communique.usage.kdl communique.bash communique.zsh communique.fish communique.powershell --repo "$REPO" --clobber
-      - uses: jdx/packslip@a0d434ad57571c62dbd0ab5095b4eff607a71fd3 # v1.1.1
+      - uses: jdx/packslip@74c75db7d611b36dd5a157999ec16cf823ccf80c # v1.2.0
         # The action uploads with `gh release upload` and no `--repo`, and
         # this job has no checkout for gh to infer the repository from.
         env:
