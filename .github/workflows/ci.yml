@@ -25,9 +25,9 @@ jobs:
     with:
       trusted: false
 
-  ci:
-    name: ci
-    if: ${{ always() && !cancelled() }}
+  final:
+    name: final
+    if: ${{ always() && !cancelled() && needs.trusted.result != 'cancelled' && needs.untrusted.result != 'cancelled' }}
     permissions: {}
     needs: [trusted, untrusted]
     runs-on: ubuntu-latest
