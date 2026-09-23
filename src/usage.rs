@@ -64,13 +64,16 @@ mod tests {
                 .unwrap()
         };
 
-        assert_eq!(command("init").effect, Some(usage_rs::spec::Effect::Write));
         assert_eq!(
-            command("generate").effect,
+            command("init").extra.effect,
+            Some(usage_rs::spec::Effect::Write)
+        );
+        assert_eq!(
+            command("generate").extra.effect,
             Some(usage_rs::spec::Effect::Read)
         );
         assert_eq!(
-            command("sponsors").effect,
+            command("sponsors").extra.effect,
             Some(usage_rs::spec::Effect::Read)
         );
 
@@ -82,6 +85,7 @@ mod tests {
                 .iter()
                 .find(|flag| flag.flag.longs.contains(&"github-release"))
                 .expect("--github-release")
+                .extra
                 .effect,
             Some(usage_rs::spec::Effect::Write),
             "a flag raises what its command does"
@@ -91,6 +95,7 @@ mod tests {
                 .iter()
                 .find(|flag| flag.flag.longs.contains(&"force"))
                 .expect("--force")
+                .extra
                 .effect,
             Some(usage_rs::spec::Effect::Destructive)
         );
