@@ -100,63 +100,21 @@ jobs:
 
 > **Note:** The `git fetch --tags` step is required because release-plz creates tags via the GitHub API, so they're not present in the local checkout.
 
-### Updating release PRs and CHANGELOG.md
+### Release PRs and CHANGELOG.md
 
-Use `--changelog` to update `CHANGELOG.md` with AI-generated notes and update the PR title/body for reviewers:
+Let release-plz maintain the release PR description and `CHANGELOG.md` as commits
+land. Run Communiqué in the `enhance-release` job above after release-plz creates
+the release tag. This avoids paying to regenerate notes on every release PR
+update and then generating them again for the published release.
 
-```yaml
-  release-pr:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Run release-plz
-        id: release-plz
-        uses: release-plz/action@main
-        with:
-          command: release-pr
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Update PR with release notes
-        if: steps.release-plz.outputs.prs_created == 'true'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: |
-          cargo install communique
-          PR_NUMBER=$(echo '${{ steps.release-plz.outputs.pr }}' | jq -r '.number')
-          gh pr checkout "$PR_NUMBER"
-
-          VERSION=$(cargo metadata --format-version=1 --no-deps | jq -r '.packages[0].version')
-          TAG="v${VERSION}"
-
-          # Generate release notes and update CHANGELOG.md in one pass
-          NOTES=$(communique generate "$TAG" --changelog)
-
-          # Update PR title and body
-          PR_TITLE=$(echo "$NOTES" | head -1 | sed 's/^# //')
-          PR_BODY=$(echo "$NOTES" | tail -n +3)
-          gh pr edit "$PR_NUMBER" --title "$PR_TITLE" --body "$PR_BODY"
-
-          # Commit and push changelog changes
-          if ! git diff --quiet CHANGELOG.md 2>/dev/null; then
-            git add CHANGELOG.md
-            git commit -m "chore: update changelog with communique release notes"
-            git push
-          fi
-```
-
-The `--changelog` flag makes a single LLM call to intelligently insert or update the entry in `CHANGELOG.md`, matching the existing file's formatting conventions.
+If you want AI-generated changelog entries before merging, run
+`communique generate <TAG> --changelog` explicitly when the release is ready for
+review. This invokes the LLM and updates the changelog; it should not run on every
+push to the release PR.
 
 ## Dry run in PRs
 
-Run communiqué in `--dry-run` mode on pull requests to preview release notes without publishing:
+Run communiqué in `--dry-run` mode on pull requests to preview release notes without publishing. This still invokes the LLM and incurs API charges on each run:
 
 ```yaml
 name: Preview Release Notes

@@ -39,7 +39,7 @@ const TEMPLATE: &str = r#"# Extra instructions appended to the system prompt.
 #context = ""
 
 [defaults]
-#model = "claude-fable-5-1"
+#model = "claude-opus-5-5"
 #max_tokens = 16384
 #repo = "owner/repo"
 #provider = "anthropic"

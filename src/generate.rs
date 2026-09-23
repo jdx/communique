@@ -71,7 +71,7 @@ fn resolve_model(opts: &GenerateOptions, defaults: &Defaults) -> String {
     opts.model
         .clone()
         .or(defaults.model.clone())
-        .unwrap_or_else(|| "claude-fable-5-1".into())
+        .unwrap_or_else(|| "claude-opus-5-5".into())
 }
 
 fn release_title_description<'a>(title: &'a str, label: &str) -> Option<&'a str> {
@@ -813,7 +813,7 @@ mod tests {
         let mut opts = test_opts("v1.0.0");
         let mut defaults = Defaults::default();
 
-        assert_eq!(resolve_model(&opts, &defaults), "claude-fable-5-1");
+        assert_eq!(resolve_model(&opts, &defaults), "claude-opus-5-5");
 
         defaults.model = Some("config-model".into());
         assert_eq!(resolve_model(&opts, &defaults), "config-model");
