@@ -156,6 +156,31 @@ _Otherwise a maintenance release: CI hardening, `mbx`/`mr-boxington` tooling upd
 
 - *(generate)* Support `communique generate HEAD --changelog` as an intentional `[Unreleased]` target — replaces the existing `## [Unreleased]` section in place instead of inserting a literal `## [HEAD]` entry, with prompt/title labels switched to "unreleased" wording and an early guard rejecting `HEAD --github-release`. ([#121](https://github.com/jdx/communique/pull/121)) (@ThomasK33)
 
+## [1.4.2](https://github.com/jdx/communique/compare/v1.4.1...v1.4.2) - 2026-09-23
+
+### Fixed
+
+- reduce release note costs and default to Opus 5.5 ([#361](https://github.com/jdx/communique/pull/361))
+
+### Other
+
+- *(deps)* pin jdx/renovate-config workflows to v1.0.0
+- *(deps)* bump jdx/renovate-config workflows to 5b46432
+- *(deps)* update rust crate usage-rs to v6.11.1 ([#359](https://github.com/jdx/communique/pull/359))
+- *(deps)* bump jdx/renovate-config workflows to aa49efc ([#358](https://github.com/jdx/communique/pull/358))
+- explain release-note generation and review on the homepage ([#357](https://github.com/jdx/communique/pull/357))
+- *(ci)* repin renovate-config reusable workflows to current main ([#356](https://github.com/jdx/communique/pull/356))
+- *(deps)* update jdx/packslip action to v1.2.0 ([#354](https://github.com/jdx/communique/pull/354))
+- *(deps)* update dependency usage to v6.11.0 ([#353](https://github.com/jdx/communique/pull/353))
+- *(deps)* update zizmorcore/zizmor-action action to v0.6.4 ([#352](https://github.com/jdx/communique/pull/352))
+- *(deps)* update release-plz/action action to v0.5.137 ([#351](https://github.com/jdx/communique/pull/351))
+- add a final gate job matching jdx's other repositories ([#355](https://github.com/jdx/communique/pull/355))
+- *(ci)* comment on a discussion when the PR implementing it merges ([#350](https://github.com/jdx/communique/pull/350))
+- re-pin renovate-config reusable workflows to current main
+- *(deps)* install the locked hk 2.0.1 instead of the stale 1.58.1 binary ([#348](https://github.com/jdx/communique/pull/348))
+- drop the codecov coverage job ([#349](https://github.com/jdx/communique/pull/349))
+- *(deps)* bump mr-boxington to 1.14.0 and drop the mbx fallback docs ([#347](https://github.com/jdx/communique/pull/347))
+
 ## [1.4.0](https://github.com/jdx/communique/compare/v1.3.5...v1.4.0) - 2026-09-11
 
 ### Added
