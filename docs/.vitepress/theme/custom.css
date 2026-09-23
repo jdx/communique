@@ -351,3 +351,9 @@ h3 {
   background: rgba(185, 103, 255, 0.3);
   color: #fff;
 }
+
+/* Keep the homepage workflow readable on wide screens. */
+.release-workflow {
+  max-width: 760px;
+  margin: 0 auto;
+}
