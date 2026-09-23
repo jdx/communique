@@ -1,39 +1,64 @@
 ---
 layout: home
-title: AI-powered release notes from git history
+title: Generate release notes from your repository
+description: Use an AI model to draft release notes from commits, pull requests, and source changes. Review locally, update a changelog, or publish to GitHub Releases.
 
 hero:
   name: communiqué
-  text: AI Release Notes
+  text: Generate release notes from your repository
   image:
     src: /logo.svg
     alt: communiqué
-  tagline: Your release notes have been optimized for human consumption
+  tagline: Communiqué uses an AI model to read commits, pull requests, and source changes, then draft release notes. Review the output locally, write a changelog entry, or publish to GitHub Releases.
   actions:
     - theme: brand
-      text: Begin Onboarding
+      text: Get started
       link: /guide/getting-started
     - theme: alt
-      text: View Source Archive
+      text: View on GitHub
       link: https://github.com/jdx/communique
-
-features:
-  - icon: "\U0001F916"
-    title: Neural Synthesis
-    details: An AI agent distills your git history into polished, narrative release notes. Currently powered by Claude. Additional neural backends coming soon.
-  - icon: "\U0001F4DD"
-    title: Editorialized Output
-    details: Transcends ordinary changelogs. Produces human-readable communiqués that convey intent, not just diffs.
-  - icon: "\U0001F50D"
-    title: Deep Reconnaissance
-    details: The agent autonomously reads your source, inspects diffs, and cross-references PRs to understand what truly changed.
-  - icon: "\U0001F680"
-    title: GitHub Uplink
-    details: Fetches PR metadata and diffs for context. Publishes finished communiqués directly to GitHub Releases.
-  - icon: "\U00002699\uFE0F"
-    title: Fully Programmable
-    details: Customize tone, style, and project context via communique.toml. Teach the machine your preferences.
-  - icon: "\U0001F4CB"
-    title: Dual-Mode Output
-    details: Each run produces both a concise changelog entry and a detailed release narrative. Two formats, one command.
 ---
+
+<div class="release-workflow">
+
+## Generate a draft
+
+Run `communique init` to create a configuration file, then generate notes for a
+release tag. Communiqué compares it with the previous tag and lets the model
+inspect repository files and diffs for context. GitHub access adds pull request
+details to that context.
+
+```sh
+communique generate v1.2.0 --draft release.json
+```
+
+You need an API key for Anthropic or an OpenAI-compatible provider. Configure the
+model, project context, and writing style in `communique.toml`.
+
+[Set up Communiqué](/guide/getting-started)
+
+## Review before publishing
+
+The saved draft is editable. Preview your changes locally, then publish the
+reviewed draft without invoking the model again.
+
+```sh
+communique publish release.json --dry-run
+communique publish release.json
+```
+
+Generation can also produce a coverage report and migration guide to help you
+review what changed and what users need to do when upgrading.
+
+[Configure review and output options](/guide/configuration)
+
+## Update a changelog or GitHub Release
+
+Use `--changelog` when generating to write a version entry to `CHANGELOG.md`, or
+`--github-release` to publish directly to a GitHub Release. Add `--concise` when
+you want a shorter summary. You can run these commands locally or in a release
+workflow.
+
+[Set up GitHub Actions](/guide/github-actions)
+
+</div>
