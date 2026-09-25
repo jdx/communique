@@ -156,6 +156,14 @@ _Otherwise a maintenance release: CI hardening, `mbx`/`mr-boxington` tooling upd
 
 - *(generate)* Support `communique generate HEAD --changelog` as an intentional `[Unreleased]` target — replaces the existing `## [Unreleased]` section in place instead of inserting a literal `## [HEAD]` entry, with prompt/title labels switched to "unreleased" wording and an early guard rejecting `HEAD --github-release`. ([#121](https://github.com/jdx/communique/pull/121)) (@ThomasK33)
 
+## [1.4.3](https://github.com/jdx/communique/compare/v1.4.2...v1.4.3) - 2026-09-25
+
+### Other
+
+- accept pull request titles whose description starts with an acronym
+- float jdx tools on latest without a release-age delay ([#363](https://github.com/jdx/communique/pull/363))
+- *(deps)* upgrade mise.lock to lockfile format v2
+
 ## [1.4.2](https://github.com/jdx/communique/compare/v1.4.1...v1.4.2) - 2026-09-23
 
 ### Fixed
