@@ -182,9 +182,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: refs/tags/${{ inputs.tag }}
+          persist-credentials: false
       - name: Resolve the release commit
         id: source
-        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          # A retry for a historical tag may predate the skill.
+          if [[ -s skills/communique/SKILL.md ]]; then
+            echo "skill=skill/communique=repo:skills/communique" >> "$GITHUB_OUTPUT"
+          fi
       - name: Download the release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -251,4 +257,4 @@ jobs:
             completion/zsh=asset:communique.zsh
             completion/fish=asset:communique.fish
             completion/powershell=asset:communique.powershell
-            skill/communique=repo:skills/communique
+            ${{ steps.source.outputs.skill }}
