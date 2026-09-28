@@ -112,7 +112,7 @@ jobs:
         with:
           ref: refs/tags/${{ needs.release-plz-release.outputs.tag }}
           persist-credentials: false
-      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+      - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2 # zizmor: ignore[cache-poisoning]
         with:
           shared-key: ci-rust
@@ -197,7 +197,7 @@ jobs:
       # mise.toml. Whenever one of those pins a mr-boxington version that is
       # not installed on the runner, mise cannot exec mbx and release-plz
       # fails. release-plz itself only needs rustup's cargo.
-      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+      - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
         if: steps.release-plz.outputs.prs_created == 'true'
         with:
           cache: false
