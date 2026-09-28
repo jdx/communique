@@ -5,5 +5,11 @@
       "type": "git-refs"
     }
   },
-  "telemetry": true
+  "telemetry": true,
+  "strategy_options": {
+    "checkpoint_remote": {
+      "provider": "github",
+      "repo": "jdx/communique-checkpoints"
+    }
+  }
 }
