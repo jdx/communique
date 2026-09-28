@@ -48,6 +48,20 @@ cargo install communique
 Pre-built binaries for macOS, Linux, and Windows are available on the
 [GitHub releases page](https://github.com/jdx/communique/releases).
 
+## Agent skill
+
+Packslip releases provide a [Communique skill](skills/communique/SKILL.md) for
+release ranges, draft review, changelogs, and publishing. Install a release that
+includes it and link the matching skill into your agent's directory:
+
+```sh
+mise use packslip:github.com/jdx/communique
+mise skills sync --dir .agents/skills
+```
+
+The generated link is local to your installation; keep it out of version control
+and run sync again after changing tool versions.
+
 ## Setup
 
 communique needs an LLM API key. Claude models use Anthropic; other models use

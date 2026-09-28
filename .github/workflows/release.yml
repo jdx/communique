@@ -179,6 +179,18 @@ jobs:
       id-token: write
       attestations: write
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+          persist-credentials: false
+      - name: Resolve the release commit
+        id: source
+        run: |
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          # A retry for a historical tag may predate the skill.
+          if [[ -s skills/communique/SKILL.md ]]; then
+            echo "skill=skill/communique=repo:skills/communique" >> "$GITHUB_OUTPUT"
+          fi
       - name: Download the release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -232,12 +244,11 @@ jobs:
           pwsh -NoProfile -NonInteractive -File completion-syntax-check.ps1
           gh release upload "$TAG" communique.usage.kdl communique.bash communique.zsh communique.fish communique.powershell --repo "$REPO" --clobber
       - uses: jdx/packslip@87479dfc6443253dff69601cace5fc6ea07e6df5 # v1.4.0
-        # The action uploads with `gh release upload` and no `--repo`, and
-        # this job has no checkout for gh to infer the repository from.
         env:
           GH_REPO: ${{ github.repository }}
         with:
           tag: ${{ inputs.tag }}
+          commit: ${{ steps.source.outputs.commit }}
           artifacts: dist/communique-*.tar.gz dist/communique-*.zip
           bin: communique
           resources: |
@@ -246,3 +257,4 @@ jobs:
             completion/zsh=asset:communique.zsh
             completion/fish=asset:communique.fish
             completion/powershell=asset:communique.powershell
+            ${{ steps.source.outputs.skill }}

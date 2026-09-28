@@ -2,3 +2,5 @@
 /docs/node_modules
 /docs/.vitepress/dist
 /docs/.vitepress/cache
+# Local link created by mise skills sync for this tool.
+/.agents/skills/communique
