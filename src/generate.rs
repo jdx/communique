@@ -185,12 +185,19 @@ pub async fn run(mut opts: GenerateOptions) -> miette::Result<()> {
     clx::progress::flush();
 
     let u = &parsed.usage;
+    let input = u.total_input_tokens();
     eprintln!(
         "Tokens: {} input + {} output = {} total",
-        u.input_tokens,
+        input,
         u.output_tokens,
-        u.input_tokens + u.output_tokens
+        input + u.output_tokens
     );
+    if u.cache_read_input_tokens > 0 || u.cache_creation_input_tokens > 0 {
+        eprintln!(
+            "Prompt cache: {} tokens read, {} written",
+            u.cache_read_input_tokens, u.cache_creation_input_tokens
+        );
+    }
 
     let text = if opts.concise {
         parsed.changelog.clone()
