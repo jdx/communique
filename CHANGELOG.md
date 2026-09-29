@@ -156,6 +156,12 @@ _Otherwise a maintenance release: CI hardening, `mbx`/`mr-boxington` tooling upd
 
 - *(generate)* Support `communique generate HEAD --changelog` as an intentional `[Unreleased]` target — replaces the existing `## [Unreleased]` section in place instead of inserting a literal `## [HEAD]` entry, with prompt/title labels switched to "unreleased" wording and an early guard rejecting `HEAD --github-release`. ([#121](https://github.com/jdx/communique/pull/121)) (@ThomasK33)
 
+## [1.5.1](https://github.com/jdx/communique/compare/v1.5.0...v1.5.1) - 2026-09-29
+
+### Other
+
+- limit each contributor to one open draft PR ([#374](https://github.com/jdx/communique/pull/374))
+
 ## [1.5.0](https://github.com/jdx/communique/compare/v1.4.2...v1.5.0) - 2026-09-29
 
 ### Added
