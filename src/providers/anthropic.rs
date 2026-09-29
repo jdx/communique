@@ -1,5 +1,6 @@
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -15,13 +16,16 @@ pub struct AnthropicProvider {
     model: String,
     max_tokens: u32,
     base_url: String,
+    /// Cleared once an endpoint rejects `cache_control`, so Anthropic-compatible
+    /// servers without prompt caching only pay for one failed request.
+    prompt_caching: AtomicBool,
 }
 
 #[derive(Debug, Serialize)]
 struct MessagesRequest {
     model: String,
     max_tokens: u32,
-    system: Vec<SystemBlock>,
+    system: Value,
     messages: Vec<Value>,
     tools: Vec<ToolDef>,
 }
@@ -30,14 +34,6 @@ struct MessagesRequest {
 /// including the block carrying it (tools, then system, then messages).
 fn ephemeral() -> Value {
     json!({ "type": "ephemeral" })
-}
-
-#[derive(Debug, Serialize)]
-struct SystemBlock {
-    #[serde(rename = "type")]
-    kind: &'static str,
-    text: String,
-    cache_control: Value,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -91,7 +87,63 @@ impl AnthropicProvider {
             model,
             max_tokens,
             base_url,
+            prompt_caching: AtomicBool::new(true),
         }
+    }
+
+    /// The agent loop resends the whole prefix every turn. With `cache`, mark
+    /// the static tools + system prompt and the conversation so far as cache
+    /// breakpoints so each turn only pays full price for what was appended.
+    fn build_request(
+        &self,
+        system: &str,
+        conversation: &Conversation,
+        tools: &[ToolDefinition],
+        cache: bool,
+    ) -> MessagesRequest {
+        let tools = tools
+            .iter()
+            .map(|t| ToolDef {
+                name: t.name.clone(),
+                description: t.description.clone(),
+                input_schema: t.input_schema.clone(),
+            })
+            .collect();
+
+        let mut messages = conversation.messages.clone();
+        let system = if cache {
+            if let Some(block) = messages
+                .last_mut()
+                .and_then(|m| m["content"].as_array_mut())
+                .and_then(|content| content.last_mut())
+                .and_then(Value::as_object_mut)
+            {
+                block.insert("cache_control".into(), ephemeral());
+            }
+            json!([{ "type": "text", "text": system, "cache_control": ephemeral() }])
+        } else {
+            json!(system)
+        };
+
+        MessagesRequest {
+            model: self.model.clone(),
+            max_tokens: self.max_tokens,
+            system,
+            messages,
+            tools,
+        }
+    }
+
+    async fn post(&self, request: &MessagesRequest) -> Result<reqwest::Response> {
+        crate::retry::retry_request("Anthropic API", || {
+            self.client
+                .post(format!("{}/v1/messages", self.base_url))
+                .header("x-api-key", &self.api_key)
+                .header("anthropic-version", "2023-06-01")
+                .json(request)
+                .send()
+        })
+        .await
     }
 }
 
@@ -134,49 +186,30 @@ impl LlmClient for AnthropicProvider {
         tools: &'a [ToolDefinition],
     ) -> Pin<Box<dyn Future<Output = Result<TurnResponse>> + Send + 'a>> {
         Box::pin(async move {
-            let tool_defs: Vec<ToolDef> = tools
-                .iter()
-                .map(|t| ToolDef {
-                    name: t.name.clone(),
-                    description: t.description.clone(),
-                    input_schema: t.input_schema.clone(),
-                })
-                .collect();
-
-            // The agent loop resends the whole prefix every turn. Cache the
-            // static tools + system prompt, and the conversation so far, so
-            // each turn only pays full price for what was appended.
-            let mut messages = conversation.messages.clone();
-            if let Some(block) = messages
-                .last_mut()
-                .and_then(|m| m["content"].as_array_mut())
-                .and_then(|content| content.last_mut())
-                .and_then(Value::as_object_mut)
-            {
-                block.insert("cache_control".into(), ephemeral());
-            }
-
-            let request = MessagesRequest {
-                model: self.model.clone(),
-                max_tokens: self.max_tokens,
-                system: vec![SystemBlock {
-                    kind: "text",
-                    text: system.into(),
-                    cache_control: ephemeral(),
-                }],
-                messages,
-                tools: tool_defs,
+            let resp = if self.prompt_caching.load(Ordering::Relaxed) {
+                let request = self.build_request(system, conversation, tools, true);
+                let resp = self.post(&request).await?;
+                if resp.status() == reqwest::StatusCode::BAD_REQUEST {
+                    // Anthropic-compatible endpoints may reject `cache_control`
+                    // or a block-array `system`. Retry once without caching and
+                    // only stop caching if that succeeds, so an unrelated 400
+                    // doesn't disable it.
+                    let request = self.build_request(system, conversation, tools, false);
+                    let retry = self.post(&request).await?;
+                    if retry.status().is_success() {
+                        log::warn!("endpoint rejected prompt caching; continuing without it");
+                        self.prompt_caching.store(false, Ordering::Relaxed);
+                        retry
+                    } else {
+                        resp
+                    }
+                } else {
+                    resp
+                }
+            } else {
+                let request = self.build_request(system, conversation, tools, false);
+                self.post(&request).await?
             };
-
-            let resp = crate::retry::retry_request("Anthropic API", || {
-                self.client
-                    .post(format!("{}/v1/messages", self.base_url))
-                    .header("x-api-key", &self.api_key)
-                    .header("anthropic-version", "2023-06-01")
-                    .json(&request)
-                    .send()
-            })
-            .await?;
 
             if !resp.status().is_success() {
                 let status = resp.status();
@@ -458,6 +491,38 @@ mod tests {
                 .get("cache_control")
                 .is_none()
         );
+    }
+
+    #[tokio::test]
+    async fn test_send_turn_falls_back_when_caching_is_rejected() {
+        let server = wiremock::MockServer::start().await;
+        // Endpoint that rejects any request carrying cache_control.
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::body_string_contains("cache_control"))
+            .respond_with(wiremock::ResponseTemplate::new(400).set_body_string("no caching"))
+            .mount(&server)
+            .await;
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
+                "content": [{"type": "text", "text": "ok"}],
+                "stop_reason": "end_turn",
+                "usage": {"input_tokens": 1, "output_tokens": 1}
+            })))
+            .mount(&server)
+            .await;
+
+        let provider = make_provider(&server.uri());
+        let mut conv = provider.new_conversation("Hi");
+        let resp = provider.send_turn("sys", &mut conv, &[]).await.unwrap();
+        assert_eq!(resp.text.as_deref(), Some("ok"));
+
+        // Later turns skip caching entirely rather than failing first again.
+        provider.send_turn("sys", &mut conv, &[]).await.unwrap();
+        let requests = server.received_requests().await.unwrap();
+        assert_eq!(requests.len(), 3);
+        let body: Value = serde_json::from_slice(&requests[1].body).unwrap();
+        assert_eq!(body["system"], json!("sys"));
+        assert!(!requests[2].body.windows(13).any(|w| w == b"cache_control"));
     }
 
     #[tokio::test]
