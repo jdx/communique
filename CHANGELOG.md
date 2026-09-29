@@ -156,6 +156,28 @@ _Otherwise a maintenance release: CI hardening, `mbx`/`mr-boxington` tooling upd
 
 - *(generate)* Support `communique generate HEAD --changelog` as an intentional `[Unreleased]` target — replaces the existing `## [Unreleased]` section in place instead of inserting a literal `## [HEAD]` entry, with prompt/title labels switched to "unreleased" wording and an early guard rejecting `HEAD --github-release`. ([#121](https://github.com/jdx/communique/pull/121)) (@ThomasK33)
 
+## [1.5.0](https://github.com/jdx/communique/compare/v1.4.2...v1.5.0) - 2026-09-29
+
+### Added
+
+- *(anthropic)* cache the prompt prefix across agent turns to cut input costs ([#371](https://github.com/jdx/communique/pull/371))
+- publish a release-notes agent skill through packslip ([#365](https://github.com/jdx/communique/pull/365))
+
+### Other
+
+- *(deps)* update mise tools to latest ([#370](https://github.com/jdx/communique/pull/370))
+- *(deps)* update github actions ([#369](https://github.com/jdx/communique/pull/369))
+- *(deps)* update dependency vue to v3.5.43 ([#368](https://github.com/jdx/communique/pull/368))
+- *(deps)* update mise-action to v5 ([#367](https://github.com/jdx/communique/pull/367))
+- *(entire)* restore lower-cost trail findings
+- *(deps)* update rust crate usage-rs to v6.12.0 ([#366](https://github.com/jdx/communique/pull/366))
+- *(entire)* commit claude session hooks
+- *(entire)* store checkpoints in a private repository
+- *(deps)* update jdx/packslip action to v1.4.0 ([#364](https://github.com/jdx/communique/pull/364))
+- accept pull request titles whose description starts with an acronym
+- float jdx tools on latest without a release-age delay ([#363](https://github.com/jdx/communique/pull/363))
+- *(deps)* upgrade mise.lock to lockfile format v2
+
 ## [1.4.2](https://github.com/jdx/communique/compare/v1.4.1...v1.4.2) - 2026-09-23
 
 ### Fixed
