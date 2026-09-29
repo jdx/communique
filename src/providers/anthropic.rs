@@ -21,9 +21,23 @@ pub struct AnthropicProvider {
 struct MessagesRequest {
     model: String,
     max_tokens: u32,
-    system: String,
+    system: Vec<SystemBlock>,
     messages: Vec<Value>,
     tools: Vec<ToolDef>,
+}
+
+/// Marks the end of a cacheable prefix. Anthropic caches everything up to and
+/// including the block carrying it (tools, then system, then messages).
+fn ephemeral() -> Value {
+    json!({ "type": "ephemeral" })
+}
+
+#[derive(Debug, Serialize)]
+struct SystemBlock {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    text: String,
+    cache_control: Value,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -59,6 +73,10 @@ enum ExtractedContentBlock {
 struct ApiUsage {
     input_tokens: u32,
     output_tokens: u32,
+    #[serde(default)]
+    cache_creation_input_tokens: u32,
+    #[serde(default)]
+    cache_read_input_tokens: u32,
 }
 
 impl AnthropicProvider {
@@ -125,11 +143,28 @@ impl LlmClient for AnthropicProvider {
                 })
                 .collect();
 
+            // The agent loop resends the whole prefix every turn. Cache the
+            // static tools + system prompt, and the conversation so far, so
+            // each turn only pays full price for what was appended.
+            let mut messages = conversation.messages.clone();
+            if let Some(block) = messages
+                .last_mut()
+                .and_then(|m| m["content"].as_array_mut())
+                .and_then(|content| content.last_mut())
+                .and_then(Value::as_object_mut)
+            {
+                block.insert("cache_control".into(), ephemeral());
+            }
+
             let request = MessagesRequest {
                 model: self.model.clone(),
                 max_tokens: self.max_tokens,
-                system: system.into(),
-                messages: conversation.messages.clone(),
+                system: vec![SystemBlock {
+                    kind: "text",
+                    text: system.into(),
+                    cache_control: ephemeral(),
+                }],
+                messages,
                 tools: tool_defs,
             };
 
@@ -191,6 +226,8 @@ impl LlmClient for AnthropicProvider {
                 usage: Usage {
                     input_tokens: response.usage.input_tokens,
                     output_tokens: response.usage.output_tokens,
+                    cache_creation_input_tokens: response.usage.cache_creation_input_tokens,
+                    cache_read_input_tokens: response.usage.cache_read_input_tokens,
                 },
             })
         })
@@ -324,6 +361,102 @@ mod tests {
         assert_eq!(
             second_request["messages"][1]["content"][0],
             json!({"type": "thinking", "thinking": "", "signature": "signed-thinking"})
+        );
+    }
+
+    #[tokio::test]
+    async fn test_send_turn_marks_prompt_cache_breakpoints() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/v1/messages"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
+                "content": [{"type": "text", "text": "ok"}],
+                "stop_reason": "end_turn",
+                "usage": {
+                    "input_tokens": 3,
+                    "output_tokens": 5,
+                    "cache_creation_input_tokens": 100,
+                    "cache_read_input_tokens": 400
+                }
+            })))
+            .mount(&server)
+            .await;
+
+        let provider = make_provider(&server.uri());
+        let mut conv = provider.new_conversation("Hi");
+        let resp = provider
+            .send_turn("system prompt", &mut conv, &[])
+            .await
+            .unwrap();
+        assert_eq!(resp.usage.input_tokens, 3);
+        assert_eq!(resp.usage.cache_creation_input_tokens, 100);
+        assert_eq!(resp.usage.cache_read_input_tokens, 400);
+        assert_eq!(resp.usage.total_input_tokens(), 503);
+
+        let requests = server.received_requests().await.unwrap();
+        let body: Value = serde_json::from_slice(&requests[0].body).unwrap();
+        assert_eq!(
+            body["system"],
+            json!([{
+                "type": "text",
+                "text": "system prompt",
+                "cache_control": {"type": "ephemeral"}
+            }])
+        );
+        assert_eq!(
+            body["messages"][0]["content"][0]["cache_control"],
+            json!({"type": "ephemeral"})
+        );
+        // The stored conversation must stay marker-free so breakpoints move
+        // forward with each turn instead of accumulating past the 4 allowed.
+        assert!(
+            conv.messages[0]["content"][0]
+                .get("cache_control")
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_send_turn_moves_cache_breakpoint_to_latest_message() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/v1/messages"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
+                "content": [
+                    {"type": "tool_use", "id": "tc_1", "name": "read_file", "input": {}}
+                ],
+                "stop_reason": "tool_use",
+                "usage": {"input_tokens": 1, "output_tokens": 1}
+            })))
+            .mount(&server)
+            .await;
+
+        let provider = make_provider(&server.uri());
+        let mut conv = provider.new_conversation("Hi");
+        provider.send_turn("s", &mut conv, &[]).await.unwrap();
+        provider.append_tool_results(
+            &mut conv,
+            &[ToolResult {
+                tool_call_id: "tc_1".into(),
+                content: "a".into(),
+                is_error: false,
+            }],
+        );
+        provider.send_turn("s", &mut conv, &[]).await.unwrap();
+
+        let requests = server.received_requests().await.unwrap();
+        let body: Value = serde_json::from_slice(&requests[1].body).unwrap();
+        let marked = body.to_string().matches("cache_control").count();
+        // One on system, one on the last message (the tool result).
+        assert_eq!(marked, 2);
+        assert_eq!(
+            body["messages"][2]["content"][0]["cache_control"],
+            json!({"type": "ephemeral"})
+        );
+        assert!(
+            body["messages"][0]["content"][0]
+                .get("cache_control")
+                .is_none()
         );
     }
 

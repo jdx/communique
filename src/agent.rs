@@ -169,8 +169,11 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
             .await?;
 
         info!(
-            "usage: {} input, {} output tokens",
-            response.usage.input_tokens, response.usage.output_tokens
+            "usage: {} input ({} cache read, {} cache write), {} output tokens",
+            response.usage.input_tokens,
+            response.usage.cache_read_input_tokens,
+            response.usage.cache_creation_input_tokens,
+            response.usage.output_tokens
         );
         total_usage += response.usage.clone();
 

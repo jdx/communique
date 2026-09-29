@@ -108,15 +108,13 @@ pub fn submit_tool_call(changelog: &str, title: &str, body: &str) -> ToolCall {
 }
 
 pub fn fake_usage() -> Usage {
-    Usage {
-        input_tokens: 0,
-        output_tokens: 0,
-    }
+    Usage::default()
 }
 
 pub fn fake_usage_with(input_tokens: u32, output_tokens: u32) -> Usage {
     Usage {
         input_tokens,
         output_tokens,
+        ..Usage::default()
     }
 }

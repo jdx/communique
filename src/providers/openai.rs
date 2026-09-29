@@ -210,11 +210,9 @@ impl LlmClient for OpenAIProvider {
                 Some(u) => Usage {
                     input_tokens: u.prompt_tokens,
                     output_tokens: u.completion_tokens,
+                    ..Usage::default()
                 },
-                None => Usage {
-                    input_tokens: 0,
-                    output_tokens: 0,
-                },
+                None => Usage::default(),
             };
 
             Ok(TurnResponse {
