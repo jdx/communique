@@ -200,8 +200,12 @@ impl LlmClient for AnthropicProvider {
                         log::warn!("endpoint rejected prompt caching; continuing without it");
                         self.prompt_caching.store(false, Ordering::Relaxed);
                         retry
-                    } else {
+                    } else if retry.status() == reqwest::StatusCode::BAD_REQUEST {
+                        // Same rejection either way, so it wasn't the caching.
                         resp
+                    } else {
+                        // A different failure (e.g. 429) is the real story.
+                        retry
                     }
                 } else {
                     resp
@@ -523,6 +527,25 @@ mod tests {
         let body: Value = serde_json::from_slice(&requests[1].body).unwrap();
         assert_eq!(body["system"], json!("sys"));
         assert!(!requests[2].body.windows(13).any(|w| w == b"cache_control"));
+    }
+
+    #[tokio::test]
+    async fn test_send_turn_reports_retry_error_after_caching_fallback() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::body_string_contains("cache_control"))
+            .respond_with(wiremock::ResponseTemplate::new(400).set_body_string("bad request"))
+            .mount(&server)
+            .await;
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .respond_with(wiremock::ResponseTemplate::new(401).set_body_string("unauthorized"))
+            .mount(&server)
+            .await;
+
+        let provider = make_provider(&server.uri());
+        let mut conv = provider.new_conversation("Hi");
+        let err = provider.send_turn("sys", &mut conv, &[]).await.unwrap_err();
+        assert!(err.to_string().contains("401"), "{err}");
     }
 
     #[tokio::test]
