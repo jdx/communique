@@ -1,4 +1,6 @@
 [workspace]
+# Label the release PR so it is easy to find and filter.
+pr_labels = ["release"]
 git_release_enable = true
 git_release_draft = true
 git_tag_enable = true
