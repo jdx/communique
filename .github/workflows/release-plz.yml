@@ -60,7 +60,7 @@ jobs:
             done
             if [ -n "$release_id" ]; then
               echo "Fixing draft release $release_id: setting tag_name to $tag"
-              gh api repos/${{ github.repository }}/releases/$release_id --method PATCH --field tag_name="$tag"
+              gh api "repos/${{ github.repository }}/releases/${release_id}" --method PATCH --field tag_name="$tag"
             else
               echo "::warning::No untagged draft release found for $tag after 10 attempts"
             fi
