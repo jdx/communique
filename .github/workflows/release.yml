@@ -1,7 +1,6 @@
 name: Release
 
-permissions:
-  contents: write
+permissions: {}
 
 on:
   workflow_call:
@@ -27,6 +26,10 @@ env:
 jobs:
   upload-assets:
     runs-on: ${{ matrix.os }}
+    # Notarization alone may wait up to 30 minutes (`notarytool --timeout 30m`).
+    timeout-minutes: 90
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -174,6 +177,7 @@ jobs:
     name: Publish the packslip
     needs: upload-assets
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write
       id-token: write

@@ -1,0 +1,9 @@
+# Durable ignores, matched by rule and place rather than by line, so a bot that
+# rewrites a `uses:` line cannot drop them.
+ignores:
+  - rule: dangerous-triggers
+    file: .github/workflows/conventional-commits.yml
+    reason: reads only the PR title and executes no untrusted code
+  - rule: dangerous-triggers
+    file: .github/workflows/draft-limit.yml
+    reason: comments on and closes the extra draft; it never checks out or runs the pull request code
