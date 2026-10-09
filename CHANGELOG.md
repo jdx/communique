@@ -156,6 +156,25 @@ _Otherwise a maintenance release: CI hardening, `mbx`/`mr-boxington` tooling upd
 
 - *(generate)* Support `communique generate HEAD --changelog` as an intentional `[Unreleased]` target — replaces the existing `## [Unreleased]` section in place instead of inserting a literal `## [HEAD]` entry, with prompt/title labels switched to "unreleased" wording and an early guard rejecting `HEAD --github-release`. ([#121](https://github.com/jdx/communique/pull/121)) (@ThomasK33)
 
+## [1.5.1](https://github.com/jdx/communique/compare/v1.5.0...v1.5.1) - 2026-10-09
+
+### Fixed
+
+- *(deps)* update rust crate usage-rs to v7 ([#384](https://github.com/jdx/communique/pull/384))
+
+### Other
+
+- require zizmor in final ([#385](https://github.com/jdx/communique/pull/385))
+- add shared release fix notifications ([#382](https://github.com/jdx/communique/pull/382))
+- *(ci)* lint workflows with jactionlint ([#381](https://github.com/jdx/communique/pull/381))
+- label release PRs with release ([#380](https://github.com/jdx/communique/pull/380))
+- *(deps)* update rust crate clx to v3.0.4 ([#379](https://github.com/jdx/communique/pull/379))
+- *(deps)* update rust crate usage-rs to v6.12.1 ([#378](https://github.com/jdx/communique/pull/378))
+- *(deps)* update jdx/renovate-config action to v1.0.2 ([#377](https://github.com/jdx/communique/pull/377))
+- *(deps)* update dependency usage to latest ([#376](https://github.com/jdx/communique/pull/376))
+- *(deps)* lock file maintenance ([#375](https://github.com/jdx/communique/pull/375))
+- limit each contributor to one open draft PR ([#374](https://github.com/jdx/communique/pull/374))
+
 ## [1.5.0](https://github.com/jdx/communique/compare/v1.4.2...v1.5.0) - 2026-09-29
 
 ### Added
