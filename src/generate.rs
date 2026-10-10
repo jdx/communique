@@ -325,6 +325,19 @@ async fn generate_notes(
     )?;
     let (git_log, excluded, rule_context) = apply_rules(ctx, &raw_log).await?;
     let pr_numbers = git::extract_pr_numbers(&git_log);
+    let commit_credits: Vec<git::CommitCredit> = git::commit_credits(
+        &ctx.repo_root,
+        &ctx.prev_tag,
+        &ctx.target_commit,
+        &ctx.workflow.paths,
+    )?
+    .into_iter()
+    .filter(|(hash, _)| {
+        git_log
+            .lines()
+            .any(|line| line.split_whitespace().next() == Some(hash.as_str()))
+    })
+    .collect();
     info!(
         "found {} commits, {} PRs",
         git_log.lines().count(),
@@ -437,6 +450,10 @@ async fn generate_notes(
         context: ctx.context.as_deref(),
         recent_releases: &recent_releases,
     });
+
+    if let Some(section) = prompt::commit_credits_section(&commit_credits) {
+        user_msg.push_str(&section);
+    }
 
     user_msg.push_str(&format!("\n\nEditorial rules and scope:\n{rule_context}\nOnly describe changes from the supplied git log. Paths in scope: {:?}. Other repository files are context only. Explicit exclusions must not appear in release notes. Include-label overrides take priority over exclusions and the default internal-change filter.\n", ctx.workflow.paths));
     if ctx.workflow.preserve_sections {

@@ -41,6 +41,16 @@ impl TempRepo {
         git(self.path(), &["commit", "-m", msg]);
     }
 
+    /// Commit with an explicit author (`Name <email>`), overriding any
+    /// `GIT_AUTHOR_*` environment variables.
+    pub fn commit_as(&self, msg: &str, author: &str) {
+        git(self.path(), &["add", "-A"]);
+        git(
+            self.path(),
+            &["commit", "--allow-empty", "-m", msg, "--author", author],
+        );
+    }
+
     pub fn tag(&self, name: &str) {
         git(self.path(), &["tag", name]);
     }
