@@ -156,6 +156,16 @@ _Otherwise a maintenance release: CI hardening, `mbx`/`mr-boxington` tooling upd
 
 - *(generate)* Support `communique generate HEAD --changelog` as an intentional `[Unreleased]` target — replaces the existing `## [Unreleased]` section in place instead of inserting a literal `## [HEAD]` entry, with prompt/title labels switched to "unreleased" wording and an early guard rejecting `HEAD --github-release`. ([#121](https://github.com/jdx/communique/pull/121)) (@ThomasK33)
 
+## [1.6.0](https://github.com/jdx/communique/compare/v1.5.1...v1.6.0) - 2026-10-10
+
+### Added
+
+- *(generate)* credit commit authors and co-authors in release notes ([#388](https://github.com/jdx/communique/pull/388))
+
+### Other
+
+- *(ci)* switch to jactionlint v2 and drop zizmor ([#387](https://github.com/jdx/communique/pull/387))
+
 ## [1.5.1](https://github.com/jdx/communique/compare/v1.5.0...v1.5.1) - 2026-10-09
 
 ### Fixed
