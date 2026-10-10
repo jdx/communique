@@ -198,13 +198,14 @@ fn login_from_identity(identity: &str) -> Option<String> {
     (is_valid_login(login) && !is_automation_login(login)).then(|| login.to_string())
 }
 
-/// GitHub logins are 1-39 ASCII letters, digits and hyphens. `[bot]` accounts
+/// GitHub logins are 1-39 ASCII letters, digits and hyphens; Enterprise Managed
+/// User logins (`name_shortcode`) also contain an underscore. `[bot]` accounts
 /// fail this check on purpose; they are automation and are never credited.
 fn is_valid_login(login: &str) -> bool {
     (1..=39).contains(&login.len())
         && login
             .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
 /// AI assistants and automation are tools, not contributors; never credit them.
@@ -390,6 +391,10 @@ mod tests {
         assert_eq!(
             login_from_identity(&format!("{}@users.noreply.github.com", "a".repeat(40))),
             None
+        );
+        assert_eq!(
+            login_from_identity("Ann <9+ann_acme@users.noreply.github.com>"),
+            Some("ann_acme".into())
         );
         assert_eq!(login_from_identity("Claude <noreply@anthropic.com>"), None);
         assert_eq!(
