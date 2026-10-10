@@ -43,5 +43,9 @@ jobs:
             exit 1
           fi
       - run: mise run lint
+        env:
+          # online checks (vulnerable, impostor and stale action refs) run in CI only
+          JACTIONLINT_ONLINE: 1
+          GITHUB_TOKEN: ${{ github.token }}
       - run: cargo test
       - run: cargo audit

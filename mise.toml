@@ -32,7 +32,7 @@ mr-boxington = { version = "latest", minimum_release_age = "0s" }
 usage = { version = "latest", minimum_release_age = "0s" }
 hk = { version = "latest", minimum_release_age = "0s" }
 pkl = "latest"
-jactionlint = "latest"
+jactionlint = "2.1.0"
 ripgrep = "latest"
 
 [wrappers.cargo]
