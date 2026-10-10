@@ -136,6 +136,83 @@ pub fn log_between_paths(
         .map_err(Into::into)
 }
 
+/// GitHub logins credited on one commit: its author and any `Co-authored-by`
+/// trailers, in that order, without duplicates.
+pub type CommitCredit = (String, Vec<String>);
+
+/// List the GitHub logins credited on each commit in `from..to`, so release
+/// notes can credit people who appear only as a commit author or co-author
+/// (for example a contributor whose PR was recreated by a maintainer).
+pub fn commit_credits(
+    repo_root: &Path,
+    from: &str,
+    to: &str,
+    paths: &[String],
+) -> Result<Vec<CommitCredit>> {
+    let from = verify_ref(repo_root, from)?;
+    let to = resolve_ref(repo_root, to)?;
+    let mut args = vec![
+        "log".to_string(),
+        format!("{from}..{to}"),
+        "--pretty=format:%h%x1f%ae%x1f%(trailers:key=Co-authored-by,valueonly,unfold,separator=%x1e)%x1d"
+            .into(),
+        "--reverse".into(),
+        "--".into(),
+    ];
+    args.extend(paths.iter().map(|p| format!(":(literal){p}")));
+    let raw = process::cmd("git", args).cwd(repo_root).read()?;
+    Ok(parse_commit_credits(&raw))
+}
+
+fn parse_commit_credits(raw: &str) -> Vec<CommitCredit> {
+    raw.split('\x1d')
+        .filter_map(|record| {
+            let mut fields = record.trim().splitn(3, '\x1f');
+            let hash = fields.next().filter(|h| !h.is_empty())?;
+            let author = fields.next().unwrap_or_default();
+            let co_authors = fields.next().unwrap_or_default();
+            let mut logins: Vec<String> = Vec::new();
+            for login in std::iter::once(author)
+                .chain(co_authors.split('\x1e'))
+                .filter_map(login_from_identity)
+            {
+                if !logins.contains(&login) {
+                    logins.push(login);
+                }
+            }
+            (!logins.is_empty()).then(|| (hash.to_string(), logins))
+        })
+        .collect()
+}
+
+/// Extract a GitHub login from an email or a `Name <email>` trailer value.
+/// Only GitHub noreply addresses (`<id>+<login>@users.noreply.github.com` or
+/// `<login>@users.noreply.github.com`) identify a login; bots are skipped.
+fn login_from_identity(identity: &str) -> Option<String> {
+    let email = identity
+        .rsplit_once('<')
+        .map_or(identity, |(_, rest)| rest.trim_end_matches('>'))
+        .trim();
+    let local = email.strip_suffix("@users.noreply.github.com")?;
+    let login = local.rsplit_once('+').map_or(local, |(_, login)| login);
+    (!login.is_empty() && !is_automation_login(login)).then(|| login.to_string())
+}
+
+/// AI assistants and automation are tools, not contributors; never credit them.
+fn is_automation_login(login: &str) -> bool {
+    const SKIPPED: &[&str] = &[
+        "claude",
+        "copilot",
+        "codex",
+        "cursoragent",
+        "github-actions",
+        "dependabot",
+        "renovate",
+    ];
+    let login = login.to_ascii_lowercase();
+    login.ends_with("[bot]") || SKIPPED.contains(&login.as_str())
+}
+
 pub fn extract_pr_numbers(log: &str) -> Vec<u64> {
     let re = Regex::new(r"\(#(\d+)\)").unwrap();
     re.captures_iter(log)
@@ -285,5 +362,56 @@ mod tests {
         let log = log_between(repo.path(), "v1.0.0", "v2.0.0").unwrap();
         assert!(log.contains("second commit"));
         assert!(!log.contains("first commit"));
+    }
+
+    #[test]
+    fn login_from_identity_accepts_only_github_noreply() {
+        assert_eq!(
+            login_from_identity("Navid EMAD <66868650+navidemad@users.noreply.github.com>"),
+            Some("navidemad".into())
+        );
+        assert_eq!(
+            login_from_identity("octo@users.noreply.github.com"),
+            Some("octo".into())
+        );
+        assert_eq!(login_from_identity("Claude <noreply@anthropic.com>"), None);
+        assert_eq!(
+            login_from_identity("bot <1+renovate[bot]@users.noreply.github.com>"),
+            None
+        );
+        assert_eq!(
+            login_from_identity("Copilot <175728472+Copilot@users.noreply.github.com>"),
+            None
+        );
+    }
+
+    #[test]
+    fn commit_credits_include_author_and_coauthor_trailers() {
+        let repo = crate::test_helpers::TempRepo::new();
+        repo.write_file("a", "a");
+        repo.commit("base");
+        repo.tag("v1");
+        repo.write_file("a", "b");
+        repo.commit(
+            "fix: recreated (#1)\n\nCo-authored-by: Ada <7+ada@users.noreply.github.com>\nCo-authored-by: Claude <noreply@anthropic.com>\nCo-authored-by: Ada <7+ada@users.noreply.github.com>",
+        );
+        repo.write_file("a", "c");
+        repo.commit("chore: plain");
+        let credits = commit_credits(repo.path(), "v1", "HEAD", &[]).unwrap();
+        let trailer_commit = credits
+            .iter()
+            .find(|(_, logins)| logins.contains(&"ada".to_string()))
+            .expect("co-author credited");
+        assert_eq!(
+            trailer_commit.1.iter().filter(|l| *l == "ada").count(),
+            1,
+            "duplicate trailers collapse"
+        );
+        assert!(
+            credits
+                .iter()
+                .all(|(_, logins)| !logins.iter().any(|l| l == "claude")),
+            "{credits:?}"
+        );
     }
 }

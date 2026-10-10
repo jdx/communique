@@ -131,6 +131,29 @@ pub struct UserPromptContext<'a> {
     pub recent_releases: &'a [(String, String)],
 }
 
+/// Prompt section naming the GitHub logins credited on commits (authors and
+/// `Co-authored-by` trailers) that the git log's subject lines do not show.
+pub fn commit_credits_section(credits: &[(String, Vec<String>)]) -> Option<String> {
+    if credits.is_empty() {
+        return None;
+    }
+    let lines = credits
+        .iter()
+        .map(|(hash, logins)| {
+            let handles = logins
+                .iter()
+                .map(|l| format!("@{l}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("{hash}: {handles}")
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    Some(format!(
+        "\n## Commit Credits\nThese GitHub users are credited on commits in the range through the commit author or a `Co-authored-by` trailer. When you mention a change, credit every user listed for its commit alongside the PR author, even if the PR author is someone else (a maintainer may have recreated the PR). Count them when deciding who is a new contributor.\n```\n{lines}\n```"
+    ))
+}
+
 pub fn user_prompt(ctx: &UserPromptContext) -> String {
     let UserPromptContext {
         tag,
@@ -217,6 +240,15 @@ pub fn user_prompt(ctx: &UserPromptContext) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn test_commit_credits_section() {
+        assert!(commit_credits_section(&[]).is_none());
+        let section =
+            commit_credits_section(&[("abc1234".into(), vec!["ada".into(), "bob".into()])])
+                .unwrap();
+        assert!(section.contains("abc1234: @ada, @bob"));
+    }
+
     use super::*;
 
     #[test]
