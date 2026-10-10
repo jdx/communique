@@ -8,6 +8,10 @@ on:
       tag: { required: true, type: string }
       dry_run: { required: false, type: boolean, default: true }
 
+concurrency:
+  group: comment-release-fixes-${{ inputs.tag || github.event.release.tag_name }}
+  cancel-in-progress: false
+
 jobs:
   comment:
     permissions:

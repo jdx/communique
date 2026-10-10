@@ -7,6 +7,13 @@ on:
 
 permissions: {}
 
+# A release in flight must finish (no cancel). The default queue keeps one pending run and
+# replaces it with the newest, which is what release-plz wants: it acts on the SHA it checked
+# out, so stale runs queued from older commits would be wasteful and could act on old state.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
 env:
   MBX_DISABLE: "1"
 
@@ -14,6 +21,7 @@ jobs:
   release-plz-release:
     name: Release-plz release
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     permissions:
       contents: write
     outputs:
@@ -90,6 +98,7 @@ jobs:
     needs: [release-plz-release, upload-assets, enhance-release]
     if: ${{ needs.release-plz-release.outputs.tag != '' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     permissions:
       contents: write
     steps:
@@ -104,6 +113,7 @@ jobs:
     needs: release-plz-release
     if: ${{ needs.release-plz-release.outputs.tag != '' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     permissions:
       contents: write
       id-token: write
@@ -113,7 +123,7 @@ jobs:
           ref: refs/tags/${{ needs.release-plz-release.outputs.tag }}
           persist-credentials: false
       - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2 # zizmor: ignore[cache-poisoning]
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: ci-rust
           save-if: false
@@ -130,6 +140,7 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
           TAG: ${{ needs.release-plz-release.outputs.tag }}
         run: |
+          set -o pipefail
           gh release view "$TAG" --json body --jq .body \
             | perl -0pe 's/\n*##\s+💚?\s*Sponsor communique\b.*\z//s' \
             > /tmp/release-notes.md
@@ -148,6 +159,7 @@ jobs:
   release-plz-pr:
     name: Release-plz PR
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     permissions:
       contents: write
       pull-requests: write
@@ -158,7 +170,7 @@ jobs:
       # release-plz-pr needs persisted credentials so the later
       # `git push --force-with-lease` can authenticate.
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # zizmor: ignore[artipacked] v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_PLZ_TOKEN }}
@@ -207,6 +219,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
           STEPS_RELEASE_PLZ_OUTPUTS_PR: ${{ steps.release-plz.outputs.pr }}
         run: |
+          set -o pipefail
           PR_NUMBER=$(echo "${STEPS_RELEASE_PLZ_OUTPUTS_PR}" | jq -r '.number')
           gh pr checkout "$PR_NUMBER"
 

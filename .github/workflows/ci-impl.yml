@@ -7,6 +7,9 @@ on:
         required: true
         type: boolean
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -23,12 +26,13 @@ jobs:
         with:
           persist-credentials: false
       - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2 # zizmor: ignore[cache-poisoning]
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: ci-rust
           save-if: ${{ inputs.trusted && github.ref == 'refs/heads/main' }}
       - run: rustup component add clippy rustfmt
-      - uses: taiki-e/install-action@c030abdc26abd91eb618a6c9d1963825f7ce5a90 # zizmor: ignore[impostor-commit] cargo-audit (tag-only ref by design)
+      # cargo-audit: a tag-only ref by design, so this pin is not on a branch.
+      - uses: taiki-e/install-action@c030abdc26abd91eb618a6c9d1963825f7ce5a90
       - run: mise run render
       - name: assert render produces no diff
         run: |
@@ -39,5 +43,9 @@ jobs:
             exit 1
           fi
       - run: mise run lint
+        env:
+          # online checks (vulnerable, impostor and stale action refs) run in CI only
+          JACTIONLINT_ONLINE: 1
+          GITHUB_TOKEN: ${{ github.token }}
       - run: cargo test
       - run: cargo audit
