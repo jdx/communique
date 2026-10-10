@@ -50,6 +50,7 @@ Detailed GitHub release notes in markdown. Use the following template as a base,
 ## New Contributors
 <!-- List first-time contributors to the project, with a link to their first PR -->
 <!-- e.g. * @username made their first contribution in #123 -->
+<!-- If a contributor has no PR of their own (a maintainer recreated their work), link the credited commit instead -->
 <!-- Omit this section if there are no new contributors -->
 
 **Full Changelog**: https://github.com/OWNER/REPO/compare/PREV_TAG...TAG
