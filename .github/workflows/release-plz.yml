@@ -7,12 +7,12 @@ on:
 
 permissions: {}
 
-# A release in flight must finish. Release-plz works from the state of main, so a
-# newer waiting run replaces an older waiting one.
+# A release in flight must finish (no cancel). The default queue keeps one pending run and
+# replaces it with the newest, which is what release-plz wants: it acts on the SHA it checked
+# out, so stale runs queued from older commits would be wasteful and could act on old state.
 concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: false
-  queue: max
 
 env:
   MBX_DISABLE: "1"
@@ -21,7 +21,7 @@ jobs:
   release-plz-release:
     name: Release-plz release
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     permissions:
       contents: write
     outputs:
@@ -98,7 +98,7 @@ jobs:
     needs: [release-plz-release, upload-assets, enhance-release]
     if: ${{ needs.release-plz-release.outputs.tag != '' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     permissions:
       contents: write
     steps:
@@ -113,7 +113,7 @@ jobs:
     needs: release-plz-release
     if: ${{ needs.release-plz-release.outputs.tag != '' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     permissions:
       contents: write
       id-token: write
@@ -159,7 +159,7 @@ jobs:
   release-plz-pr:
     name: Release-plz PR
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     permissions:
       contents: write
       pull-requests: write
