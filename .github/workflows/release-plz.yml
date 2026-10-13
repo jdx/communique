@@ -123,10 +123,8 @@ jobs:
           ref: refs/tags/${{ needs.release-plz-release.outputs.tag }}
           persist-credentials: false
       - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          shared-key: ci-rust
-          save-if: false
+          cache: false
       - name: Enhance GitHub release with communique
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
