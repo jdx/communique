@@ -247,7 +247,7 @@ jobs:
           POWERSHELL
           pwsh -NoProfile -NonInteractive -File completion-syntax-check.ps1
           gh release upload "$TAG" communique.usage.kdl communique.bash communique.zsh communique.fish communique.powershell --repo "$REPO" --clobber
-      - uses: jdx/packslip@87479dfc6443253dff69601cace5fc6ea07e6df5 # v1.4.0
+      - uses: jdx/packslip@2af36e792faa28130987c8af509e475c7458405d # v1.6.0
         env:
           GH_REPO: ${{ github.repository }}
         with:
