@@ -156,6 +156,21 @@ _Otherwise a maintenance release: CI hardening, `mbx`/`mr-boxington` tooling upd
 
 - *(generate)* Support `communique generate HEAD --changelog` as an intentional `[Unreleased]` target — replaces the existing `## [Unreleased]` section in place instead of inserting a literal `## [HEAD]` entry, with prompt/title labels switched to "unreleased" wording and an early guard rejecting `HEAD --github-release`. ([#121](https://github.com/jdx/communique/pull/121)) (@ThomasK33)
 
+## [1.6.1](https://github.com/jdx/communique/compare/v1.6.0...v1.6.1) - 2026-10-17
+
+### Other
+
+- *(deps)* update rust crate usage-rs to v7.0.2 ([#398](https://github.com/jdx/communique/pull/398))
+- *(deps)* update rust crate xx to v2.6.3 ([#397](https://github.com/jdx/communique/pull/397))
+- *(release)* shorten minimum release age to 2 days
+- *(deps)* update rust crate usage-rs to v7.0.1 ([#396](https://github.com/jdx/communique/pull/396))
+- *(deps)* update rustls to 0.23.46 ([#395](https://github.com/jdx/communique/pull/395))
+- stop restoring caches in release jobs ([#394](https://github.com/jdx/communique/pull/394))
+- *(deps)* update actions/checkout action to v7 ([#393](https://github.com/jdx/communique/pull/393))
+- *(deps)* update github actions ([#392](https://github.com/jdx/communique/pull/392))
+- *(deps)* update dependency hk to latest ([#391](https://github.com/jdx/communique/pull/391))
+- *(deps)* lock file maintenance ([#390](https://github.com/jdx/communique/pull/390))
+
 ## [1.6.0](https://github.com/jdx/communique/compare/v1.5.1...v1.6.0) - 2026-10-10
 
 ### Added
