@@ -156,6 +156,19 @@ _Otherwise a maintenance release: CI hardening, `mbx`/`mr-boxington` tooling upd
 
 - *(generate)* Support `communique generate HEAD --changelog` as an intentional `[Unreleased]` target — replaces the existing `## [Unreleased]` section in place instead of inserting a literal `## [HEAD]` entry, with prompt/title labels switched to "unreleased" wording and an early guard rejecting `HEAD --github-release`. ([#121](https://github.com/jdx/communique/pull/121)) (@ThomasK33)
 
+## [1.6.2](https://github.com/jdx/communique/compare/v1.6.1...v1.6.2) - 2026-10-20
+
+### Fixed
+
+- *(deps)* update webpki-root-certs and rustls-webpki for eMudhra CA revocation ([#406](https://github.com/jdx/communique/pull/406))
+
+### Other
+
+- *(deps)* update mise tools to latest ([#403](https://github.com/jdx/communique/pull/403))
+- *(deps)* update dependency vue to v3.5.44 ([#402](https://github.com/jdx/communique/pull/402))
+- *(deps)* update rust crate usage-rs to v7.1.0 ([#405](https://github.com/jdx/communique/pull/405))
+- *(deps)* update github actions ([#404](https://github.com/jdx/communique/pull/404))
+
 ## [1.6.1](https://github.com/jdx/communique/compare/v1.6.0...v1.6.1) - 2026-10-19
 
 ### Fixed
