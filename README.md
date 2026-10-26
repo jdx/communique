@@ -75,6 +75,25 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 export OPENAI_API_KEY="sk-..."
 ```
 
+To add custom headers to OpenAI-compatible requests, set `OPENAI_CUSTOM_HEADERS`
+to a JSON object with string values. For example, to send the Copilot integration header:
+
+```sh
+export OPENAI_CUSTOM_HEADERS='{"copilot-integration-id":"copilot-developer-cli"}'
+```
+
+You can also pass repeatable `--header` flags:
+
+```sh
+communique generate v1.2.0 --provider openai --model gpt-4.1 \
+  --header 'copilot-integration-id: copilot-developer-cli'
+```
+
+CLI headers override `OPENAI_CUSTOM_HEADERS` values with the same name (case-insensitive);
+the last repeated header wins. Custom headers override default request headers, including `Authorization`.
+An unset or empty value adds no headers; invalid JSON or HTTP headers cause an error
+before the request is sent. This setting only applies to the OpenAI provider.
+
 For a custom OpenAI-compatible endpoint, set `OPENAI_BASE_URL`:
 
 ```sh

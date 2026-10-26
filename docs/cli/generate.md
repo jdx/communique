@@ -41,6 +41,7 @@ Generate release notes for a git tag
 - **`--max-tokens <MAX_TOKENS>`** — Max response tokens
 - **`--provider <PROVIDER>`** — LLM provider (anthropic or openai, auto-detected from model if omitted)
 - **`--base-url <BASE_URL>`** — Base URL for the LLM API
+- **`--header <HEADER>`** — Custom OpenAI-compatible HTTP header (name: value); repeat to add more
 - **`-o --output <OUTPUT>`** — Write output to a file instead of stdout
 
   **Effect:** modifies state

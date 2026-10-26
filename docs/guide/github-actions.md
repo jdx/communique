@@ -49,6 +49,64 @@ jobs:
 
 `fetch-depth: 0` is required so communiqué can read the full git history between tags.
 
+## With GitHub Copilot
+
+Use Copilot with the built-in Actions token in an organization-owned repository.
+The organization must have Copilot access and enable **Allow use of Copilot CLI
+billed to the organization**, as described in
+[GitHub's authentication guide](https://github.com/github/copilot-sdk/blob/main/docs/auth/server-to-server-tokens.md#github-actions).
+The permission is named `copilot-requests: write` (plural).
+
+```yaml
+name: Copilot Release Notes
+
+on:
+  push:
+    tags:
+      - v[0-9]+.*
+
+permissions: {}
+
+concurrency:
+  group: copilot-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-notes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      pull-requests: read
+      copilot-requests: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo install communique --locked
+      - name: Generate release notes with Copilot
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.GITHUB_TOKEN }}
+          OPENAI_BASE_URL: https://api.githubcopilot.com
+        run: |
+          communique generate "$RELEASE_TAG" --github-release \
+            --provider openai --model gpt-4.1 \
+            --header 'copilot-integration-id: copilot-developer-cli'
+```
+
+This sends the Actions token and Copilot integration header to the
+OpenAI-compatible Copilot endpoint, then publishes the generated release notes.
+Choose a model available to your organization's Copilot plan.
+Alternatively, replace `--header` with an environment variable:
+
+```yaml
+OPENAI_CUSTOM_HEADERS: '{"copilot-integration-id":"copilot-developer-cli"}'
+```
+
 ## With release-plz
 
 [release-plz](https://release-plz.ieni.dev/) automates versioning, changelogs, and crate publishing. communiqué can enhance the release notes it creates.
@@ -147,6 +205,8 @@ jobs:
 |----------|-------------|
 | `ANTHROPIC_API_KEY` | API key for Anthropic (Claude models) |
 | `OPENAI_API_KEY` | API key for OpenAI-compatible providers |
+| `OPENAI_BASE_URL` | Custom OpenAI-compatible API endpoint |
+| `OPENAI_CUSTOM_HEADERS` | JSON object of HTTP headers; repeatable `--header` flags take precedence |
 | `GITHUB_TOKEN` | Token for GitHub API access (PR details, releases) |
 
 The provider is auto-detected from the model name: `claude-*` models use Anthropic, everything else uses OpenAI-compatible endpoints.

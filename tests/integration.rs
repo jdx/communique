@@ -91,6 +91,15 @@ fn test_init_command() {
 /// pipeline against a temporary git repo.
 #[tokio::test]
 async fn test_generate_end_to_end() {
+    generate_end_to_end(false).await;
+}
+
+#[tokio::test]
+async fn test_cli_headers_override_environment_case_insensitively() {
+    generate_end_to_end(true).await;
+}
+
+async fn generate_end_to_end(custom_headers: bool) {
     let server = wiremock::MockServer::start().await;
 
     // Mock the OpenAI chat completions endpoint
@@ -142,7 +151,8 @@ async fn test_generate_end_to_end() {
     // Build the binary path
     let bin = env!("CARGO_BIN_EXE_communique");
 
-    let result = Command::new(bin)
+    let mut command = Command::new(bin);
+    command
         .current_dir(repo)
         .args([
             "generate",
@@ -162,9 +172,32 @@ async fn test_generate_end_to_end() {
         ])
         .env("OPENAI_API_KEY", "test-key")
         .env("CLX_NO_PROGRESS", "1")
-        .env_remove("GITHUB_TOKEN")
-        .output()
-        .expect("failed to run communique");
+        .env_remove("GITHUB_TOKEN");
+    if custom_headers {
+        // Set the environment only on the CLI subprocess so parallel tests stay isolated.
+        command
+            .env(
+                "OPENAI_CUSTOM_HEADERS",
+                json!({
+                    "COPILOT-INTEGRATION-ID": "environment-value",
+                    "authorization": "environment-token",
+                    "X-Environment-Only": "preserved",
+                })
+                .to_string(),
+            )
+            .args([
+                "--header",
+                "copilot-integration-id: cli-value",
+                "--header",
+                "Authorization: cli-token",
+                "--header",
+                "X-Cli-Only: added",
+            ]);
+    } else {
+        command.env_remove("OPENAI_CUSTOM_HEADERS");
+    }
+
+    let result = command.output().expect("failed to run communique");
 
     let stderr = String::from_utf8_lossy(&result.stderr);
     assert!(
@@ -173,6 +206,26 @@ async fn test_generate_end_to_end() {
         result.status,
         stderr
     );
+
+    if custom_headers {
+        let requests = server.received_requests().await.unwrap();
+        assert_eq!(requests.len(), 1);
+        let headers = &requests[0].headers;
+        // Compare every value, catching accidental appending of the environment value too.
+        for (name, expected) in [
+            ("copilot-integration-id", "cli-value"),
+            ("authorization", "cli-token"),
+            ("x-environment-only", "preserved"),
+            ("x-cli-only", "added"),
+        ] {
+            let values: Vec<_> = headers
+                .get_all(name)
+                .iter()
+                .map(|v| v.to_str().unwrap())
+                .collect();
+            assert_eq!(values, [expected], "unexpected values for {name}");
+        }
+    }
 
     let output = std::fs::read_to_string(&output_file).expect("output file should exist");
     assert!(output.contains("First Release"), "output: {output}");

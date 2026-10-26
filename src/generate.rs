@@ -23,6 +23,7 @@ pub struct GenerateOptions {
     pub max_tokens: Option<u32>,
     pub provider: Option<Provider>,
     pub base_url: Option<String>,
+    pub headers: Vec<String>,
     pub output: Option<PathBuf>,
     pub config: Option<PathBuf>,
 }
@@ -282,7 +283,14 @@ async fn gather_context(opts: &GenerateOptions, job: &Arc<ProgressJob>) -> miett
         std::env::var("OPENAI_BASE_URL").ok(),
     );
 
-    let client = providers::build_client(&provider, api_key, model, max_tokens, base_url);
+    let client = providers::build_client(
+        &provider,
+        api_key,
+        model,
+        max_tokens,
+        base_url,
+        &opts.headers,
+    )?;
 
     let prev_tag = match &opts.prev_tag {
         Some(t) => t.clone(),
@@ -578,6 +586,7 @@ mod tests {
             max_tokens: None,
             provider: None,
             base_url: None,
+            headers: vec![],
             output: None,
             config: None,
         }

@@ -74,6 +74,7 @@ async fn main() -> miette::Result<()> {
                 max_tokens: g.max_tokens,
                 provider: g.provider,
                 base_url: g.base_url,
+                headers: g.headers,
                 output: g.output,
                 config: cli.config,
             })
