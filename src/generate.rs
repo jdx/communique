@@ -75,8 +75,8 @@ fn resolve_base_url(
 ) -> Option<String> {
     opts.base_url
         .clone()
-        .or(defaults.base_url.clone())
         .filter(|url| !url.is_empty())
+        .or_else(|| defaults.base_url.clone().filter(|url| !url.is_empty()))
         .or_else(|| openai_base_url.filter(|url| *provider == Provider::OpenAI && !url.is_empty()))
 }
 
@@ -887,7 +887,13 @@ mod tests {
         );
         assert_eq!(resolve(&opts, &defaults, &Provider::Anthropic), None);
 
+        defaults.base_url = Some(String::new());
+        assert_eq!(
+            resolve(&opts, &defaults, &Provider::OpenAI).as_deref(),
+            Some("https://env.example/v1")
+        );
         defaults.base_url = Some("https://config.example/v1".into());
+        opts.base_url = Some(String::new());
         assert_eq!(
             resolve(&opts, &defaults, &Provider::OpenAI).as_deref(),
             Some("https://config.example/v1")
