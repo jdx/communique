@@ -156,6 +156,24 @@ _Otherwise a maintenance release: CI hardening, `mbx`/`mr-boxington` tooling upd
 
 - *(generate)* Support `communique generate HEAD --changelog` as an intentional `[Unreleased]` target — replaces the existing `## [Unreleased]` section in place instead of inserting a literal `## [HEAD]` entry, with prompt/title labels switched to "unreleased" wording and an early guard rejecting `HEAD --github-release`. ([#121](https://github.com/jdx/communique/pull/121)) (@ThomasK33)
 
+## [1.7.0](https://github.com/jdx/communique/compare/v1.6.2...v1.7.0) - 2026-10-26
+
+### Added
+
+- support OPENAI_BASE_URL for custom endpoints ([#418](https://github.com/jdx/communique/pull/418))
+
+### Other
+
+- *(deps)* update rust crate usage-rs to v7.1.2 ([#417](https://github.com/jdx/communique/pull/417))
+- *(deps)* update rust crate clx to v3.0.5 ([#416](https://github.com/jdx/communique/pull/416))
+- *(deps)* lock file maintenance ([#415](https://github.com/jdx/communique/pull/415))
+- *(deps)* update jdx/packslip action to v1.8.0 ([#414](https://github.com/jdx/communique/pull/414))
+- *(deps)* lock file maintenance ([#413](https://github.com/jdx/communique/pull/413))
+- *(deps)* update rust crate usage-rs to v7.1.1 ([#412](https://github.com/jdx/communique/pull/412))
+- *(deps)* lock file maintenance ([#410](https://github.com/jdx/communique/pull/410))
+- *(deps)* update jdx/workflows action to v1.2.1 ([#409](https://github.com/jdx/communique/pull/409))
+- *(deps)* update hk, mr-boxington in mise.lock ([#408](https://github.com/jdx/communique/pull/408))
+
 ## [1.6.2](https://github.com/jdx/communique/compare/v1.6.1...v1.6.2) - 2026-10-20
 
 ### Fixed
