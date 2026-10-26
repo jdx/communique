@@ -75,6 +75,18 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 export OPENAI_API_KEY="sk-..."
 ```
 
+For a custom OpenAI-compatible endpoint, set `OPENAI_BASE_URL`:
+
+```sh
+export OPENAI_BASE_URL="http://localhost:11434/v1"
+communique generate v1.2.0 --model llama3
+```
+
+This sends OpenAI-compatible requests to the local endpoint. `--base-url` takes
+precedence over `defaults.base_url` in `communique.toml`, which takes precedence
+over `OPENAI_BASE_URL`. Empty environment values are ignored, and this variable
+does not affect the Anthropic provider.
+
 GitHub context and GitHub Release publishing also need a token:
 
 ```sh

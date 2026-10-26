@@ -67,6 +67,19 @@ fn validate_generate_options(opts: &GenerateOptions) -> miette::Result<()> {
     Ok(())
 }
 
+fn resolve_base_url(
+    opts: &GenerateOptions,
+    defaults: &Defaults,
+    provider: &Provider,
+    openai_base_url: Option<String>,
+) -> Option<String> {
+    opts.base_url
+        .clone()
+        .or(defaults.base_url.clone())
+        .filter(|url| !url.is_empty())
+        .or_else(|| openai_base_url.filter(|url| *provider == Provider::OpenAI && !url.is_empty()))
+}
+
 fn resolve_model(opts: &GenerateOptions, defaults: &Defaults) -> String {
     opts.model
         .clone()
@@ -262,11 +275,12 @@ async fn gather_context(opts: &GenerateOptions, job: &Arc<ProgressJob>) -> miett
             .unwrap_or_default(),
     };
 
-    let base_url = opts
-        .base_url
-        .clone()
-        .or(defaults.base_url.clone())
-        .filter(|u| !u.is_empty());
+    let base_url = resolve_base_url(
+        opts,
+        &defaults,
+        &provider,
+        std::env::var("OPENAI_BASE_URL").ok(),
+    );
 
     let client = providers::build_client(&provider, api_key, model, max_tokens, base_url);
 
@@ -844,6 +858,49 @@ mod tests {
 
         opts.model = Some("cli-model".into());
         assert_eq!(resolve_model(&opts, &defaults), "cli-model");
+    }
+
+    #[test]
+    fn test_resolve_base_url_precedence_and_provider() {
+        let mut opts = test_opts("v1.0.0");
+        let mut defaults = Defaults::default();
+        let resolve = |opts: &GenerateOptions, defaults: &Defaults, provider: &Provider| {
+            resolve_base_url(
+                opts,
+                defaults,
+                provider,
+                Some("https://env.example/v1".into()),
+            )
+        };
+
+        assert_eq!(
+            resolve_base_url(&opts, &defaults, &Provider::OpenAI, None),
+            None
+        );
+        assert_eq!(
+            resolve_base_url(&opts, &defaults, &Provider::OpenAI, Some(String::new())),
+            None
+        );
+        assert_eq!(
+            resolve(&opts, &defaults, &Provider::OpenAI).as_deref(),
+            Some("https://env.example/v1")
+        );
+        assert_eq!(resolve(&opts, &defaults, &Provider::Anthropic), None);
+
+        defaults.base_url = Some("https://config.example/v1".into());
+        assert_eq!(
+            resolve(&opts, &defaults, &Provider::OpenAI).as_deref(),
+            Some("https://config.example/v1")
+        );
+        opts.base_url = Some("https://cli.example/v1".into());
+        assert_eq!(
+            resolve(&opts, &defaults, &Provider::OpenAI).as_deref(),
+            Some("https://cli.example/v1")
+        );
+        assert_eq!(
+            resolve(&opts, &defaults, &Provider::Anthropic).as_deref(),
+            Some("https://cli.example/v1")
+        );
     }
 
     #[tokio::test]
