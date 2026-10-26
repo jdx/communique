@@ -404,6 +404,26 @@
             }
           },
           {
+            "name": "header",
+            "usage": "--header <HEADER>",
+            "help": "Custom OpenAI-compatible HTTP header (name: value); repeat to add more",
+            "help_first_line": "Custom OpenAI-compatible HTTP header (name: value); repeat to add more",
+            "short": [],
+            "long": [
+              "header"
+            ],
+            "var": true,
+            "hide": false,
+            "global": false,
+            "arg": {
+              "name": "HEADER",
+              "usage": "<HEADER>",
+              "required": true,
+              "double_dash": "Optional",
+              "hide": false
+            }
+          },
+          {
             "name": "output",
             "usage": "-o --output <OUTPUT>",
             "help": "Write output to a file instead of stdout",

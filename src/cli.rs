@@ -56,6 +56,10 @@ pub struct Generate {
     #[usage(long)]
     pub base_url: Option<String>,
 
+    /// Custom OpenAI-compatible HTTP header (name: value); repeat to add more
+    #[usage(long = "header")]
+    pub headers: Vec<String>,
+
     /// Write output to a file instead of stdout
     #[usage(long, short, effect = "write")]
     pub output: Option<PathBuf>,
@@ -150,12 +154,17 @@ mod tests {
             "shared",
             "--channel",
             "stable",
+            "--header",
+            "x-one: first",
+            "--header",
+            "x-two: second",
         ])
         .unwrap();
         let Command::Generate(g) = cli.command else {
             panic!("expected generate")
         };
         assert_eq!(g.workflow.paths, ["cli", "shared"]);
+        assert_eq!(g.headers, ["x-one: first", "x-two: second"]);
         assert!(matches!(
             g.workflow.channel,
             Some(crate::workflow::Channel::Stable)

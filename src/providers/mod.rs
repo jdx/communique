@@ -31,21 +31,28 @@ pub fn build_client(
     model: String,
     max_tokens: u32,
     base_url: Option<String>,
-) -> Box<dyn LlmClient> {
-    match provider {
+    headers: &[String],
+) -> crate::error::Result<Box<dyn LlmClient>> {
+    Ok(match provider {
         Provider::Anthropic => {
             let base = base_url.unwrap_or_else(|| "https://api.anthropic.com".into());
+            if !headers.is_empty() {
+                return Err(crate::error::Error::Llm(
+                    "--header only applies to the OpenAI provider".into(),
+                ));
+            }
             Box::new(anthropic::AnthropicProvider::new(
                 api_key, model, max_tokens, base,
             ))
         }
         Provider::OpenAI => {
             let base = base_url.unwrap_or_else(|| "https://api.openai.com/v1".into());
-            Box::new(openai::OpenAIProvider::new(
-                api_key, model, max_tokens, base,
-            ))
+            Box::new(
+                openai::OpenAIProvider::new(api_key, model, max_tokens, base)
+                    .with_headers(headers)?,
+            )
         }
-    }
+    })
 }
 
 #[cfg(test)]

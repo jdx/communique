@@ -68,6 +68,9 @@ cmd generate help="Generate release notes for a git tag" effect=read {
     flag --base-url help="Base URL for the LLM API" {
         arg <BASE_URL>
     }
+    flag --header help="Custom OpenAI-compatible HTTP header (name: value); repeat to add more" var=#true {
+        arg <HEADER>
+    }
     flag "-o --output" help="Write output to a file instead of stdout" effect=write {
         arg <OUTPUT>
     }

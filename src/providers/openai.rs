@@ -1,6 +1,7 @@
 use std::future::Future;
 use std::pin::Pin;
 
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -15,6 +16,7 @@ pub struct OpenAIProvider {
     model: String,
     max_tokens: u32,
     base_url: String,
+    headers: HeaderMap,
 }
 
 #[derive(Debug, Deserialize)]
@@ -67,7 +69,23 @@ impl OpenAIProvider {
             model,
             max_tokens,
             base_url,
+            headers: HeaderMap::new(),
         }
+    }
+
+    pub fn with_headers(mut self, headers: &[String]) -> Result<Self> {
+        for header in headers {
+            let (name, value) = header
+                .split_once(':')
+                .ok_or_else(|| Error::Llm("--header must use name: value format".into()))?;
+            let name = HeaderName::from_bytes(name.trim().as_bytes())
+                .map_err(|_| Error::Llm("--header contains an invalid header name".into()))?;
+            let mut value = HeaderValue::from_str(value.trim())
+                .map_err(|_| Error::Llm("--header contains an invalid header value".into()))?;
+            value.set_sensitive(true);
+            self.headers.insert(name, value);
+        }
+        Ok(self)
     }
 }
 
@@ -99,6 +117,18 @@ impl LlmClient for OpenAIProvider {
         tools: &'a [ToolDefinition],
     ) -> Pin<Box<dyn Future<Output = Result<TurnResponse>> + Send + 'a>> {
         Box::pin(async move {
+            let mut custom_headers = match std::env::var("OPENAI_CUSTOM_HEADERS") {
+                Ok(value) => parse_custom_headers(&value)?,
+                Err(std::env::VarError::NotPresent) => HeaderMap::new(),
+                Err(_) => {
+                    return Err(Error::Llm(
+                        "OPENAI_CUSTOM_HEADERS must contain valid Unicode".into(),
+                    ));
+                }
+            };
+
+            custom_headers.extend(self.headers.clone());
+
             // Build messages array: system message + conversation messages
             let mut messages = vec![json!({
                 "role": "system",
@@ -141,7 +171,7 @@ impl LlmClient for OpenAIProvider {
                 if !self.api_key.is_empty() {
                     req = req.header("Authorization", format!("Bearer {}", self.api_key));
                 }
-                req.send()
+                req.headers(custom_headers.clone()).send()
             })
             .await?;
 
@@ -225,6 +255,29 @@ impl LlmClient for OpenAIProvider {
     }
 }
 
+/// Parse without including header values (which may be secrets) in diagnostics.
+fn parse_custom_headers(value: &str) -> Result<HeaderMap> {
+    if value.trim().is_empty() {
+        return Ok(HeaderMap::new());
+    }
+    let entries: std::collections::BTreeMap<String, String> =
+        serde_json::from_str(value).map_err(|_| {
+            Error::Llm("OPENAI_CUSTOM_HEADERS must be a JSON object with string values".into())
+        })?;
+    let mut headers = HeaderMap::new();
+    for (name, value) in entries {
+        let name = HeaderName::from_bytes(name.as_bytes()).map_err(|_| {
+            Error::Llm("OPENAI_CUSTOM_HEADERS contains an invalid header name".into())
+        })?;
+        let mut value = HeaderValue::from_str(&value).map_err(|_| {
+            Error::Llm("OPENAI_CUSTOM_HEADERS contains an invalid header value".into())
+        })?;
+        value.set_sensitive(true);
+        headers.insert(name, value);
+    }
+    Ok(headers)
+}
+
 fn uses_max_completion_tokens(model: &str) -> bool {
     let model = model.to_ascii_lowercase();
     let model_name = model.rsplit([':', '/']).next().unwrap();
@@ -248,6 +301,41 @@ mod tests {
 
     fn make_provider(base_url: &str) -> OpenAIProvider {
         OpenAIProvider::new("test-key".into(), "gpt-4".into(), 1024, base_url.into())
+    }
+
+    #[test]
+    fn test_invalid_cli_headers() {
+        for invalid in ["missing-colon", "bad name: secret", "x-test: secret\nvalue"] {
+            let error = make_provider("http://localhost")
+                .with_headers(&[invalid.into()])
+                .err()
+                .expect("invalid header must fail")
+                .to_string();
+            assert!(error.contains("--header"));
+            assert!(!error.contains("secret"));
+        }
+    }
+
+    #[test]
+    fn test_custom_headers() {
+        let headers = parse_custom_headers(
+            r#"{"copilot-integration-id":"copilot-developer-cli","X-Custom":"value"}"#,
+        )
+        .unwrap();
+        assert_eq!(headers["copilot-integration-id"], "copilot-developer-cli");
+        assert_eq!(headers["x-custom"], "value");
+        assert!(parse_custom_headers("").unwrap().is_empty());
+        for invalid in [
+            "not json",
+            "[]",
+            r#"{"x":1}"#,
+            r#"{"bad name":"secret"}"#,
+            r#"{"x":"secret\nvalue"}"#,
+        ] {
+            let error = parse_custom_headers(invalid).unwrap_err().to_string();
+            assert!(error.contains("OPENAI_CUSTOM_HEADERS"));
+            assert!(!error.contains("secret"));
+        }
     }
 
     #[test]
@@ -291,6 +379,11 @@ mod tests {
         let server = wiremock::MockServer::start().await;
         wiremock::Mock::given(wiremock::matchers::method("POST"))
             .and(wiremock::matchers::path("/chat/completions"))
+            .and(wiremock::matchers::header(
+                "copilot-integration-id",
+                "copilot-developer-cli",
+            ))
+            .and(wiremock::matchers::header("authorization", "custom-token"))
             .and(wiremock::matchers::body_partial_json(json!({
                 "model": "gpt-4",
                 "max_tokens": 1024,
@@ -305,7 +398,13 @@ mod tests {
             .mount(&server)
             .await;
 
-        let provider = make_provider(&server.uri());
+        let provider = make_provider(&server.uri())
+            .with_headers(&[
+                "copilot-integration-id: old".into(),
+                "Copilot-Integration-Id: copilot-developer-cli".into(),
+                "Authorization: custom-token".into(),
+            ])
+            .unwrap();
         let mut conv = provider.new_conversation("Hi");
         let resp = provider.send_turn("system", &mut conv, &[]).await.unwrap();
         assert_eq!(resp.stop_reason, StopReason::EndTurn);
