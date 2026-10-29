@@ -156,6 +156,19 @@ _Otherwise a maintenance release: CI hardening, `mbx`/`mr-boxington` tooling upd
 
 - *(generate)* Support `communique generate HEAD --changelog` as an intentional `[Unreleased]` target — replaces the existing `## [Unreleased]` section in place instead of inserting a literal `## [HEAD]` entry, with prompt/title labels switched to "unreleased" wording and an early guard rejecting `HEAD --github-release`. ([#121](https://github.com/jdx/communique/pull/121)) (@ThomasK33)
 
+## [1.8.0](https://github.com/jdx/communique/compare/v1.7.0...v1.8.0) - 2026-10-29
+
+### Added
+
+- *(openai)* support custom request headers ([#419](https://github.com/jdx/communique/pull/419))
+
+### Other
+
+- *(deps)* lock file maintenance ([#425](https://github.com/jdx/communique/pull/425))
+- *(deps)* update dependency node to v26 ([#424](https://github.com/jdx/communique/pull/424))
+- *(deps)* update github actions ([#422](https://github.com/jdx/communique/pull/422))
+- *(deps)* update rust crate usage-rs to v7.1.3 ([#421](https://github.com/jdx/communique/pull/421))
+
 ## [1.7.0](https://github.com/jdx/communique/compare/v1.6.2...v1.7.0) - 2026-10-26
 
 ### Added
