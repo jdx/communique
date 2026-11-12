@@ -2,6 +2,13 @@
 
 Thank you for your interest in contributing to communique.
 
+## Report a bug
+
+Bug reports, in Issues or Discussions, are only for problems you ran into while
+using communique. Say what you were trying to do, what you ran, the relevant
+config, and what happened. Reports found by reading the source or by having an
+agent search the code will be closed.
+
 ## Contribution Expectations
 
 Before opening a PR, unless it is something obvious, consider creating a
