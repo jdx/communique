@@ -156,6 +156,38 @@ _Otherwise a maintenance release: CI hardening, `mbx`/`mr-boxington` tooling upd
 
 - *(generate)* Support `communique generate HEAD --changelog` as an intentional `[Unreleased]` target — replaces the existing `## [Unreleased]` section in place instead of inserting a literal `## [HEAD]` entry, with prompt/title labels switched to "unreleased" wording and an early guard rejecting `HEAD --github-release`. ([#121](https://github.com/jdx/communique/pull/121)) (@ThomasK33)
 
+## [1.8.1](https://github.com/jdx/communique/compare/v1.8.0...v1.8.1) - 2026-11-14
+
+### Other
+
+- *(ci)* migrate lock workflows to GitHub App client IDs ([#454](https://github.com/jdx/communique/pull/454))
+- *(deps)* lock file maintenance ([#453](https://github.com/jdx/communique/pull/453))
+- count a passing earlier attempt of a rerun docs run ([#452](https://github.com/jdx/communique/pull/452))
+- track docs-failure emails for each docs workflow ([#451](https://github.com/jdx/communique/pull/451))
+- keep a skipped completion from dropping a pending docs-failure email ([#450](https://github.com/jdx/communique/pull/450))
+- count a docs failure as reported only once its email was sent ([#449](https://github.com/jdx/communique/pull/449))
+- email when the docs build fails on the default branch ([#447](https://github.com/jdx/communique/pull/447))
+- *(deps)* lock file maintenance ([#448](https://github.com/jdx/communique/pull/448))
+- *(deps)* update dependency vue to v3.5.45 ([#446](https://github.com/jdx/communique/pull/446))
+- *(deps)* lock file maintenance ([#445](https://github.com/jdx/communique/pull/445))
+- *(deps)* update github actions ([#443](https://github.com/jdx/communique/pull/443))
+- only accept bug reports from real use
+- *(deps)* update rust crate usage-rs to v7.3.0 ([#442](https://github.com/jdx/communique/pull/442))
+- *(deps)* lock file maintenance ([#441](https://github.com/jdx/communique/pull/441))
+- *(deps)* update apple-actions/import-codesign-certs action to v7.2.0 ([#440](https://github.com/jdx/communique/pull/440))
+- *(deps)* lock file maintenance ([#439](https://github.com/jdx/communique/pull/439))
+- *(deps)* lock file maintenance ([#438](https://github.com/jdx/communique/pull/438))
+- *(deps)* update github actions ([#436](https://github.com/jdx/communique/pull/436))
+- *(deps)* update rust crate usage-rs to v7.2.0 ([#435](https://github.com/jdx/communique/pull/435))
+- release weekly instead of daily ([#434](https://github.com/jdx/communique/pull/434))
+- *(deps)* update rust crate usage-rs to v7.1.5 ([#433](https://github.com/jdx/communique/pull/433))
+- add Entire's StopFailure hook for Claude Code ([#432](https://github.com/jdx/communique/pull/432))
+- *(deps)* update rust crate usage-rs to v7.1.4 ([#431](https://github.com/jdx/communique/pull/431))
+- *(deps)* update jdx/packslip action to v1.11.0 ([#430](https://github.com/jdx/communique/pull/430))
+- *(deps)* lock file maintenance ([#429](https://github.com/jdx/communique/pull/429))
+- *(deps)* lock file maintenance ([#428](https://github.com/jdx/communique/pull/428))
+- *(deps)* lock file maintenance ([#427](https://github.com/jdx/communique/pull/427))
+
 ## [1.8.0](https://github.com/jdx/communique/compare/v1.7.0...v1.8.0) - 2026-10-29
 
 ### Added
