@@ -30,6 +30,8 @@ export OPENAI_API_KEY="sk-..."
 
 The provider is auto-detected from the model name: `claude-*` models use Anthropic, everything else uses OpenAI-compatible endpoints.
 
+In CI, Claude models can authenticate without a stored API key through [Anthropic workload identity federation](./github-actions#anthropic-workload-identity-federation).
+
 For GitHub features (reading PR details, publishing releases), you also need a GitHub token:
 
 ```sh
