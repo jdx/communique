@@ -49,8 +49,9 @@ struct ResponsesUsage {
 
 #[derive(Debug, Deserialize)]
 struct InputTokensDetails {
-    #[serde(default)]
     cached_tokens: u32,
+    #[serde(default)]
+    cache_write_tokens: u32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -188,11 +189,15 @@ impl OpenAIProvider {
                         truncated_call = true;
                         continue;
                     }
+                    let name = item["name"].as_str().unwrap_or_default();
                     let arguments = item["arguments"].as_str().unwrap_or("{}");
+                    let input = serde_json::from_str(arguments).map_err(|_| {
+                        Error::Llm(format!("model sent invalid JSON arguments for tool {name}"))
+                    })?;
                     tool_calls.push(ToolCall {
                         id: item["call_id"].as_str().unwrap_or_default().to_string(),
-                        name: item["name"].as_str().unwrap_or_default().to_string(),
-                        input: serde_json::from_str(arguments).unwrap_or(json!({})),
+                        name: name.to_string(),
+                        input,
                     });
                 }
                 Some("message") => {
@@ -211,6 +216,16 @@ impl OpenAIProvider {
         // Output items (including reasoning) are replayed as input next turn.
         conversation.messages.extend(response.output);
 
+        let incomplete_reason = response
+            .incomplete_details
+            .as_ref()
+            .and_then(|d| d.reason.as_deref());
+        if incomplete_reason == Some("content_filter") {
+            // Never treat filtered, partial text as finished release notes.
+            return Err(Error::Llm(
+                "OpenAI stopped the response because of its content filter".into(),
+            ));
+        }
         let hit_token_limit = response
             .incomplete_details
             .as_ref()
@@ -235,15 +250,16 @@ impl OpenAIProvider {
 
         // OpenAI counts cache reads inside `input_tokens`.
         let usage = response.usage.map_or_else(Usage::default, |u| {
-            let cached = u
+            let (read, written) = u
                 .input_tokens_details
-                .map_or(0, |d| d.cached_tokens)
-                .min(u.input_tokens);
+                .map_or((0, 0), |d| (d.cached_tokens, d.cache_write_tokens));
+            let read = read.min(u.input_tokens);
+            let written = written.min(u.input_tokens - read);
             Usage {
-                input_tokens: u.input_tokens - cached,
+                input_tokens: u.input_tokens - read - written,
                 output_tokens: u.output_tokens,
-                cache_read_input_tokens: cached,
-                ..Usage::default()
+                cache_creation_input_tokens: written,
+                cache_read_input_tokens: read,
             }
         });
 
@@ -748,7 +764,7 @@ mod tests {
                 "usage": {
                     "input_tokens": 20,
                     "output_tokens": 10,
-                    "input_tokens_details": {"cached_tokens": 8}
+                    "input_tokens_details": {"cached_tokens": 3, "cache_write_tokens": 5}
                 }
             })))
             .expect(2)
@@ -771,7 +787,8 @@ mod tests {
         assert_eq!(resp.tool_calls[0].id, "call_1");
         assert_eq!(resp.tool_calls[0].input["path"], "README.md");
         assert_eq!(resp.usage.input_tokens, 12);
-        assert_eq!(resp.usage.cache_read_input_tokens, 8);
+        assert_eq!(resp.usage.cache_read_input_tokens, 3);
+        assert_eq!(resp.usage.cache_creation_input_tokens, 5);
         assert_eq!(resp.usage.output_tokens, 10);
 
         provider.append_tool_results(
@@ -832,7 +849,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_responses_content_filter_is_not_max_tokens() {
+    async fn test_responses_content_filter_is_an_error() {
         let server = wiremock::MockServer::start().await;
         wiremock::Mock::given(wiremock::matchers::method("POST"))
             .and(wiremock::matchers::path("/responses"))
@@ -846,8 +863,37 @@ mod tests {
 
         let provider = make_provider(&server.uri()).with_responses_api(true);
         let mut conv = provider.new_conversation("Hi");
-        let resp = provider.send_turn("system", &mut conv, &[]).await.unwrap();
-        assert_eq!(resp.stop_reason, StopReason::Unknown);
+        let err = provider
+            .send_turn("system", &mut conv, &[])
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("content filter"));
+    }
+
+    #[tokio::test]
+    async fn test_responses_invalid_arguments_rejected() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/responses"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
+                "status": "completed",
+                "output": [{
+                    "type": "function_call",
+                    "call_id": "call_1",
+                    "name": "get_commits",
+                    "arguments": "{not json"
+                }],
+            })))
+            .mount(&server)
+            .await;
+
+        let provider = make_provider(&server.uri()).with_responses_api(true);
+        let mut conv = provider.new_conversation("Hi");
+        let err = provider
+            .send_turn("system", &mut conv, &[])
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("invalid JSON"));
     }
 
     #[tokio::test]

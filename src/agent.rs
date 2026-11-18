@@ -219,17 +219,16 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
                         .collect::<Vec<_>>()
                         .join("\n");
                     info!("broken links found, asking model to fix: {summary}");
-                    client.append_tool_results(
-                        &mut conversation,
-                        &[ToolResult {
-                            tool_call_id,
-                            content: format!(
-                                "The following links are broken:\n{summary}\n\n\
-                                 Please fix or remove these URLs and call submit_release_notes again."
-                            ),
-                            is_error: true,
-                        }],
-                    );
+                    let mut results = vec![ToolResult {
+                        tool_call_id: tool_call_id.clone(),
+                        content: format!(
+                            "The following links are broken:\n{summary}\n\n\
+                             Please fix or remove these URLs and call submit_release_notes again."
+                        ),
+                        is_error: true,
+                    }];
+                    results.extend(skipped_call_results(&response.tool_calls, &results));
+                    client.append_tool_results(&mut conversation, &results);
                     continue;
                 }
             }
@@ -265,6 +264,8 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
                     span,
                 });
             }
+            let skipped = skipped_call_results(&response.tool_calls, &malformed_submit);
+            malformed_submit.extend(skipped);
             client.append_tool_results(&mut conversation, &malformed_submit);
             continue;
         }
@@ -385,6 +386,23 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
     Err(Error::Llm(format!(
         "agent loop exceeded {MAX_ITERATIONS} iterations"
     )))
+}
+
+/// Every tool call needs a result in the replayed history, so calls that
+/// shared a response with a rejected submission get an explicit error result.
+fn skipped_call_results(
+    calls: &[crate::llm::ToolCall],
+    answered: &[ToolResult],
+) -> Vec<ToolResult> {
+    calls
+        .iter()
+        .filter(|tc| !answered.iter().any(|r| r.tool_call_id == tc.id))
+        .map(|tc| ToolResult {
+            tool_call_id: tc.id.clone(),
+            content: "Not run: the submit_release_notes call in the same response was rejected. Call this tool again if you still need it.".into(),
+            is_error: true,
+        })
+        .collect()
 }
 
 fn submission_retry_message(
