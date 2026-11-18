@@ -156,11 +156,7 @@ impl AnthropicProvider {
                 .json(request);
             let req = match &credential {
                 Credential::ApiKey(key) => req.header("x-api-key", *key),
-                // Federated access tokens are OAuth bearer tokens, which the
-                // Messages API only accepts with this beta header.
-                Credential::AccessToken(token) => req
-                    .bearer_auth(token)
-                    .header("anthropic-beta", "oauth-2025-04-20"),
+                Credential::AccessToken(token) => req.bearer_auth(token),
             };
             req.send()
         })
@@ -464,10 +460,6 @@ mod tests {
             .await;
         wiremock::Mock::given(wiremock::matchers::path("/v1/messages"))
             .and(wiremock::matchers::bearer_token("sk-ant-oat01-test"))
-            .and(wiremock::matchers::header(
-                "anthropic-beta",
-                "oauth-2025-04-20",
-            ))
             .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
                 "content": [{"type": "text", "text": "ok"}],
                 "stop_reason": "end_turn",
