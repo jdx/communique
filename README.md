@@ -106,6 +106,10 @@ precedence over `defaults.base_url` in `communique.toml`, which takes precedence
 over `OPENAI_BASE_URL`. Empty environment values are ignored, and this variable
 does not affect the Anthropic provider.
 
+Requests to OpenAI itself (`https://api.openai.com/v1`) use the Responses API,
+which current reasoning models require for tool calls. Custom base URLs use the
+Chat Completions API.
+
 GitHub context and GitHub Release publishing also need a token:
 
 ```sh

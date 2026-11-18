@@ -17,6 +17,24 @@ pub struct OpenAIProvider {
     max_tokens: u32,
     base_url: String,
     headers: HeaderMap,
+    use_responses: bool,
+}
+
+const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
+
+#[derive(Debug, Deserialize)]
+struct ResponsesResponse {
+    #[serde(default)]
+    output: Vec<Value>,
+    #[serde(default)]
+    status: Option<String>,
+    usage: Option<ResponsesUsage>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ResponsesUsage {
+    input_tokens: u32,
+    output_tokens: u32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -68,9 +86,124 @@ impl OpenAIProvider {
             api_key,
             model,
             max_tokens,
+            // Current OpenAI reasoning models reject function tools on
+            // /chat/completions, so api.openai.com uses /responses. Custom
+            // endpoints generally only implement chat completions.
+            use_responses: base_url.trim_end_matches('/') == DEFAULT_BASE_URL,
             base_url,
             headers: HeaderMap::new(),
         }
+    }
+
+    #[cfg(test)]
+    /// Override which endpoint is used: `true` for `/responses`, `false` for
+    /// `/chat/completions`.
+    pub fn with_responses_api(mut self, use_responses: bool) -> Self {
+        self.use_responses = use_responses;
+        self
+    }
+
+    async fn send_responses(
+        &self,
+        system: &str,
+        conversation: &mut Conversation,
+        tools: &[ToolDefinition],
+        custom_headers: HeaderMap,
+    ) -> Result<TurnResponse> {
+        let tool_defs: Vec<Value> = tools
+            .iter()
+            .map(|t| {
+                json!({
+                    "type": "function",
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": t.input_schema,
+                })
+            })
+            .collect();
+
+        let mut body = json!({
+            "model": self.model,
+            "instructions": system,
+            "input": conversation.messages,
+            "max_output_tokens": self.max_tokens,
+            "store": false,
+            "include": ["reasoning.encrypted_content"],
+        });
+        if !tool_defs.is_empty() {
+            body["tools"] = json!(tool_defs);
+        }
+
+        let resp = crate::retry::retry_request("OpenAI API", || {
+            let mut req = self
+                .client
+                .post(format!("{}/responses", self.base_url))
+                .json(&body);
+            if !self.api_key.is_empty() {
+                req = req.header("Authorization", format!("Bearer {}", self.api_key));
+            }
+            req.headers(custom_headers.clone()).send()
+        })
+        .await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(Error::Llm(format!("{status}: {body}")));
+        }
+
+        let response: ResponsesResponse = resp.json().await?;
+
+        let mut tool_calls = vec![];
+        let mut text = String::new();
+        for item in &response.output {
+            match item["type"].as_str() {
+                Some("function_call") => {
+                    let arguments = item["arguments"].as_str().unwrap_or("{}");
+                    tool_calls.push(ToolCall {
+                        id: item["call_id"].as_str().unwrap_or_default().to_string(),
+                        name: item["name"].as_str().unwrap_or_default().to_string(),
+                        input: serde_json::from_str(arguments).unwrap_or(json!({})),
+                    });
+                }
+                Some("message") => {
+                    for part in item["content"].as_array().into_iter().flatten() {
+                        if part["type"] == "output_text"
+                            && let Some(t) = part["text"].as_str()
+                        {
+                            text.push_str(t);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Output items (including reasoning) are replayed as input next turn.
+        conversation.messages.extend(response.output);
+
+        let stop_reason = if !tool_calls.is_empty() {
+            StopReason::ToolUse
+        } else {
+            match response.status.as_deref() {
+                Some("completed") => StopReason::EndTurn,
+                Some("incomplete") => StopReason::MaxTokens,
+                _ => StopReason::Unknown,
+            }
+        };
+
+        let usage = response.usage.map_or_else(Usage::default, |u| Usage {
+            input_tokens: u.input_tokens,
+            output_tokens: u.output_tokens,
+            ..Usage::default()
+        });
+
+        Ok(TurnResponse {
+            tool_calls,
+            text: (!text.is_empty()).then_some(text),
+            stop_reason,
+            usage,
+        })
     }
 
     pub fn with_headers(mut self, headers: &[String]) -> Result<Self> {
@@ -102,11 +235,19 @@ impl LlmClient for OpenAIProvider {
 
     fn append_tool_results(&self, conversation: &mut Conversation, results: &[ToolResult]) {
         for r in results {
-            conversation.messages.push(json!({
-                "role": "tool",
-                "tool_call_id": r.tool_call_id,
-                "content": r.content,
-            }));
+            conversation.messages.push(if self.use_responses {
+                json!({
+                    "type": "function_call_output",
+                    "call_id": r.tool_call_id,
+                    "output": r.content,
+                })
+            } else {
+                json!({
+                    "role": "tool",
+                    "tool_call_id": r.tool_call_id,
+                    "content": r.content,
+                })
+            });
         }
     }
 
@@ -128,6 +269,12 @@ impl LlmClient for OpenAIProvider {
             };
 
             custom_headers.extend(self.headers.clone());
+
+            if self.use_responses {
+                return self
+                    .send_responses(system, conversation, tools, custom_headers)
+                    .await;
+            }
 
             // Build messages array: system message + conversation messages
             let mut messages = vec![json!({
@@ -506,5 +653,108 @@ mod tests {
             .await
             .unwrap_err();
         assert!(err.to_string().contains("400"));
+    }
+
+    #[test]
+    fn test_responses_api_only_for_default_base_url() {
+        let new = |url: &str| OpenAIProvider::new("k".into(), "m".into(), 1, url.into());
+        assert!(new("https://api.openai.com/v1").use_responses);
+        assert!(new("https://api.openai.com/v1/").use_responses);
+        assert!(!new("http://localhost:11434/v1").use_responses);
+        assert!(
+            !new("http://localhost")
+                .with_responses_api(false)
+                .use_responses
+        );
+        assert!(
+            new("http://localhost")
+                .with_responses_api(true)
+                .use_responses
+        );
+    }
+
+    #[tokio::test]
+    async fn test_responses_tool_round_trip() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/responses"))
+            .and(wiremock::matchers::body_partial_json(json!({
+                "instructions": "system",
+                "store": false,
+                "max_output_tokens": 1024,
+                "tools": [{"type": "function", "name": "read_file"}],
+            })))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
+                "status": "completed",
+                "output": [
+                    {"type": "reasoning", "id": "rs_1", "summary": [], "encrypted_content": "abc"},
+                    {
+                        "type": "function_call",
+                        "id": "fc_1",
+                        "call_id": "call_1",
+                        "name": "read_file",
+                        "arguments": "{\"path\":\"README.md\"}"
+                    }
+                ],
+                "usage": {"input_tokens": 20, "output_tokens": 10}
+            })))
+            .mount(&server)
+            .await;
+
+        let provider = make_provider(&server.uri()).with_responses_api(true);
+        let mut conv = provider.new_conversation("Read the readme");
+        let tools = [ToolDefinition {
+            name: "read_file".into(),
+            description: "Read".into(),
+            input_schema: json!({"type": "object"}),
+        }];
+        let resp = provider
+            .send_turn("system", &mut conv, &tools)
+            .await
+            .unwrap();
+        assert_eq!(resp.stop_reason, StopReason::ToolUse);
+        assert_eq!(resp.tool_calls[0].id, "call_1");
+        assert_eq!(resp.tool_calls[0].input["path"], "README.md");
+        assert_eq!(resp.usage.input_tokens, 20);
+        assert_eq!(resp.usage.output_tokens, 10);
+
+        provider.append_tool_results(
+            &mut conv,
+            &[ToolResult {
+                tool_call_id: "call_1".into(),
+                content: "contents".into(),
+                is_error: false,
+            }],
+        );
+        // user, reasoning, function_call, function_call_output
+        assert_eq!(conv.messages.len(), 4);
+        assert_eq!(conv.messages[1]["type"], "reasoning");
+        assert_eq!(conv.messages[3]["type"], "function_call_output");
+        assert_eq!(conv.messages[3]["call_id"], "call_1");
+        assert_eq!(conv.messages[3]["output"], "contents");
+    }
+
+    #[tokio::test]
+    async fn test_responses_text_and_incomplete() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/responses"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
+                "status": "incomplete",
+                "output": [{
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [{"type": "output_text", "text": "partial"}]
+                }],
+            })))
+            .mount(&server)
+            .await;
+
+        let provider = make_provider(&server.uri()).with_responses_api(true);
+        let mut conv = provider.new_conversation("Hi");
+        let resp = provider.send_turn("system", &mut conv, &[]).await.unwrap();
+        assert_eq!(resp.stop_reason, StopReason::MaxTokens);
+        assert_eq!(resp.text.as_deref(), Some("partial"));
+        assert!(resp.tool_calls.is_empty());
     }
 }
