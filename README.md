@@ -75,6 +75,9 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 export OPENAI_API_KEY="sk-..."
 ```
 
+In CI, Claude models can also authenticate without a stored API key through
+[Anthropic workload identity federation](https://communique.jdx.dev/guide/github-actions#anthropic-workload-identity-federation).
+
 To add custom headers to OpenAI-compatible requests, set `OPENAI_CUSTOM_HEADERS`
 to a JSON object with string values. For example, to send the Copilot integration header:
 

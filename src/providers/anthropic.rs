@@ -9,10 +9,11 @@ use crate::error::{Error, Result};
 use crate::llm::{
     Conversation, LlmClient, StopReason, ToolCall, ToolDefinition, ToolResult, TurnResponse, Usage,
 };
+use crate::providers::anthropic_auth::AnthropicAuth;
 
 pub struct AnthropicProvider {
     client: reqwest::Client,
-    api_key: String,
+    auth: AnthropicAuth,
     model: String,
     max_tokens: u32,
     base_url: String,
@@ -76,14 +77,14 @@ struct ApiUsage {
 }
 
 impl AnthropicProvider {
-    pub fn new(api_key: String, model: String, max_tokens: u32, base_url: String) -> Self {
+    pub fn new(auth: AnthropicAuth, model: String, max_tokens: u32, base_url: String) -> Self {
         let client = reqwest::Client::builder()
             .user_agent("communique/0.1")
             .build()
             .expect("failed to build HTTP client");
         Self {
             client,
-            api_key,
+            auth,
             model,
             max_tokens,
             base_url,
@@ -135,13 +136,43 @@ impl AnthropicProvider {
     }
 
     async fn post(&self, request: &MessagesRequest) -> Result<reqwest::Response> {
+        let AnthropicAuth::Federation(federation) = &self.auth else {
+            return self.send(request, None).await;
+        };
+        let token = federation
+            .access_token(&self.client, &self.base_url)
+            .await?;
+        let resp = self.send(request, Some(&token)).await?;
+        if resp.status() != reqwest::StatusCode::UNAUTHORIZED {
+            return Ok(resp);
+        }
+        // The token may have expired while retries were waiting: exchange for
+        // a new one and try once more.
+        log::warn!("Anthropic API rejected the access token, renewing it");
+        let token = federation
+            .force_refresh(&self.client, &self.base_url)
+            .await?;
+        self.send(request, Some(&token)).await
+    }
+
+    /// Send with the API key, or with `access_token` when it is given.
+    async fn send(
+        &self,
+        request: &MessagesRequest,
+        access_token: Option<&str>,
+    ) -> Result<reqwest::Response> {
         crate::retry::retry_request("Anthropic API", || {
-            self.client
+            let req = self
+                .client
                 .post(format!("{}/v1/messages", self.base_url))
-                .header("x-api-key", &self.api_key)
                 .header("anthropic-version", "2023-06-01")
-                .json(request)
-                .send()
+                .json(request);
+            let req = match (&self.auth, access_token) {
+                (_, Some(token)) => req.bearer_auth(token),
+                (AnthropicAuth::ApiKey(key), None) => req.header("x-api-key", key),
+                (AnthropicAuth::Federation(_), None) => req,
+            };
+            req.send()
         })
         .await
     }
@@ -278,7 +309,12 @@ mod tests {
     use serde_json::json;
 
     fn make_provider(base_url: &str) -> AnthropicProvider {
-        AnthropicProvider::new("test-key".into(), "claude-3".into(), 1024, base_url.into())
+        AnthropicProvider::new(
+            AnthropicAuth::ApiKey("test-key".into()),
+            "claude-3".into(),
+            1024,
+            base_url.into(),
+        )
     }
 
     #[test]
@@ -399,6 +435,116 @@ mod tests {
             second_request["messages"][1]["content"][0],
             json!({"type": "thinking", "thinking": "", "signature": "signed-thinking"})
         );
+    }
+
+    #[tokio::test]
+    async fn test_send_turn_with_api_key_sends_x_api_key() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::path("/v1/messages"))
+            .and(wiremock::matchers::header("x-api-key", "test-key"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
+                "content": [{"type": "text", "text": "ok"}],
+                "stop_reason": "end_turn",
+                "usage": {"input_tokens": 1, "output_tokens": 1}
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let provider = make_provider(&server.uri());
+        let mut conv = provider.new_conversation("Hi");
+        provider.send_turn("system", &mut conv, &[]).await.unwrap();
+
+        let requests = server.received_requests().await.unwrap();
+        assert!(!requests[0].headers.contains_key("authorization"));
+        assert!(!requests[0].headers.contains_key("anthropic-beta"));
+    }
+
+    #[tokio::test]
+    async fn test_send_turn_with_federation_exchanges_once_and_sends_bearer_token() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::path("/v1/oauth/token"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
+                "access_token": "sk-ant-oat01-test",
+                "token_type": "Bearer",
+                "expires_in": 3600
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        wiremock::Mock::given(wiremock::matchers::path("/v1/messages"))
+            .and(wiremock::matchers::bearer_token("sk-ant-oat01-test"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
+                "content": [{"type": "text", "text": "ok"}],
+                "stop_reason": "end_turn",
+                "usage": {"input_tokens": 1, "output_tokens": 1}
+            })))
+            .expect(2)
+            .mount(&server)
+            .await;
+
+        let provider = AnthropicProvider::new(
+            AnthropicAuth::federation_for_test("fdrl_1", "org-uuid", "jwt"),
+            "claude-3".into(),
+            1024,
+            server.uri(),
+        );
+        let mut conv = provider.new_conversation("Hi");
+        provider.send_turn("system", &mut conv, &[]).await.unwrap();
+        provider.send_turn("system", &mut conv, &[]).await.unwrap();
+
+        let requests = server.received_requests().await.unwrap();
+        assert!(
+            requests
+                .iter()
+                .all(|r| !r.headers.contains_key("x-api-key"))
+        );
+    }
+
+    #[tokio::test]
+    async fn test_send_turn_with_federation_renews_a_rejected_access_token() {
+        let server = wiremock::MockServer::start().await;
+        let exchange = |token: &str| {
+            wiremock::ResponseTemplate::new(200).set_body_json(json!({
+                "access_token": token,
+                "token_type": "Bearer",
+                "expires_in": 3600
+            }))
+        };
+        wiremock::Mock::given(wiremock::matchers::path("/v1/oauth/token"))
+            .respond_with(exchange("sk-ant-oat01-old"))
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+        wiremock::Mock::given(wiremock::matchers::path("/v1/oauth/token"))
+            .respond_with(exchange("sk-ant-oat01-new"))
+            .mount(&server)
+            .await;
+        wiremock::Mock::given(wiremock::matchers::path("/v1/messages"))
+            .and(wiremock::matchers::bearer_token("sk-ant-oat01-old"))
+            .respond_with(wiremock::ResponseTemplate::new(401))
+            .expect(1)
+            .mount(&server)
+            .await;
+        wiremock::Mock::given(wiremock::matchers::path("/v1/messages"))
+            .and(wiremock::matchers::bearer_token("sk-ant-oat01-new"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
+                "content": [{"type": "text", "text": "ok"}],
+                "stop_reason": "end_turn",
+                "usage": {"input_tokens": 1, "output_tokens": 1}
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let provider = AnthropicProvider::new(
+            AnthropicAuth::federation_for_test("fdrl_1", "org-uuid", "jwt"),
+            "claude-3".into(),
+            1024,
+            server.uri(),
+        );
+        let mut conv = provider.new_conversation("Hi");
+        provider.send_turn("system", &mut conv, &[]).await.unwrap();
     }
 
     #[tokio::test]

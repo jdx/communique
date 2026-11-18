@@ -267,10 +267,9 @@ async fn gather_context(opts: &GenerateOptions, job: &Arc<ProgressJob>) -> miett
         .unwrap_or_else(|| providers::detect_provider(&model));
     info!("provider: {provider:?}, model: {model}");
 
-    // Resolve API key based on provider
+    // Anthropic credentials are resolved by `build_client`.
     let api_key = match &provider {
-        Provider::Anthropic => std::env::var("ANTHROPIC_API_KEY")
-            .map_err(|_| crate::error::Error::Llm("ANTHROPIC_API_KEY not set".into()))?,
+        Provider::Anthropic => String::new(),
         Provider::OpenAI => std::env::var("OPENAI_API_KEY")
             .or_else(|_| std::env::var("LLM_API_KEY"))
             .unwrap_or_default(),
