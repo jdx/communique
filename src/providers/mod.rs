@@ -1,4 +1,5 @@
 pub mod anthropic;
+pub mod anthropic_auth;
 pub mod openai;
 
 use serde::Deserialize;
@@ -25,6 +26,8 @@ pub fn detect_provider(model: &str) -> Provider {
     }
 }
 
+/// `api_key` is only used by the OpenAI provider; Anthropic resolves its own
+/// credentials (an API key or workload identity federation) from the environment.
 pub fn build_client(
     provider: &Provider,
     api_key: String,
@@ -41,8 +44,9 @@ pub fn build_client(
                     "--header only applies to the OpenAI provider".into(),
                 ));
             }
+            let auth = anthropic_auth::AnthropicAuth::from_env()?;
             Box::new(anthropic::AnthropicProvider::new(
-                api_key, model, max_tokens, base,
+                auth, model, max_tokens, base,
             ))
         }
         Provider::OpenAI => {

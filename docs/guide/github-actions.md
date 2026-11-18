@@ -12,7 +12,7 @@ Add your LLM provider secret to your repository (Settings > Secrets and variable
 | `OPENAI_API_KEY` | API key for OpenAI-compatible providers |
 | `GITHUB_TOKEN` | PR and release access (provided automatically by Actions) |
 
-You only need one of `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, depending on which provider you use.
+You only need one of `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, depending on which provider you use. For Claude models you can skip the stored API key entirely and use [workload identity federation](#anthropic-workload-identity-federation) instead.
 
 ## Basic: Update release on tag push
 
@@ -199,11 +199,57 @@ jobs:
           communique generate "$TAG" --dry-run
 ```
 
+## Anthropic workload identity federation
+
+Instead of storing a long-lived `ANTHROPIC_API_KEY` secret, a workflow can prove its identity to Anthropic with the OIDC token GitHub issues to each job. communiqué exchanges that token for an Anthropic access token that expires on its own, so there is no key to leak or rotate.
+
+First, in the Claude Console, [connect a GitHub Actions workload](https://platform.claude.com/docs/en/manage-claude/wif-providers/github-actions): this registers GitHub as an issuer and creates a service account and a federation rule. Restrict the rule to the repository and branch or tag that publishes your releases.
+
+Then grant the job `id-token: write` and set the IDs from the Console. They are identifiers, not secrets, so they can live in the workflow file or in repository variables:
+
+```yaml
+permissions:
+  contents: write
+  id-token: write # lets the job request a GitHub OIDC token
+
+jobs:
+  release-notes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo install communique
+      - name: Generate release notes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ANTHROPIC_FEDERATION_RULE_ID: fdrl_...
+          ANTHROPIC_ORGANIZATION_ID: 00000000-0000-0000-0000-000000000000
+          ANTHROPIC_SERVICE_ACCOUNT_ID: svac_...
+        run: communique generate "${{ github.ref_name }}" --github-release
+```
+
+No step is needed to fetch or exchange the token: when the federation variables are set and `ANTHROPIC_API_KEY` is not, communiqué requests the OIDC token from the runner (audience `https://api.anthropic.com`), exchanges it at `/v1/oauth/token`, and renews the access token if a run outlives it.
+
+- `ANTHROPIC_API_KEY` takes precedence when it is set to a non-empty value, so remove it from the job when switching to federation.
+- Set `ANTHROPIC_WORKSPACE_ID` (`wrkspc_...`) when the federation rule covers more than one workspace.
+- Set `COMMUNIQUE_ANTHROPIC_IDENTITY_TOKEN_AUDIENCE` if your federation rule matches a different audience.
+- Outside GitHub Actions, or to supply the identity token yourself, set `ANTHROPIC_IDENTITY_TOKEN_FILE` to a file holding the JWT (reread on every exchange) or `ANTHROPIC_IDENTITY_TOKEN` to the JWT itself. Either one takes precedence over the runner's token.
+- If the exchange is denied, Anthropic returns only `Authentication failed`; the reason is shown on the [authentication history page](https://platform.claude.com/settings/workload-identity-federation?tab=history) in the Claude Console.
+
 ## Environment variables
 
 | Variable | Description |
 |----------|-------------|
 | `ANTHROPIC_API_KEY` | API key for Anthropic (Claude models) |
+| `ANTHROPIC_FEDERATION_RULE_ID` | Federation rule (`fdrl_...`) for [workload identity federation](#anthropic-workload-identity-federation) |
+| `ANTHROPIC_ORGANIZATION_ID` | Anthropic organization UUID, required with the federation rule |
+| `ANTHROPIC_SERVICE_ACCOUNT_ID` | Optional service account (`svac_...`) the federation rule targets |
+| `ANTHROPIC_WORKSPACE_ID` | Workspace (`wrkspc_...`), required when the federation rule covers several |
+| `ANTHROPIC_IDENTITY_TOKEN_FILE` | Path to an OIDC identity token to exchange, instead of the GitHub Actions one |
+| `ANTHROPIC_IDENTITY_TOKEN` | OIDC identity token to exchange, as a literal value |
+| `COMMUNIQUE_ANTHROPIC_IDENTITY_TOKEN_AUDIENCE` | Audience for the GitHub Actions OIDC token (default `https://api.anthropic.com`) |
 | `OPENAI_API_KEY` | API key for OpenAI-compatible providers |
 | `OPENAI_BASE_URL` | Custom OpenAI-compatible API endpoint |
 | `OPENAI_CUSTOM_HEADERS` | JSON object of HTTP headers; repeatable `--header` flags take precedence |

@@ -29,6 +29,9 @@ changelog work, not for publishing a GitHub Release.
 Generation calls an LLM and may read GitHub context, including with `--dry-run`.
 Use the configured provider's credentials (`ANTHROPIC_API_KEY` or
 `OPENAI_API_KEY`) through the existing secret mechanism without printing them.
+Claude models can instead use Anthropic workload identity federation
+(`ANTHROPIC_FEDERATION_RULE_ID` and `ANTHROPIC_ORGANIZATION_ID`), which needs no
+stored key.
 `GITHUB_TOKEN` provides PR context and release access; label rules require it.
 Missing history calls for fetching the needed tags or unshallowing a shallow
 checkout, not substituting a guessed baseline.
