@@ -32,6 +32,9 @@ const ADVISORY_REFRESH: Duration = Duration::from_secs(120);
 /// Stop serving a cached token this close to expiry, even if a refresh failed.
 const MANDATORY_REFRESH: Duration = Duration::from_secs(30);
 const EXCHANGE_ATTEMPTS: u32 = 3;
+/// Deadline for each authentication request, including reading the response,
+/// so a stalled endpoint cannot hold up every Messages request.
+const AUTH_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub enum AnthropicAuth {
     ApiKey(String),
@@ -180,7 +183,13 @@ impl IdentitySource {
                 let resp = crate::retry::retry_request_with_config(
                     "GitHub Actions OIDC token",
                     &config,
-                    || client.get(url.clone()).bearer_auth(request_token).send(),
+                    || {
+                        client
+                            .get(url.clone())
+                            .bearer_auth(request_token)
+                            .timeout(AUTH_REQUEST_TIMEOUT)
+                            .send()
+                    },
                 )
                 .await?;
                 if !resp.status().is_success() {
@@ -263,6 +272,7 @@ impl Federation {
             let result = client
                 .post(format!("{base_url}/v1/oauth/token"))
                 .json(&body)
+                .timeout(AUTH_REQUEST_TIMEOUT)
                 .send()
                 .await;
 

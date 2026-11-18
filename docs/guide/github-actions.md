@@ -235,7 +235,7 @@ No step is needed to fetch or exchange the token: when the federation variables 
 - `ANTHROPIC_API_KEY` takes precedence when it is set to a non-empty value, so remove it from the job when switching to federation.
 - Set `ANTHROPIC_WORKSPACE_ID` (`wrkspc_...`) when the federation rule covers more than one workspace.
 - Set `COMMUNIQUE_ANTHROPIC_IDENTITY_TOKEN_AUDIENCE` if your federation rule matches a different audience.
-- Outside GitHub Actions, or to supply the identity token yourself, set `ANTHROPIC_IDENTITY_TOKEN_FILE` to a file holding the JWT (reread on every exchange) or `ANTHROPIC_IDENTITY_TOKEN` to the JWT itself. Either one takes precedence over the runner's token.
+- Outside GitHub Actions, or to supply the identity token yourself, set `ANTHROPIC_IDENTITY_TOKEN_FILE` to a file holding the JWT (reread on every exchange) or `ANTHROPIC_IDENTITY_TOKEN` to the JWT itself. Either one takes precedence over the runner's token. Identity tokens are usually single-use, so whatever writes the file must put a fresh JWT there before each exchange; a literal `ANTHROPIC_IDENTITY_TOKEN` is sent every time and cannot renew an access token, so it only suits runs shorter than the access token's lifetime. Prefer the runner's token for long GitHub Actions jobs.
 - If the exchange is denied, Anthropic returns only `Authentication failed`; the reason is shown on the [authentication history page](https://platform.claude.com/settings/workload-identity-federation?tab=history) in the Claude Console.
 
 ## Environment variables
