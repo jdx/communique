@@ -171,7 +171,18 @@ impl IdentitySource {
                     Error::Llm(format!("invalid {ACTIONS_ID_TOKEN_REQUEST_URL}: {e}"))
                 })?;
                 url.query_pairs_mut().append_pair("audience", audience);
-                let resp = client.get(url).bearer_auth(request_token).send().await?;
+                // The runner's token endpoint has transient failures too.
+                let config = crate::retry::RetryConfig {
+                    max_retries: 2,
+                    initial_delay_ms: 500,
+                    max_delay_ms: 2_000,
+                };
+                let resp = crate::retry::retry_request_with_config(
+                    "GitHub Actions OIDC token",
+                    &config,
+                    || client.get(url.clone()).bearer_auth(request_token).send(),
+                )
+                .await?;
                 if !resp.status().is_success() {
                     let status = resp.status();
                     let body = resp.text().await.unwrap_or_default();
@@ -217,6 +228,16 @@ impl Federation {
                 None => Err(e),
             },
         }
+    }
+
+    /// Exchange for a new access token even if the cached one looks valid,
+    /// e.g. after the API rejected it.
+    pub async fn force_refresh(&self, client: &reqwest::Client, base_url: &str) -> Result<String> {
+        let mut cached = self.cached.lock().await;
+        let fresh = self.exchange(client, base_url).await?;
+        let token = fresh.token.clone();
+        *cached = Some(fresh);
+        Ok(token)
     }
 
     async fn exchange(&self, client: &reqwest::Client, base_url: &str) -> Result<CachedToken> {
@@ -446,6 +467,41 @@ mod tests {
         for _ in 0..2 {
             f.access_token(&client, &server.uri()).await.unwrap();
         }
+    }
+
+    #[tokio::test]
+    async fn retries_a_transient_github_actions_token_failure() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/idtoken"))
+            .respond_with(ResponseTemplate::new(503))
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/idtoken"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "value": "gha-jwt" })))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/v1/oauth/token"))
+            .and(body_partial_json(json!({ "assertion": "gha-jwt" })))
+            .respond_with(token_response("sk-ant-oat01-a", 3600))
+            .mount(&server)
+            .await;
+
+        let request_url = format!("{}/idtoken", server.uri());
+        let f = federation(&[
+            RULE,
+            ORG,
+            (ACTIONS_ID_TOKEN_REQUEST_URL, &request_url),
+            (ACTIONS_ID_TOKEN_REQUEST_TOKEN, "runner-token"),
+        ]);
+        let token = f
+            .access_token(&reqwest::Client::new(), &server.uri())
+            .await
+            .unwrap();
+        assert_eq!(token, "sk-ant-oat01-a");
     }
 
     #[tokio::test]
