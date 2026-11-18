@@ -174,32 +174,7 @@ impl IdentitySource {
                     Error::Llm(format!("invalid {ACTIONS_ID_TOKEN_REQUEST_URL}: {e}"))
                 })?;
                 url.query_pairs_mut().append_pair("audience", audience);
-                // The runner's token endpoint has transient failures too.
-                let config = crate::retry::RetryConfig {
-                    max_retries: 2,
-                    initial_delay_ms: 500,
-                    max_delay_ms: 2_000,
-                };
-                let resp = crate::retry::retry_request_with_config(
-                    "GitHub Actions OIDC token",
-                    &config,
-                    || {
-                        client
-                            .get(url.clone())
-                            .bearer_auth(request_token)
-                            .timeout(AUTH_REQUEST_TIMEOUT)
-                            .send()
-                    },
-                )
-                .await?;
-                if !resp.status().is_success() {
-                    let status = resp.status();
-                    let body = resp.text().await.unwrap_or_default();
-                    return Err(Error::Llm(format!(
-                        "failed to fetch a GitHub Actions OIDC token: {status}: {body}"
-                    )));
-                }
-                resp.json::<GitHubIdToken>().await?.value
+                fetch_github_token(client, url, request_token).await?
             }
         };
         let token = token.trim();
@@ -209,6 +184,61 @@ impl IdentitySource {
             ));
         }
         Ok(token.to_string())
+    }
+}
+
+/// Fetch an OIDC token from the Actions runner. Transient failures (connection
+/// errors, timeouts while reading the body, 429/5xx) are retried; a response
+/// that arrives but is rejected or malformed is not.
+async fn fetch_github_token(
+    client: &reqwest::Client,
+    url: reqwest::Url,
+    request_token: &str,
+) -> Result<String> {
+    let mut attempt = 1;
+    loop {
+        let result = async {
+            let resp = client
+                .get(url.clone())
+                .bearer_auth(request_token)
+                .timeout(AUTH_REQUEST_TIMEOUT)
+                .send()
+                .await?;
+            let status = resp.status();
+            if !status.is_success() {
+                let body = resp.text().await.unwrap_or_default();
+                return Ok(Err((status, body)));
+            }
+            Ok::<_, reqwest::Error>(Ok(resp.bytes().await?))
+        }
+        .await;
+
+        let error = match result {
+            Ok(Ok(bytes)) => {
+                return serde_json::from_slice::<GitHubIdToken>(&bytes)
+                    .map(|t| t.value)
+                    .map_err(|e| {
+                        Error::Llm(format!("invalid GitHub Actions OIDC token response: {e}"))
+                    });
+            }
+            Ok(Err((status, body))) => {
+                let error = Error::Llm(format!(
+                    "failed to fetch a GitHub Actions OIDC token: {status}: {body}"
+                ));
+                if !(status.is_server_error() || status.as_u16() == 429) {
+                    return Err(error);
+                }
+                error
+            }
+            Err(e) if e.is_connect() || e.is_timeout() || e.is_body() => e.into(),
+            Err(e) => return Err(e.into()),
+        };
+        if attempt == EXCHANGE_ATTEMPTS {
+            return Err(error);
+        }
+        log::warn!("{error} (attempt {attempt}/{EXCHANGE_ATTEMPTS}), retrying");
+        tokio::time::sleep(Duration::from_millis(500 * u64::from(attempt))).await;
+        attempt += 1;
     }
 }
 
@@ -512,6 +542,49 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(token, "sk-ant-oat01-a");
+    }
+
+    #[tokio::test]
+    async fn retries_a_504_when_fetching_the_github_actions_token() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/idtoken"))
+            .respond_with(ResponseTemplate::new(504))
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/idtoken"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(json!({ "value": "gha-jwt" }))
+                    .set_delay(Duration::from_millis(200)),
+            )
+            .mount(&server)
+            .await;
+
+        let url = reqwest::Url::parse(&format!("{}/idtoken", server.uri())).unwrap();
+        let value = fetch_github_token(&reqwest::Client::new(), url, "runner-token")
+            .await
+            .unwrap();
+        assert_eq!(value, "gha-jwt");
+    }
+
+    #[tokio::test]
+    async fn does_not_retry_a_rejected_github_actions_token_request() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/idtoken"))
+            .respond_with(ResponseTemplate::new(401))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let url = reqwest::Url::parse(&format!("{}/idtoken", server.uri())).unwrap();
+        let err = fetch_github_token(&reqwest::Client::new(), url, "runner-token")
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("401"));
     }
 
     #[tokio::test]
