@@ -32,6 +32,8 @@ const ADVISORY_REFRESH: Duration = Duration::from_secs(120);
 /// Stop serving a cached token this close to expiry, even if a refresh failed.
 const MANDATORY_REFRESH: Duration = Duration::from_secs(30);
 const EXCHANGE_ATTEMPTS: u32 = 3;
+/// Longest `Retry-After` honored between authentication attempts.
+const MAX_RETRY_AFTER: Duration = Duration::from_secs(30);
 /// Deadline for each authentication request, including reading the response,
 /// so a stalled endpoint cannot hold up every Messages request.
 const AUTH_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -187,6 +189,23 @@ impl IdentitySource {
     }
 }
 
+/// The server's `Retry-After` (in seconds), if it sent one.
+fn retry_after(resp: &reqwest::Response) -> Option<Duration> {
+    resp.headers()
+        .get(reqwest::header::RETRY_AFTER)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .map(Duration::from_secs)
+}
+
+/// How long to wait before the next attempt: the server's `Retry-After` when
+/// given (capped, since the identity token is short-lived), else a backoff.
+fn retry_delay(attempt: u32, retry_after: Option<Duration>) -> Duration {
+    retry_after
+        .map(|d| d.min(MAX_RETRY_AFTER))
+        .unwrap_or_else(|| Duration::from_millis(500 * u64::from(attempt)))
+}
+
 /// Fetch an OIDC token from the Actions runner. Transient failures (connection
 /// errors, timeouts while reading the body, 429/5xx) are retried; a response
 /// that arrives but is rejected or malformed is not.
@@ -206,13 +225,15 @@ async fn fetch_github_token(
                 .await?;
             let status = resp.status();
             if !status.is_success() {
+                let wait = retry_after(&resp);
                 let body = resp.text().await.unwrap_or_default();
-                return Ok(Err((status, body)));
+                return Ok(Err((status, body, wait)));
             }
             Ok::<_, reqwest::Error>(Ok(resp.bytes().await?))
         }
         .await;
 
+        let mut wait = None;
         let error = match result {
             Ok(Ok(bytes)) => {
                 return serde_json::from_slice::<GitHubIdToken>(&bytes)
@@ -221,7 +242,8 @@ async fn fetch_github_token(
                         Error::Llm(format!("invalid GitHub Actions OIDC token response: {e}"))
                     });
             }
-            Ok(Err((status, body))) => {
+            Ok(Err((status, body, retry_after))) => {
+                wait = retry_after;
                 let error = Error::Llm(format!(
                     "failed to fetch a GitHub Actions OIDC token: {status}: {body}"
                 ));
@@ -237,7 +259,7 @@ async fn fetch_github_token(
             return Err(error);
         }
         log::warn!("{error} (attempt {attempt}/{EXCHANGE_ATTEMPTS}), retrying");
-        tokio::time::sleep(Duration::from_millis(500 * u64::from(attempt))).await;
+        tokio::time::sleep(retry_delay(attempt, wait)).await;
         attempt += 1;
     }
 }
@@ -306,6 +328,7 @@ impl Federation {
                 .send()
                 .await;
 
+            let mut wait = None;
             let error = match result {
                 Ok(resp) if resp.status().is_success() => {
                     let token: TokenResponse = resp.json().await?;
@@ -316,6 +339,7 @@ impl Federation {
                 }
                 Ok(resp) => {
                     let status = resp.status();
+                    wait = retry_after(&resp);
                     let body = resp.text().await.unwrap_or_default();
                     let error = Error::Llm(format!(
                         "Anthropic workload identity token exchange failed: {status}: {body}\n\
@@ -334,7 +358,7 @@ impl Federation {
                 return Err(error);
             }
             log::warn!("{error} (attempt {attempt}/{EXCHANGE_ATTEMPTS}), retrying");
-            tokio::time::sleep(Duration::from_millis(500 * u64::from(attempt))).await;
+            tokio::time::sleep(retry_delay(attempt, wait)).await;
             attempt += 1;
         }
     }
@@ -568,6 +592,19 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(value, "gha-jwt");
+    }
+
+    #[test]
+    fn retry_delay_honors_retry_after_up_to_a_cap() {
+        assert_eq!(retry_delay(2, None), Duration::from_millis(1000));
+        assert_eq!(
+            retry_delay(1, Some(Duration::from_secs(5))),
+            Duration::from_secs(5)
+        );
+        assert_eq!(
+            retry_delay(1, Some(Duration::from_secs(600))),
+            MAX_RETRY_AFTER
+        );
     }
 
     #[tokio::test]
