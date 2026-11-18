@@ -28,13 +28,29 @@ struct ResponsesResponse {
     output: Vec<Value>,
     #[serde(default)]
     status: Option<String>,
+    #[serde(default)]
+    incomplete_details: Option<IncompleteDetails>,
     usage: Option<ResponsesUsage>,
+}
+
+#[derive(Debug, Deserialize)]
+struct IncompleteDetails {
+    #[serde(default)]
+    reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 struct ResponsesUsage {
     input_tokens: u32,
     output_tokens: u32,
+    #[serde(default)]
+    input_tokens_details: Option<InputTokensDetails>,
+}
+
+#[derive(Debug, Deserialize)]
+struct InputTokensDetails {
+    #[serde(default)]
+    cached_tokens: u32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -118,6 +134,9 @@ impl OpenAIProvider {
                     "name": t.name,
                     "description": t.description,
                     "parameters": t.input_schema,
+                    // Responses defaults to strict mode, which would make every
+                    // optional argument required.
+                    "strict": false,
                 })
             })
             .collect();
@@ -128,8 +147,12 @@ impl OpenAIProvider {
             "input": conversation.messages,
             "max_output_tokens": self.max_tokens,
             "store": false,
-            "include": ["reasoning.encrypted_content"],
         });
+        // Encrypted reasoning is only available on reasoning models; others
+        // reject the `include` parameter.
+        if uses_max_completion_tokens(&self.model) {
+            body["include"] = json!(["reasoning.encrypted_content"]);
+        }
         if !tool_defs.is_empty() {
             body["tools"] = json!(tool_defs);
         }
@@ -155,10 +178,16 @@ impl OpenAIProvider {
         let response: ResponsesResponse = resp.json().await?;
 
         let mut tool_calls = vec![];
+        let mut truncated_call = false;
         let mut text = String::new();
         for item in &response.output {
             match item["type"].as_str() {
                 Some("function_call") => {
+                    if item["status"] == "incomplete" {
+                        // Arguments were cut off; never dispatch a partial call.
+                        truncated_call = true;
+                        continue;
+                    }
                     let arguments = item["arguments"].as_str().unwrap_or("{}");
                     tool_calls.push(ToolCall {
                         id: item["call_id"].as_str().unwrap_or_default().to_string(),
@@ -182,20 +211,40 @@ impl OpenAIProvider {
         // Output items (including reasoning) are replayed as input next turn.
         conversation.messages.extend(response.output);
 
-        let stop_reason = if !tool_calls.is_empty() {
+        let hit_token_limit = response
+            .incomplete_details
+            .as_ref()
+            .and_then(|d| d.reason.as_deref())
+            == Some("max_output_tokens");
+        let stop_reason = if truncated_call {
+            tool_calls.clear();
+            if hit_token_limit {
+                StopReason::MaxTokens
+            } else {
+                StopReason::Unknown
+            }
+        } else if !tool_calls.is_empty() {
             StopReason::ToolUse
         } else {
             match response.status.as_deref() {
                 Some("completed") => StopReason::EndTurn,
-                Some("incomplete") => StopReason::MaxTokens,
+                Some("incomplete") if hit_token_limit => StopReason::MaxTokens,
                 _ => StopReason::Unknown,
             }
         };
 
-        let usage = response.usage.map_or_else(Usage::default, |u| Usage {
-            input_tokens: u.input_tokens,
-            output_tokens: u.output_tokens,
-            ..Usage::default()
+        // OpenAI counts cache reads inside `input_tokens`.
+        let usage = response.usage.map_or_else(Usage::default, |u| {
+            let cached = u
+                .input_tokens_details
+                .map_or(0, |d| d.cached_tokens)
+                .min(u.input_tokens);
+            Usage {
+                input_tokens: u.input_tokens - cached,
+                output_tokens: u.output_tokens,
+                cache_read_input_tokens: cached,
+                ..Usage::default()
+            }
         });
 
         Ok(TurnResponse {
@@ -696,12 +745,18 @@ mod tests {
                         "arguments": "{\"path\":\"README.md\"}"
                     }
                 ],
-                "usage": {"input_tokens": 20, "output_tokens": 10}
+                "usage": {
+                    "input_tokens": 20,
+                    "output_tokens": 10,
+                    "input_tokens_details": {"cached_tokens": 8}
+                }
             })))
+            .expect(2)
             .mount(&server)
             .await;
 
-        let provider = make_provider(&server.uri()).with_responses_api(true);
+        let provider = OpenAIProvider::new("test-key".into(), "gpt-5".into(), 1024, server.uri())
+            .with_responses_api(true);
         let mut conv = provider.new_conversation("Read the readme");
         let tools = [ToolDefinition {
             name: "read_file".into(),
@@ -715,7 +770,8 @@ mod tests {
         assert_eq!(resp.stop_reason, StopReason::ToolUse);
         assert_eq!(resp.tool_calls[0].id, "call_1");
         assert_eq!(resp.tool_calls[0].input["path"], "README.md");
-        assert_eq!(resp.usage.input_tokens, 20);
+        assert_eq!(resp.usage.input_tokens, 12);
+        assert_eq!(resp.usage.cache_read_input_tokens, 8);
         assert_eq!(resp.usage.output_tokens, 10);
 
         provider.append_tool_results(
@@ -732,6 +788,66 @@ mod tests {
         assert_eq!(conv.messages[3]["type"], "function_call_output");
         assert_eq!(conv.messages[3]["call_id"], "call_1");
         assert_eq!(conv.messages[3]["output"], "contents");
+
+        provider
+            .send_turn("system", &mut conv, &tools)
+            .await
+            .unwrap();
+        let requests = server.received_requests().await.unwrap();
+        let second: Value = requests[1].body_json().unwrap();
+        assert_eq!(second["include"], json!(["reasoning.encrypted_content"]));
+        assert_eq!(second["tools"][0]["strict"], false);
+        let input = second["input"].as_array().unwrap();
+        assert_eq!(input[1]["type"], "reasoning");
+        assert_eq!(input[1]["encrypted_content"], "abc");
+        assert_eq!(input[2]["call_id"], "call_1");
+        assert_eq!(input[3]["type"], "function_call_output");
+        assert_eq!(input[3]["call_id"], "call_1");
+    }
+
+    #[tokio::test]
+    async fn test_responses_incomplete_call_not_dispatched() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/responses"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
+                "status": "incomplete",
+                "incomplete_details": {"reason": "max_output_tokens"},
+                "output": [{
+                    "type": "function_call",
+                    "status": "incomplete",
+                    "call_id": "call_1",
+                    "name": "get_commits",
+                    "arguments": "{\"fro"
+                }],
+            })))
+            .mount(&server)
+            .await;
+
+        let provider = make_provider(&server.uri()).with_responses_api(true);
+        let mut conv = provider.new_conversation("Hi");
+        let resp = provider.send_turn("system", &mut conv, &[]).await.unwrap();
+        assert!(resp.tool_calls.is_empty());
+        assert_eq!(resp.stop_reason, StopReason::MaxTokens);
+    }
+
+    #[tokio::test]
+    async fn test_responses_content_filter_is_not_max_tokens() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/responses"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
+                "status": "incomplete",
+                "incomplete_details": {"reason": "content_filter"},
+                "output": [],
+            })))
+            .mount(&server)
+            .await;
+
+        let provider = make_provider(&server.uri()).with_responses_api(true);
+        let mut conv = provider.new_conversation("Hi");
+        let resp = provider.send_turn("system", &mut conv, &[]).await.unwrap();
+        assert_eq!(resp.stop_reason, StopReason::Unknown);
     }
 
     #[tokio::test]
@@ -741,6 +857,7 @@ mod tests {
             .and(wiremock::matchers::path("/responses"))
             .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
                 "status": "incomplete",
+                "incomplete_details": {"reason": "max_output_tokens"},
                 "output": [{
                     "type": "message",
                     "role": "assistant",
