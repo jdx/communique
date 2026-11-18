@@ -213,9 +213,6 @@ impl OpenAIProvider {
             }
         }
 
-        // Output items (including reasoning) are replayed as input next turn.
-        conversation.messages.extend(response.output);
-
         let incomplete_reason = response
             .incomplete_details
             .as_ref()
@@ -226,6 +223,11 @@ impl OpenAIProvider {
                 "OpenAI stopped the response because of its content filter".into(),
             ));
         }
+        // Output items (including reasoning) are replayed as input next turn.
+        conversation
+            .messages
+            .extend(response.output.iter().cloned());
+
         let hit_token_limit = response
             .incomplete_details
             .as_ref()
@@ -856,7 +858,10 @@ mod tests {
             .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
                 "status": "incomplete",
                 "incomplete_details": {"reason": "content_filter"},
-                "output": [],
+                "output": [{
+                    "type": "message",
+                    "content": [{"type": "output_text", "text": "# Release\n- Added support for"}]
+                }],
             })))
             .mount(&server)
             .await;
@@ -868,6 +873,8 @@ mod tests {
             .await
             .unwrap_err();
         assert!(err.to_string().contains("content filter"));
+        // Filtered output must not be replayed or reach the text fallback.
+        assert_eq!(conv.messages.len(), 1);
     }
 
     #[tokio::test]
