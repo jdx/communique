@@ -122,7 +122,7 @@ jobs:
         with:
           ref: refs/tags/${{ needs.release-plz-release.outputs.tag }}
           persist-credentials: false
-      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
+      - uses: jdx/mise-action@90f833d396d0cc3674b631d2d225e306476c303a # v5.2.10
         with:
           cache: false
       - name: Enhance GitHub release with communique
@@ -207,7 +207,7 @@ jobs:
       # mise.toml. Whenever one of those pins a mr-boxington version that is
       # not installed on the runner, mise cannot exec mbx and release-plz
       # fails. release-plz itself only needs rustup's cargo.
-      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
+      - uses: jdx/mise-action@90f833d396d0cc3674b631d2d225e306476c303a # v5.2.10
         if: steps.release-plz.outputs.prs_created == 'true'
         with:
           cache: false
