@@ -156,6 +156,12 @@ _Otherwise a maintenance release: CI hardening, `mbx`/`mr-boxington` tooling upd
 
 - *(generate)* Support `communique generate HEAD --changelog` as an intentional `[Unreleased]` target — replaces the existing `## [Unreleased]` section in place instead of inserting a literal `## [HEAD]` entry, with prompt/title labels switched to "unreleased" wording and an early guard rejecting `HEAD --github-release`. ([#121](https://github.com/jdx/communique/pull/121)) (@ThomasK33)
 
+## [1.10.1](https://github.com/jdx/communique/compare/v1.10.0...v1.10.1) - 2026-11-28
+
+### Fixed
+
+- *(generate)* stop writing empty notes when a shallow clone hides the previous tag ([#482](https://github.com/jdx/communique/pull/482))
+
 ## [1.10.0](https://github.com/jdx/communique/compare/v1.9.0...v1.10.0) - 2026-11-28
 
 ### Added
