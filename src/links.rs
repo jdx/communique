@@ -52,6 +52,18 @@ fn without_code(text: &str) -> String {
             // fence with it. This line is ordinary Markdown again.
             fence = None;
         }
+        // A list item numbered other than 1, or an empty one, cannot interrupt
+        // a paragraph, so the line continues it. A new item of the list that
+        // holds the paragraph is not an interruption.
+        if line.item.is_some()
+            && !line.interrupts
+            && !paragraph.text.is_empty()
+            && line.quotes == paragraph.quotes
+            && !item.is_some_and(|(quotes, col)| quotes == line.quotes && line.indent < col)
+        {
+            paragraph.push(raw, line.quotes);
+            continue;
+        }
         if line.item.is_some() || line.quotes != paragraph.quotes || line.is_heading() {
             paragraph.flush(&mut out);
         }
@@ -138,8 +150,8 @@ impl Fence {
     }
 }
 
-/// A line split into its Markdown containers. Columns are byte offsets into
-/// the line.
+/// A line split into its Markdown containers. Columns count a tab up to the
+/// next multiple of four, as Markdown does.
 struct Line<'a> {
     /// Number of blockquote markers (`>`).
     quotes: usize,
@@ -148,13 +160,16 @@ struct Line<'a> {
     /// Content column of the list item (`-`, `*`, `+`, `1.`, `1)`) this line
     /// opens.
     item: Option<usize>,
+    /// Whether that list item may interrupt a paragraph: it is a bullet or
+    /// numbered 1, and it is not empty.
+    interrupts: bool,
     /// The text inside the containers.
     content: &'a str,
 }
 
 impl<'a> Line<'a> {
     fn parse(line: &'a str) -> Self {
-        let column = |rest: &str| line.len() - rest.len();
+        let column = |rest: &str| columns(&line[..line.len() - rest.len()]);
         let mut quotes = 0;
         let mut rest = line.trim_start();
         while let Some(after) = rest.strip_prefix('>') {
@@ -163,22 +178,31 @@ impl<'a> Line<'a> {
         }
         let indent = column(rest);
         let mut item = None;
+        let mut first_marker = None;
         loop {
             if let Some(after) = rest.strip_prefix('>') {
                 quotes += 1;
                 rest = after.trim_start();
             } else if let Some(after) = after_list_marker(rest) {
+                first_marker.get_or_insert(rest);
                 rest = after.trim_start();
                 item = Some(column(rest));
             } else {
                 break;
             }
         }
+        let content = rest.trim_end();
+        let interrupts = !content.is_empty()
+            && first_marker.is_some_and(|marker: &str| {
+                let digits = marker.bytes().take_while(u8::is_ascii_digit).count();
+                digits == 0 || marker[..digits].parse::<u64>() == Ok(1)
+            });
         Self {
             quotes,
             indent,
             item,
-            content: rest.trim_end(),
+            interrupts,
+            content,
         }
     }
 
@@ -199,6 +223,17 @@ impl<'a> Line<'a> {
                 .next()
                 .is_none_or(char::is_whitespace)
     }
+}
+
+/// Width of `text` in Markdown columns, with a tab stop every four columns.
+fn columns(text: &str) -> usize {
+    text.chars().fold(0, |col, c| {
+        if c == '\t' {
+            col + 4 - col % 4
+        } else {
+            col + 1
+        }
+    })
 }
 
 fn after_list_marker(text: &str) -> Option<&str> {
@@ -475,6 +510,20 @@ mod tests {
             );
         }
         let text = "Run `mise\n=== http://127.0.0.1:1/sample` and see https://docs.rs/tokio";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+    }
+
+    #[test]
+    fn test_extract_urls_counts_tabs_as_columns() {
+        let text = "- ```sh\n\tcurl http://127.0.0.1:1/sample\n  ```\nSee https://docs.rs/tokio";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+    }
+
+    #[test]
+    fn test_extract_urls_keeps_paragraphs_that_a_list_item_cannot_interrupt() {
+        let text = "Run `curl\n2. http://127.0.0.1:1/sample` now, see https://docs.rs/tokio";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+        let text = "1. A literal ` (https://docs.rs/tokio)\n2. Use `config` here";
         assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
     }
 
