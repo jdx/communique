@@ -4,3 +4,4 @@
 /docs/.vitepress/cache
 # Local link created by mise skills sync for this tool.
 /.agents/skills/communique
+.claude/settings.local.json
