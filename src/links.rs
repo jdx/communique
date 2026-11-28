@@ -401,16 +401,24 @@ fn is_checkable(url: &str) -> bool {
         .any(|suffix| host == suffix[1..] || host.ends_with(suffix))
 }
 
+/// How many links are requested at the same time.
+const CONCURRENT_REQUESTS: usize = 8;
+
 /// Verify all URLs in the given texts return non-404 responses.
 /// Returns a list of broken URLs.
-pub async fn verify(texts: &[&str]) -> Vec<(String, String)> {
+///
+/// `known` holds URLs that are already known to exist, such as the pull
+/// requests of the commits being released. They are not requested.
+pub async fn verify(texts: &[&str], known: &[String]) -> Vec<(String, String)> {
     let mut all_urls = Vec::new();
     for text in texts {
         for url in extract_urls(text) {
-            if is_checkable(&url) {
-                all_urls.push(url);
-            } else {
+            if !is_checkable(&url) {
                 debug!("not checking example URL: {url}");
+            } else if known.iter().any(|k| k == url.trim_end_matches('/')) {
+                debug!("not checking known URL: {url}");
+            } else if !all_urls.contains(&url) {
+                all_urls.push(url);
             }
         }
     }
@@ -418,6 +426,8 @@ pub async fn verify(texts: &[&str]) -> Vec<(String, String)> {
     if all_urls.is_empty() {
         return Vec::new();
     }
+    // Report in a stable order, whichever request finishes first.
+    all_urls.sort();
 
     let client = reqwest::Client::builder()
         .user_agent("communique/0.1 link-checker")
@@ -427,34 +437,32 @@ pub async fn verify(texts: &[&str]) -> Vec<(String, String)> {
         .unwrap();
 
     let mut broken = Vec::new();
-    for url in &all_urls {
-        match client.head(url).send().await {
-            Ok(resp) if resp.status() == 404 => {
-                warn!("broken link: {url} (404)");
-                broken.push((url.clone(), "404".into()));
+    for batch in all_urls.chunks(CONCURRENT_REQUESTS) {
+        let checks = batch.iter().map(|url| check(&client, url));
+        let reasons = futures_util::future::join_all(checks).await;
+        for (url, reason) in batch.iter().zip(reasons) {
+            if let Some(reason) = reason {
+                warn!("broken link: {url} ({reason})");
+                broken.push((url.clone(), reason));
             }
-            Ok(resp) if resp.status() == 405 => {
-                // HEAD not allowed, try GET
-                match client.get(url).send().await {
-                    Ok(resp) if resp.status() == 404 => {
-                        warn!("broken link: {url} (404)");
-                        broken.push((url.clone(), "404".into()));
-                    }
-                    Err(e) => {
-                        warn!("broken link: {url} ({e})");
-                        broken.push((url.clone(), e.to_string()));
-                    }
-                    _ => {}
-                }
-            }
-            Err(e) => {
-                warn!("broken link: {url} ({e})");
-                broken.push((url.clone(), e.to_string()));
-            }
-            _ => {}
         }
     }
     broken
+}
+
+/// Request one URL and return why it is broken, if it is. Servers that do
+/// not allow HEAD are asked again with GET.
+async fn check(client: &reqwest::Client, url: &str) -> Option<String> {
+    match client.head(url).send().await {
+        Ok(resp) if resp.status() == 404 => Some("404".into()),
+        Ok(resp) if resp.status() == 405 => match client.get(url).send().await {
+            Ok(resp) if resp.status() == 404 => Some("404".into()),
+            Ok(_) => None,
+            Err(e) => Some(e.to_string()),
+        },
+        Ok(_) => None,
+        Err(e) => Some(e.to_string()),
+    }
 }
 
 #[cfg(test)]
@@ -699,7 +707,7 @@ mod tests {
         let text = "Templated: http://127.0.0.1:{{ port }} and \
             https://gitlab.example.com/api/v4/simple\n\n\
             ```toml\nurl = \"http://127.0.0.1:1/unreachable\"\n```\n";
-        assert!(verify(&[text]).await.is_empty());
+        assert!(verify(&[text], &[]).await.is_empty());
     }
 
     #[tokio::test]
@@ -712,7 +720,7 @@ mod tests {
 
         let url = format!("{}/page", server.uri());
         let text = format!("Check {url}");
-        let broken = verify(&[&text]).await;
+        let broken = verify(&[&text], &[]).await;
         assert!(broken.is_empty());
     }
 
@@ -726,14 +734,71 @@ mod tests {
 
         let url = format!("{}/broken", server.uri());
         let text = format!("See {url}");
-        let broken = verify(&[&text]).await;
+        let broken = verify(&[&text], &[]).await;
         assert_eq!(broken.len(), 1);
         assert!(broken[0].1.contains("404"));
     }
 
     #[tokio::test]
+    async fn test_verify_does_not_request_known_urls() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::any())
+            .respond_with(wiremock::ResponseTemplate::new(404))
+            .expect(0)
+            .mount(&server)
+            .await;
+
+        let known = vec![format!("{}/o/r/pull/1", server.uri())];
+        let text = format!(
+            "Fixed in [#1]({0}/o/r/pull/1) and [#1 again]({0}/o/r/pull/1/).",
+            server.uri()
+        );
+        assert!(verify(&[&text], &known).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_verify_checks_urls_that_only_start_like_a_known_one() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("HEAD"))
+            .respond_with(wiremock::ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+
+        let known = vec![format!("{}/o/r/pull/1", server.uri())];
+        let text = format!("See {}/o/r/pull/12", server.uri());
+        let broken = verify(&[&text], &known).await;
+        assert_eq!(broken.len(), 1);
+        assert!(broken[0].0.ends_with("/pull/12"));
+    }
+
+    #[tokio::test]
+    async fn test_verify_reports_every_broken_url_in_order() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::path_regex("^/gone/"))
+            .respond_with(wiremock::ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+        wiremock::Mock::given(wiremock::matchers::path_regex("^/ok/"))
+            .respond_with(wiremock::ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+
+        // More URLs than one batch of concurrent requests.
+        let mut text = String::new();
+        for i in (10..30).rev() {
+            text.push_str(&format!("{0}/gone/{i} {0}/ok/{i}\n", server.uri()));
+        }
+        let broken = verify(&[&text, &text], &[]).await;
+        let expected: Vec<String> = (10..30)
+            .map(|i| format!("{}/gone/{i}", server.uri()))
+            .collect();
+        let urls: Vec<String> = broken.into_iter().map(|(url, _)| url).collect();
+        assert_eq!(urls, expected);
+    }
+
+    #[tokio::test]
     async fn test_verify_empty_text() {
-        let broken = verify(&["no urls here"]).await;
+        let broken = verify(&["no urls here"], &[]).await;
         assert!(broken.is_empty());
     }
 
@@ -751,7 +816,7 @@ mod tests {
 
         let url = format!("{}/page", server.uri());
         let text = format!("Check {url}");
-        let broken = verify(&[&text]).await;
+        let broken = verify(&[&text], &[]).await;
         assert!(broken.is_empty());
     }
 
@@ -769,7 +834,7 @@ mod tests {
 
         let url = format!("{}/broken", server.uri());
         let text = format!("See {url}");
-        let broken = verify(&[&text]).await;
+        let broken = verify(&[&text], &[]).await;
         assert_eq!(broken.len(), 1);
         assert!(broken[0].1.contains("404"));
     }
