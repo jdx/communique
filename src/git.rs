@@ -443,6 +443,8 @@ mod tests {
     #[test]
     fn test_previous_tag_shallow_clone_without_earlier_tags() {
         let repo = crate::test_helpers::TempRepo::new();
+        repo.write_file("f.txt", "0");
+        repo.commit("root");
         repo.write_file("f.txt", "a");
         repo.commit("first");
         repo.tag("v1.0.0");
@@ -463,14 +465,24 @@ mod tests {
         let err = previous_tag(clone.path(), "v2.0.0").unwrap_err();
         assert!(err.to_string().contains("shallow clone"), "{err}");
 
-        // A shallow clone deep enough to reach the earlier tag still works.
+        // A shallow clone deep enough to reach the earlier tag still works. Two
+        // commits deep reaches v1.0.0 (fetched along with its commit) but not the
+        // root commit, so the clone stays shallow.
+        let deeper = tempfile::tempdir().unwrap();
         let status = std::process::Command::new("git")
-            .args(["fetch", "-q", "--deepen", "1", "--tags", "origin"])
-            .current_dir(clone.path())
+            .args(["clone", "-q", "--depth", "2", "--branch", "v2.0.0", &source])
+            .arg(deeper.path())
             .status()
             .unwrap();
         assert!(status.success());
-        assert_eq!(previous_tag(clone.path(), "v2.0.0").unwrap(), "v1.0.0");
+        assert!(is_shallow(deeper.path()).unwrap());
+        let status = std::process::Command::new("git")
+            .args(["merge-base", "--is-ancestor", "v1.0.0", "v2.0.0"])
+            .current_dir(deeper.path())
+            .status()
+            .unwrap();
+        assert!(status.success());
+        assert_eq!(previous_tag(deeper.path(), "v2.0.0").unwrap(), "v1.0.0");
     }
 
     #[test]
