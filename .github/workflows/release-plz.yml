@@ -121,6 +121,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: refs/tags/${{ needs.release-plz-release.outputs.tag }}
+          # communique finds the previous release from the earlier tags, so
+          # it needs the full history, not only the release commit.
+          fetch-depth: 0
           persist-credentials: false
       - uses: jdx/mise-action@90f833d396d0cc3674b631d2d225e306476c303a # v5.2.10
         with:
