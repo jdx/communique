@@ -557,6 +557,12 @@ async fn generate_notes(
     );
 
     let verify_links = !dry_run && ctx.defaults.verify_links.unwrap_or(true);
+    // The commits being released name these pull requests, so links to them
+    // need no request to confirm.
+    let known_links: Vec<String> = pr_numbers
+        .iter()
+        .map(|n| ctx.repo.change_request_url(*n))
+        .collect();
 
     let mut parsed = agent::run(agent::AgentContext {
         client: &*ctx.client,
@@ -566,6 +572,7 @@ async fn generate_notes(
         repo_root: &ctx.repo_root,
         forge: ctx.forge_client.as_ref(),
         verify_links,
+        known_links: &known_links,
         require_release_notes: include_release_notes,
         require_changelog: include_changelog,
         job,

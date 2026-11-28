@@ -85,6 +85,14 @@ impl Repo {
         }
     }
 
+    /// Web page of a pull request (GitHub) or merge request (GitLab).
+    pub fn change_request_url(&self, number: u64) -> String {
+        match self.kind {
+            ForgeKind::GitHub => format!("{}/pull/{number}", self.web_url()),
+            ForgeKind::GitLab => format!("{}/-/merge_requests/{number}", self.web_url()),
+        }
+    }
+
     pub fn release_url(&self, tag: &str) -> String {
         match self.kind {
             ForgeKind::GitHub => {
@@ -558,6 +566,18 @@ mod tests {
             "https://gitlab.com/group/sub/proj/-/commit/abc1234"
         );
         assert_eq!(repo.custom_web_base(), None);
+    }
+
+    #[test]
+    fn change_request_urls_follow_the_forge() {
+        assert_eq!(
+            Repo::github("o/r").change_request_url(12),
+            "https://github.com/o/r/pull/12"
+        );
+        assert_eq!(
+            Repo::gitlab("group/proj", "https://gitlab.com/").change_request_url(12),
+            "https://gitlab.com/group/proj/-/merge_requests/12"
+        );
     }
 
     #[test]

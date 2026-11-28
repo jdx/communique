@@ -131,6 +131,8 @@ pub struct AgentContext<'a> {
     pub repo_root: &'a Path,
     pub forge: Option<&'a ForgeClient>,
     pub verify_links: bool,
+    /// URLs the link check accepts without requesting them.
+    pub known_links: &'a [String],
     pub require_release_notes: bool,
     pub require_changelog: bool,
     pub job: &'a Arc<ProgressJob>,
@@ -145,6 +147,7 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
         repo_root,
         forge,
         verify_links,
+        known_links,
         require_release_notes,
         require_changelog,
         job,
@@ -211,7 +214,8 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
         if let Some((tool_call_id, parsed)) = submit {
             if verify_links {
                 job.prop("message", "Verifying links...");
-                let broken = links::verify(&[&parsed.changelog, &parsed.release_body]).await;
+                let broken =
+                    links::verify(&[&parsed.changelog, &parsed.release_body], known_links).await;
                 if !broken.is_empty() {
                     let summary = broken
                         .iter()
@@ -563,6 +567,7 @@ mod tests {
             repo_root: &tmp,
             forge: None,
             verify_links: false,
+            known_links: &[],
             require_release_notes: true,
             require_changelog: true,
             job: &job,
@@ -595,6 +600,7 @@ mod tests {
             repo_root: &tmp,
             forge: None,
             verify_links: false,
+            known_links: &[],
             require_release_notes: false,
             require_changelog: true,
             job: &job,
@@ -635,6 +641,7 @@ mod tests {
             repo_root: &tmp,
             forge: None,
             verify_links: false,
+            known_links: &[],
             require_release_notes: true,
             require_changelog: true,
             job: &job,
@@ -663,6 +670,7 @@ mod tests {
             repo_root: &tmp,
             forge: None,
             verify_links: false,
+            known_links: &[],
             require_release_notes: true,
             require_changelog: true,
             job: &job,
@@ -690,6 +698,7 @@ mod tests {
             repo_root: &tmp,
             forge: None,
             verify_links: false,
+            known_links: &[],
             require_release_notes: true,
             require_changelog: true,
             job: &job,
@@ -717,6 +726,7 @@ mod tests {
             repo_root: &tmp,
             forge: None,
             verify_links: false,
+            known_links: &[],
             require_release_notes: true,
             require_changelog: true,
             job: &job,
@@ -743,6 +753,7 @@ mod tests {
             repo_root: &tmp,
             forge: None,
             verify_links: false,
+            known_links: &[],
             require_release_notes: true,
             require_changelog: false,
             job: &job,
@@ -785,6 +796,7 @@ mod tests {
             repo_root: &tmp,
             forge: None,
             verify_links: false,
+            known_links: &[],
             require_release_notes: true,
             require_changelog: true,
             job: &job,
@@ -828,6 +840,7 @@ mod tests {
             repo_root: &tmp,
             forge: None,
             verify_links: false,
+            known_links: &[],
             require_release_notes: true,
             require_changelog: true,
             job: &job,
@@ -871,6 +884,7 @@ mod tests {
             repo_root: &tmp,
             forge: None,
             verify_links: false,
+            known_links: &[],
             require_release_notes: true,
             require_changelog: true,
             job: &job,
@@ -922,6 +936,7 @@ mod tests {
             repo_root: &tmp,
             forge: None,
             verify_links: false,
+            known_links: &[],
             require_release_notes: true,
             require_changelog: true,
             job: &job,
@@ -969,6 +984,7 @@ mod tests {
             repo_root: &tmp,
             forge: None,
             verify_links: false,
+            known_links: &[],
             require_release_notes: true,
             require_changelog: true,
             job: &job,
@@ -1048,6 +1064,7 @@ mod tests {
             repo_root: &tmp,
             forge: None,
             verify_links: false,
+            known_links: &[],
             require_release_notes: true,
             require_changelog: true,
             job: &job,
@@ -1091,6 +1108,7 @@ mod tests {
             repo_root: &tmp,
             forge: None,
             verify_links: true,
+            known_links: &[],
             require_release_notes: true,
             require_changelog: true,
             job: &job,
@@ -1143,12 +1161,50 @@ mod tests {
             repo_root: &tmp,
             forge: None,
             verify_links: true,
+            known_links: &[],
             require_release_notes: true,
             require_changelog: true,
             job: &job,
         };
         let result = run(ctx).await.unwrap();
         assert_eq!(result.release_body, "Fixed notes");
+    }
+
+    #[tokio::test]
+    async fn test_verify_links_accepts_known_links_without_a_request() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::any())
+            .respond_with(wiremock::ResponseTemplate::new(404))
+            .expect(0)
+            .mount(&server)
+            .await;
+
+        let pr_url = format!("{}/o/r/pull/7", server.uri());
+        let body = format!("Fixed in [#7]({pr_url})");
+        let client = MockLlmClient::new(vec![TurnResponse {
+            tool_calls: vec![submit_tool_call("changes", "v1.0", &body)],
+            text: None,
+            stop_reason: StopReason::ToolUse,
+            usage: fake_usage(),
+        }]);
+        let job = Arc::new(ProgressJobBuilder::new().build());
+        let tmp = std::env::temp_dir();
+        let known_links = vec![pr_url];
+        let ctx = AgentContext {
+            client: &client,
+            system: "",
+            user_message: "",
+            tool_defs: vec![],
+            repo_root: &tmp,
+            forge: None,
+            verify_links: true,
+            known_links: &known_links,
+            require_release_notes: true,
+            require_changelog: true,
+            job: &job,
+        };
+        let result = run(ctx).await.unwrap();
+        assert_eq!(result.release_body, body);
     }
 
     #[tokio::test]
@@ -1176,6 +1232,7 @@ mod tests {
             repo_root: &tmp,
             forge: None,
             verify_links: false,
+            known_links: &[],
             require_release_notes: true,
             require_changelog: true,
             job: &job,
