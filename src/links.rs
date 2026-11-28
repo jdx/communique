@@ -28,33 +28,91 @@ fn extract_urls(text: &str) -> Vec<String> {
 
 /// Drop fenced code blocks and inline code spans from markdown. A fence that
 /// is never closed hides the rest of the text, as it does when rendered.
+/// Fences are found inside blockquotes and list items too, and a code span
+/// may wrap onto the next line of its paragraph.
 fn without_code(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
+    let mut paragraph = String::new();
     let mut fence: Option<(char, usize)> = None;
     for line in text.lines() {
-        let trimmed = line.trim_start();
-        let marker = trimmed.chars().next().filter(|c| matches!(c, '`' | '~'));
-        let run = marker.map_or(0, |c| trimmed.chars().take_while(|&ch| ch == c).count());
-        match fence {
-            Some((c, len)) => {
-                if marker == Some(c) && run >= len && trimmed[run..].trim().is_empty() {
-                    fence = None;
-                }
+        let content = block_content(line);
+        if let Some((c, len)) = fence {
+            if let Some((marker, run, info)) = fence_marker(content)
+                && marker == c
+                && run >= len
+                && info.trim().is_empty()
+            {
+                fence = None;
             }
-            None if run >= 3 => fence = marker.map(|c| (c, run)),
-            None => out.push_str(&without_code_spans(line)),
+        } else if let Some(opened) = fence_opener(content) {
+            flush_paragraph(&mut paragraph, &mut out);
+            fence = Some(opened);
+        } else if content.trim().is_empty() {
+            flush_paragraph(&mut paragraph, &mut out);
+        } else {
+            paragraph.push_str(line);
+            paragraph.push('\n');
+            continue;
         }
         out.push('\n');
     }
+    flush_paragraph(&mut paragraph, &mut out);
     out
 }
 
-/// Replace each inline code span on a line with a space. A backtick run with
-/// no closing run of the same length is literal text and stays.
-fn without_code_spans(line: &str) -> String {
-    let mut out = String::with_capacity(line.len());
-    let mut rest = line;
-    while let Some(start) = rest.find('`') {
+fn flush_paragraph(paragraph: &mut String, out: &mut String) {
+    out.push_str(&without_code_spans(paragraph));
+    paragraph.clear();
+}
+
+/// A line's text inside its Markdown containers: indentation, blockquote
+/// markers (`>`) and list item markers (`-`, `*`, `+`, `1.`, `1)`) removed.
+fn block_content(line: &str) -> &str {
+    let mut rest = line.trim_start();
+    loop {
+        if let Some(after) = rest.strip_prefix('>') {
+            rest = after.trim_start();
+        } else if let Some(after) = after_list_marker(rest) {
+            rest = after.trim_start();
+        } else {
+            return rest;
+        }
+    }
+}
+
+fn after_list_marker(text: &str) -> Option<&str> {
+    let digits = text.bytes().take_while(u8::is_ascii_digit).count();
+    let len = match (digits, text.as_bytes().get(digits)) {
+        (1..=9, Some(b'.' | b')')) => digits + 1,
+        (0, Some(b'-' | b'*' | b'+')) => 1,
+        _ => return None,
+    };
+    let after = &text[len..];
+    (after.is_empty() || after.starts_with([' ', '\t'])).then_some(after)
+}
+
+/// The marker character, run length and info string of a line that starts
+/// with three or more backticks or tildes.
+fn fence_marker(content: &str) -> Option<(char, usize, &str)> {
+    let c = content.chars().next().filter(|c| matches!(c, '`' | '~'))?;
+    let run = content.bytes().take_while(|&b| b == c as u8).count();
+    (run >= 3).then(|| (c, run, &content[run..]))
+}
+
+/// The fence a line opens. A backtick fence cannot have a backtick in its
+/// info string, so a line such as "```cmd``` first" is an inline code span.
+fn fence_opener(content: &str) -> Option<(char, usize)> {
+    let (c, run, info) = fence_marker(content)?;
+    (c == '~' || !info.contains('`')).then_some((c, run))
+}
+
+/// Replace each inline code span in a paragraph with a space. A backtick run
+/// with no closing run of the same length is literal text and stays, and so
+/// does a backtick escaped with a backslash.
+fn without_code_spans(paragraph: &str) -> String {
+    let mut out = String::with_capacity(paragraph.len());
+    let mut rest = paragraph;
+    while let Some(start) = opening_backtick(rest) {
         let run = backtick_run(&rest[start..]);
         let after = &rest[start + run..];
         match closing_run(after, run) {
@@ -71,6 +129,21 @@ fn without_code_spans(line: &str) -> String {
     }
     out.push_str(rest);
     out
+}
+
+/// Offset of the first backtick that a backslash does not escape. Escapes do
+/// not apply inside a code span, so only the opening run is searched this way.
+fn opening_backtick(text: &str) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\\' => i += 2,
+            b'`' => return Some(i),
+            _ => i += 1,
+        }
+    }
+    None
 }
 
 fn backtick_run(text: &str) -> usize {
@@ -208,6 +281,42 @@ mod tests {
     #[test]
     fn test_extract_urls_keeps_text_after_unclosed_backtick() {
         let text = "A stray ` backtick, then https://docs.rs/tokio";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+    }
+
+    #[test]
+    fn test_extract_urls_inline_triple_backticks_are_not_a_fence() {
+        let text = "Run ```cmd``` first.\nThen read https://docs.rs/tokio";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+    }
+
+    #[test]
+    fn test_extract_urls_skips_code_spans_that_wrap() {
+        let text = "Run `curl\nhttp://127.0.0.1:1/sample` now.\nThen read https://docs.rs/tokio";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+    }
+
+    #[test]
+    fn test_extract_urls_code_spans_end_at_a_blank_line() {
+        let text = "A stray `\n\nhttps://docs.rs/tokio` here";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+    }
+
+    #[test]
+    fn test_extract_urls_skips_fences_in_blockquotes() {
+        let text = "> [!NOTE]\n> ~~~sh\n> curl http://127.0.0.1:1/sample\n> ~~~\n> See https://docs.rs/tokio";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+    }
+
+    #[test]
+    fn test_extract_urls_skips_fences_in_list_items() {
+        let text = "- ```sh\n  curl http://127.0.0.1:1/sample\n  ```\n1. See https://docs.rs/tokio";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+    }
+
+    #[test]
+    fn test_extract_urls_keeps_links_between_escaped_backticks() {
+        let text = r"Read \`[the docs](https://docs.rs/tokio)\` first";
         assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
     }
 
