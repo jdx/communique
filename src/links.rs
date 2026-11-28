@@ -79,7 +79,7 @@ fn without_code(text: &str) -> String {
             paragraph.flush(&mut out);
         } else {
             paragraph.push(raw, line.quotes);
-            if line.is_heading() {
+            if line.is_heading() || line.is_underline() {
                 paragraph.flush(&mut out);
             }
             continue;
@@ -180,6 +180,15 @@ impl<'a> Line<'a> {
             item,
             content: rest.trim_end(),
         }
+    }
+
+    /// A setext heading underline (`===`, `---`) or a thematic break (`***`,
+    /// `___`). Either one ends the paragraph above it.
+    fn is_underline(&self) -> bool {
+        let mut chars = self.content.chars().filter(|c| !c.is_whitespace());
+        chars.next().is_some_and(|first| {
+            matches!(first, '=' | '-' | '*' | '_') && chars.all(|c| c == first)
+        })
     }
 
     fn is_heading(&self) -> bool {
@@ -456,6 +465,16 @@ mod tests {
         let text = "# A ` heading\nSee https://docs.rs/tokio and `code`";
         assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
         let text = "A stray `\n## Links\n[docs](https://docs.rs/tokio)`";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+        for underline in ["===", "---", "***"] {
+            let text = format!("A stray `\n{underline}\n[docs](https://docs.rs/tokio)`");
+            assert_eq!(
+                extract_urls(&text),
+                vec!["https://docs.rs/tokio"],
+                "{underline}"
+            );
+        }
+        let text = "Run `mise\n=== http://127.0.0.1:1/sample` and see https://docs.rs/tokio";
         assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
     }
 
