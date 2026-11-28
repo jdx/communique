@@ -455,6 +455,14 @@ mod tests {
         assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
         let text = "# A ` heading\nSee https://docs.rs/tokio and `code`";
         assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+        let text = "A stray `\n## Links\n[docs](https://docs.rs/tokio)`";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+    }
+
+    #[test]
+    fn test_extract_urls_reads_list_markers_in_a_fence_as_code() {
+        let text = "~~~sh\n- ~~~\nhttp://127.0.0.1:1/sample\n~~~\nSee https://docs.rs/tokio";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
     }
 
     #[test]
