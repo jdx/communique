@@ -383,7 +383,9 @@ async fn generate_notes(
         &ctx.workflow.paths,
     )?;
     let change_refs = change_refs(ctx, &raw_log).await?;
-    let (git_log, excluded, rule_context) = apply_rules(ctx, &raw_log, &change_refs).await?;
+    let mut rule_change_requests = std::collections::BTreeMap::new();
+    let (git_log, excluded, rule_context) =
+        apply_rules(ctx, &raw_log, &change_refs, &mut rule_change_requests).await?;
     let pr_numbers = match ctx.repo.kind {
         ForgeKind::GitHub => git::extract_pr_numbers(&git_log),
         ForgeKind::GitLab => {
@@ -422,6 +424,23 @@ async fn generate_notes(
         git_log.lines().count(),
         pr_numbers.len()
     );
+
+    let change_requests = match &ctx.forge_client {
+        Some(forge) if ctx.defaults.prefetch_prs.unwrap_or(true) && !pr_numbers.is_empty() => {
+            job.prop(
+                "message",
+                &format!("Fetching {} descriptions...", pr_numbers.len()),
+            );
+            prefetch_change_requests(
+                forge,
+                &pr_numbers,
+                rule_change_requests,
+                PREFETCH_TIME_LIMIT,
+            )
+            .await
+        }
+        _ => vec![],
+    };
 
     job.prop("message", "Fetching existing release context...");
     let changelog_entry = if ctx.is_unreleased_head() {
@@ -527,6 +546,7 @@ async fn generate_notes(
         repo: &ctx.repo,
         git_log: &git_log,
         pr_numbers: &pr_numbers,
+        change_requests: &change_requests,
         is_unreleased_head: ctx.is_unreleased_head(),
         changelog_entry: changelog_entry.as_deref(),
         existing_release: existing_release.as_deref(),
@@ -1153,6 +1173,71 @@ async fn change_refs(
     Ok(map)
 }
 
+/// Most pull/merge requests whose descriptions are fetched before the first
+/// turn. The model fetches any others itself with `get_pr`.
+const MAX_PREFETCHED_CHANGE_REQUESTS: usize = 150;
+
+/// Longest time spent fetching descriptions before the first turn. Forge
+/// requests retry with backoff for minutes, so during an outage the prefetch
+/// stops here and the model fetches the rest with `get_pr`.
+const PREFETCH_TIME_LIMIT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Fetch the pull/merge requests the release's commits name, so their
+/// descriptions go into the first prompt and the model does not need a tool
+/// call for each. `fetched` holds any that label rules already loaded. One
+/// that cannot be fetched within `time_limit` is left for the model to request.
+async fn prefetch_change_requests(
+    forge: &ForgeClient,
+    numbers: &[u64],
+    mut fetched: std::collections::BTreeMap<u64, forge::ChangeRequest>,
+    time_limit: std::time::Duration,
+) -> Vec<forge::ChangeRequest> {
+    let deadline = tokio::time::Instant::now() + time_limit;
+    let mut wanted: Vec<u64> = Vec::new();
+    for number in numbers {
+        if !wanted.contains(number) && wanted.len() < MAX_PREFETCHED_CHANGE_REQUESTS {
+            wanted.push(*number);
+        }
+    }
+    let missing: Vec<u64> = wanted
+        .iter()
+        .copied()
+        .filter(|n| !fetched.contains_key(n))
+        .collect();
+    let mut timed_out = 0;
+    for chunk in missing.chunks(8) {
+        if tokio::time::Instant::now() >= deadline {
+            timed_out += chunk.len();
+            continue;
+        }
+        let results = futures_util::future::join_all(
+            chunk
+                .iter()
+                .map(|n| tokio::time::timeout_at(deadline, forge.get_change_request(*n))),
+        )
+        .await;
+        for (number, result) in chunk.iter().zip(results) {
+            match result {
+                Ok(Ok(pr)) => {
+                    fetched.insert(*number, pr);
+                }
+                Ok(Err(e)) => info!(
+                    "failed to fetch {} ahead of time: {e}",
+                    forge.kind().change_ref(*number)
+                ),
+                Err(_) => timed_out += 1,
+            }
+        }
+    }
+    if timed_out > 0 {
+        info!(
+            "stopped fetching descriptions after {}s; {timed_out} are left for the model to fetch",
+            time_limit.as_secs()
+        );
+    }
+    wanted.iter().filter_map(|n| fetched.remove(n)).collect()
+}
+
 fn rules_active(rules: &crate::workflow::Rules) -> bool {
     !rules.include_labels.is_empty()
         || !rules.exclude_labels.is_empty()
@@ -1163,6 +1248,7 @@ async fn apply_rules(
     ctx: &Context,
     log: &str,
     change_refs: &std::collections::HashMap<String, Vec<u64>>,
+    prs: &mut std::collections::BTreeMap<u64, forge::ChangeRequest>,
 ) -> miette::Result<(String, Vec<crate::workflow::Coverage>, String)> {
     let rules = &ctx.rules;
     if !rules_active(rules) {
@@ -1178,7 +1264,6 @@ async fn apply_rules(
         let sha = line.split_whitespace().next().unwrap_or_default();
         change_refs.get(sha).cloned().unwrap_or_default()
     };
-    let mut prs = std::collections::BTreeMap::new();
     for number in log.lines().flat_map(line_refs) {
         if let std::collections::btree_map::Entry::Vacant(entry) = prs.entry(number) {
             entry.insert(gh.get_change_request(number).await?);
@@ -1461,6 +1546,163 @@ mod tests {
         assert!(err.to_string().contains("label rules"), "{err}");
     }
 
+    /// A release with two pull requests and a model that submits at once.
+    fn prefetch_fixture() -> (TempRepo, Context, Arc<std::sync::Mutex<Vec<String>>>) {
+        let repo = TempRepo::new();
+        repo.write_file("a", "1");
+        repo.commit("initial");
+        repo.tag("v1");
+        repo.write_file("a", "2");
+        repo.commit("feat: add feature (#1)");
+        repo.write_file("a", "3");
+        repo.commit("fix: repair thing (#2)");
+        repo.tag("v2");
+        let client = MockLlmClient::new(vec![TurnResponse {
+            tool_calls: vec![submit_tool_call("### Added\n- Feature", "v2", "Notes")],
+            text: None,
+            stop_reason: StopReason::ToolUse,
+            usage: fake_usage(),
+        }]);
+        let prompts = client.prompts.clone();
+        let mut ctx = test_context(repo.path().to_path_buf(), "v2", "v1");
+        ctx.client = Box::new(client);
+        ctx.defaults.verify_links = Some(false);
+        (repo, ctx, prompts)
+    }
+
+    /// A GitHub API with no releases, for tests that only read pull requests.
+    async fn server_without_releases() -> MockServer {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/repos/test/repo/releases"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+            .mount(&server)
+            .await;
+        server
+    }
+
+    async fn mount_pull(server: &MockServer, number: u64, body: &str, calls: u64) {
+        Mock::given(method("GET"))
+            .and(path(format!("/repos/test/repo/pulls/{number}")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "number": number, "title": format!("Change {number}"), "body": body,
+                "user": {"login": "dev"}, "labels": [{"name": "enhancement"}]
+            })))
+            .expect(calls)
+            .mount(server)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn pull_request_descriptions_are_in_the_first_prompt() {
+        let server = server_without_releases().await;
+        mount_pull(&server, 1, "Adds the `--fast` flag.", 1).await;
+        // #2 is not served: a failed fetch is left for the model to request.
+        let (_repo, mut ctx, prompts) = prefetch_fixture();
+        ctx.forge_client = Some(gh_client("token", &server.uri()));
+
+        let job = Arc::new(ProgressJobBuilder::new().build());
+        generate_notes(&ctx, false, true, true, &job).await.unwrap();
+
+        let prompt = &prompts.lock().unwrap()[0];
+        assert!(
+            prompt.contains(
+                "<pull_request number=\"1\">\nPR #1: Change 1\nAuthor: @dev\nLabels: enhancement\n\nAdds the `--fast` flag.\n</pull_request>"
+            ),
+            "{prompt}"
+        );
+        assert!(prompt.contains("Not included (use `get_pr` for these): #2"));
+        assert!(!prompt.contains("to understand these changes in detail"));
+    }
+
+    #[tokio::test]
+    async fn label_rules_and_the_prompt_share_one_fetch_per_pull_request() {
+        let server = server_without_releases().await;
+        mount_pull(&server, 1, "First.", 1).await;
+        mount_pull(&server, 2, "Second.", 1).await;
+        let (_repo, mut ctx, prompts) = prefetch_fixture();
+        ctx.forge_client = Some(gh_client("token", &server.uri()));
+        ctx.rules.exclude_labels = vec!["internal".into()];
+
+        let job = Arc::new(ProgressJobBuilder::new().build());
+        generate_notes(&ctx, false, true, true, &job).await.unwrap();
+
+        let prompt = &prompts.lock().unwrap()[0];
+        assert!(prompt.contains("First.") && prompt.contains("Second."));
+        assert!(!prompt.contains("Not included"));
+    }
+
+    #[tokio::test]
+    async fn prefetch_prs_false_leaves_descriptions_to_the_model() {
+        let server = server_without_releases().await;
+        mount_pull(&server, 1, "First.", 0).await;
+        mount_pull(&server, 2, "Second.", 0).await;
+        let (_repo, mut ctx, prompts) = prefetch_fixture();
+        ctx.forge_client = Some(gh_client("token", &server.uri()));
+        ctx.defaults.prefetch_prs = Some(false);
+
+        let job = Arc::new(ProgressJobBuilder::new().build());
+        generate_notes(&ctx, false, true, true, &job).await.unwrap();
+
+        let prompt = &prompts.lock().unwrap()[0];
+        assert!(prompt.contains("Use the `get_pr` and `get_pr_diff` tools"));
+        assert!(!prompt.contains("<pull_request"));
+    }
+
+    #[tokio::test]
+    async fn prefetch_keeps_log_order_and_fetches_each_number_once() {
+        let server = MockServer::start().await;
+        mount_pull(&server, 5, "Five.", 1).await;
+        mount_pull(&server, 3, "Three.", 0).await;
+        let forge = gh_client("token", &server.uri());
+        let mut loaded = std::collections::BTreeMap::new();
+        loaded.insert(
+            3,
+            forge::ChangeRequest {
+                number: 3,
+                title: "Loaded by label rules".into(),
+                body: None,
+                author: "dev".into(),
+                labels: vec![],
+                closes: vec![],
+            },
+        );
+        let fetched =
+            prefetch_change_requests(&forge, &[5, 3, 5, 9], loaded, PREFETCH_TIME_LIMIT).await;
+        let numbers: Vec<u64> = fetched.iter().map(|pr| pr.number).collect();
+        assert_eq!(numbers, [5, 3]);
+    }
+
+    #[tokio::test]
+    async fn prefetch_stops_at_its_time_limit() {
+        let server = MockServer::start().await;
+        mount_pull(&server, 1, "Quick.", 1).await;
+        Mock::given(method("GET"))
+            .and(path("/repos/test/repo/pulls/2"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(json!({
+                        "number": 2, "title": "Slow", "body": "",
+                        "user": {"login": "dev"}, "labels": []
+                    }))
+                    .set_delay(std::time::Duration::from_secs(30)),
+            )
+            .mount(&server)
+            .await;
+        let forge = gh_client("token", &server.uri());
+        let started = std::time::Instant::now();
+        let fetched = prefetch_change_requests(
+            &forge,
+            &[1, 2],
+            std::collections::BTreeMap::new(),
+            std::time::Duration::from_millis(500),
+        )
+        .await;
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
+        let numbers: Vec<u64> = fetched.iter().map(|pr| pr.number).collect();
+        assert_eq!(numbers, [1]);
+    }
+
     #[tokio::test]
     async fn label_rules_exclude_before_generation_and_include_wins() {
         let server = MockServer::start().await;
@@ -1490,7 +1732,9 @@ mod tests {
         ctx.rules.categories.insert("bug".into(), "Fixed".into());
         let log = "abc Internal (#1)\ndef Important (#2)\nghi Followup (#2)";
         let refs = change_refs(&ctx, log).await.unwrap();
-        let (log, excluded, guidance) = apply_rules(&ctx, log, &refs).await.unwrap();
+        let (log, excluded, guidance) = apply_rules(&ctx, log, &refs, &mut Default::default())
+            .await
+            .unwrap();
         assert!(!log.contains("abc"));
         assert!(log.contains("def"));
         assert_eq!(excluded.len(), 1);
@@ -1498,7 +1742,11 @@ mod tests {
         assert!(guidance.contains("under Fixed"));
         ctx.forge_client = None;
         let refs = change_refs(&ctx, "abc (#1)").await.unwrap();
-        assert!(apply_rules(&ctx, "abc (#1)", &refs).await.is_err());
+        assert!(
+            apply_rules(&ctx, "abc (#1)", &refs, &mut Default::default())
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
