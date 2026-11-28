@@ -183,6 +183,9 @@ impl<'a> Line<'a> {
             if let Some(after) = rest.strip_prefix('>') {
                 quotes += 1;
                 rest = after.trim_start();
+            } else if is_thematic_break(rest) {
+                // `* * *` and `- - -` are rules, not empty list items.
+                break;
             } else if let Some(after) = after_list_marker(rest) {
                 first_marker.get_or_insert(rest);
                 rest = after.trim_start();
@@ -223,6 +226,23 @@ impl<'a> Line<'a> {
                 .next()
                 .is_none_or(char::is_whitespace)
     }
+}
+
+/// A thematic break: three or more `*`, `-` or `_`, all the same, with only
+/// spaces or tabs between them.
+fn is_thematic_break(text: &str) -> bool {
+    let mut chars = text.chars().filter(|c| !matches!(c, ' ' | '\t'));
+    let Some(first) = chars.next().filter(|c| matches!(c, '*' | '-' | '_')) else {
+        return false;
+    };
+    let mut count = 1;
+    for c in chars {
+        if c != first {
+            return false;
+        }
+        count += 1;
+    }
+    count >= 3
 }
 
 /// Width of `text` in Markdown columns, with a tab stop every four columns.
@@ -501,7 +521,7 @@ mod tests {
         assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
         let text = "A stray `\n## Links\n[docs](https://docs.rs/tokio)`";
         assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
-        for underline in ["===", "---", "***"] {
+        for underline in ["===", "---", "***", "* * *", "- - -", "_ _ _", "> * * *"] {
             let text = format!("A stray `\n{underline}\n[docs](https://docs.rs/tokio)`");
             assert_eq!(
                 extract_urls(&text),
@@ -510,6 +530,12 @@ mod tests {
             );
         }
         let text = "Run `mise\n=== http://127.0.0.1:1/sample` and see https://docs.rs/tokio";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+    }
+
+    #[test]
+    fn test_extract_urls_ends_paragraphs_at_spaced_rules() {
+        let text = "A literal `\n* * *\nSee https://docs.rs/tokio and `config`";
         assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
     }
 
