@@ -40,8 +40,10 @@ communique generate v1.2.0 --gitlab-release
 has no release yet. Without a token, generation still works from the local git
 history, but merge request details are unavailable to the model.
 
-The CI job token (`CI_JOB_TOKEN`) cannot read merge requests or update releases,
-so communiqué does not use it.
+communiqué does not use the CI job token (`CI_JOB_TOKEN`). Job tokens have
+[restricted API access](https://docs.gitlab.com/ci/jobs/ci_job_token/) that
+varies by GitLab version and instance settings, and merge request details are
+often unavailable through them.
 
 ## Merge requests
 
