@@ -431,7 +431,13 @@ async fn generate_notes(
                 "message",
                 &format!("Fetching {} descriptions...", pr_numbers.len()),
             );
-            prefetch_change_requests(forge, &pr_numbers, rule_change_requests).await
+            prefetch_change_requests(
+                forge,
+                &pr_numbers,
+                rule_change_requests,
+                PREFETCH_TIME_LIMIT,
+            )
+            .await
         }
         _ => vec![],
     };
@@ -1171,15 +1177,22 @@ async fn change_refs(
 /// turn. The model fetches any others itself with `get_pr`.
 const MAX_PREFETCHED_CHANGE_REQUESTS: usize = 150;
 
+/// Longest time spent fetching descriptions before the first turn. Forge
+/// requests retry with backoff for minutes, so during an outage the prefetch
+/// stops here and the model fetches the rest with `get_pr`.
+const PREFETCH_TIME_LIMIT: std::time::Duration = std::time::Duration::from_secs(60);
+
 /// Fetch the pull/merge requests the release's commits name, so their
 /// descriptions go into the first prompt and the model does not need a tool
 /// call for each. `fetched` holds any that label rules already loaded. One
-/// that cannot be fetched is left for the model to request.
+/// that cannot be fetched within `time_limit` is left for the model to request.
 async fn prefetch_change_requests(
     forge: &ForgeClient,
     numbers: &[u64],
     mut fetched: std::collections::BTreeMap<u64, forge::ChangeRequest>,
+    time_limit: std::time::Duration,
 ) -> Vec<forge::ChangeRequest> {
+    let deadline = tokio::time::Instant::now() + time_limit;
     let mut wanted: Vec<u64> = Vec::new();
     for number in numbers {
         if !wanted.contains(number) && wanted.len() < MAX_PREFETCHED_CHANGE_REQUESTS {
@@ -1191,21 +1204,36 @@ async fn prefetch_change_requests(
         .copied()
         .filter(|n| !fetched.contains_key(n))
         .collect();
+    let mut timed_out = 0;
     for chunk in missing.chunks(8) {
-        let results =
-            futures_util::future::join_all(chunk.iter().map(|n| forge.get_change_request(*n)))
-                .await;
+        if tokio::time::Instant::now() >= deadline {
+            timed_out += chunk.len();
+            continue;
+        }
+        let results = futures_util::future::join_all(
+            chunk
+                .iter()
+                .map(|n| tokio::time::timeout_at(deadline, forge.get_change_request(*n))),
+        )
+        .await;
         for (number, result) in chunk.iter().zip(results) {
             match result {
-                Ok(pr) => {
+                Ok(Ok(pr)) => {
                     fetched.insert(*number, pr);
                 }
-                Err(e) => info!(
+                Ok(Err(e)) => info!(
                     "failed to fetch {} ahead of time: {e}",
                     forge.kind().change_ref(*number)
                 ),
+                Err(_) => timed_out += 1,
             }
         }
+    }
+    if timed_out > 0 {
+        info!(
+            "stopped fetching descriptions after {}s; {timed_out} are left for the model to fetch",
+            time_limit.as_secs()
+        );
     }
     wanted.iter().filter_map(|n| fetched.remove(n)).collect()
 }
@@ -1639,9 +1667,40 @@ mod tests {
                 closes: vec![],
             },
         );
-        let fetched = prefetch_change_requests(&forge, &[5, 3, 5, 9], loaded).await;
+        let fetched =
+            prefetch_change_requests(&forge, &[5, 3, 5, 9], loaded, PREFETCH_TIME_LIMIT).await;
         let numbers: Vec<u64> = fetched.iter().map(|pr| pr.number).collect();
         assert_eq!(numbers, [5, 3]);
+    }
+
+    #[tokio::test]
+    async fn prefetch_stops_at_its_time_limit() {
+        let server = MockServer::start().await;
+        mount_pull(&server, 1, "Quick.", 1).await;
+        Mock::given(method("GET"))
+            .and(path("/repos/test/repo/pulls/2"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(json!({
+                        "number": 2, "title": "Slow", "body": "",
+                        "user": {"login": "dev"}, "labels": []
+                    }))
+                    .set_delay(std::time::Duration::from_secs(30)),
+            )
+            .mount(&server)
+            .await;
+        let forge = gh_client("token", &server.uri());
+        let started = std::time::Instant::now();
+        let fetched = prefetch_change_requests(
+            &forge,
+            &[1, 2],
+            std::collections::BTreeMap::new(),
+            std::time::Duration::from_millis(500),
+        )
+        .await;
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
+        let numbers: Vec<u64> = fetched.iter().map(|pr| pr.number).collect();
+        assert_eq!(numbers, [1]);
     }
 
     #[tokio::test]
