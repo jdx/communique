@@ -559,6 +559,498 @@ async fn publish(
     Ok(())
 }
 
+/// Split changelog content into (head, tail) keeping at most `max_versions` versioned sections
+/// in the head. This limits tokens sent to the LLM for large changelogs.
+#[cfg(test)]
+fn split_changelog(content: &str, max_versions: usize) -> (&str, &str) {
+    let mut version_count = 0;
+
+    for (start, line) in content.lines_with_offset() {
+        if !is_version_header(line) {
+            continue;
+        }
+
+        version_count += 1;
+        if version_count > max_versions {
+            return (&content[..start], &content[start..]);
+        }
+    }
+
+    (content, "")
+}
+
+/// Returns today's date as YYYY-MM-DD using std only.
+fn today_iso() -> String {
+    // Use UNIX_EPOCH + SystemTime to get days, then Hinnant civil_from_days
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let days = (secs / 86400) as i64;
+
+    // Hinnant's civil_from_days (epoch = 1970-01-01 = day 0)
+    let z = days + 719468;
+    let era = (if z >= 0 { z } else { z - 146096 }) / 146097;
+    let doe = (z - era * 146097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = (yoe as i64) + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ChangelogSection {
+    body_start: usize,
+    body_end: usize,
+}
+
+fn is_unreleased_header(line: &str) -> bool {
+    let line = line.trim();
+    line == "## Unreleased" || line == "## [Unreleased]" || line.starts_with("## [Unreleased](")
+}
+
+fn is_forbidden_unreleased_target_header(line: &str) -> bool {
+    let line = line.trim();
+    line == "## Unreleased"
+        || line == "## [Unreleased]"
+        || line.starts_with("## [Unreleased](")
+        || line == "## HEAD"
+        || line == "## [HEAD]"
+        || line.starts_with("## [HEAD](")
+}
+
+fn is_version_header(line: &str) -> bool {
+    header_version(line).is_some()
+}
+
+fn header_version(line: &str) -> Option<&str> {
+    let rest = line.trim().strip_prefix("## ")?;
+    let rest = rest.trim_start();
+
+    if let Some(bracketed) = rest.strip_prefix('[') {
+        let (version, _) = bracketed.split_once(']')?;
+        return is_version_like(version).then_some(version);
+    }
+
+    let version = rest
+        .split_once(char::is_whitespace)
+        .map_or(rest, |(version, _)| version);
+    is_version_like(version).then_some(version)
+}
+
+fn is_version_like(value: &str) -> bool {
+    let value = value.strip_prefix('v').unwrap_or(value);
+    value.chars().next().is_some_and(|c| c.is_ascii_digit()) && value.contains('.')
+}
+
+trait LinesWithOffset {
+    fn lines_with_offset(&self) -> LinesWithOffsetIter<'_>;
+}
+
+impl LinesWithOffset for str {
+    fn lines_with_offset(&self) -> LinesWithOffsetIter<'_> {
+        LinesWithOffsetIter {
+            content: self,
+            offset: 0,
+        }
+    }
+}
+
+struct LinesWithOffsetIter<'a> {
+    content: &'a str,
+    offset: usize,
+}
+
+impl<'a> Iterator for LinesWithOffsetIter<'a> {
+    type Item = (usize, &'a str);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.offset >= self.content.len() {
+            return None;
+        }
+
+        let start = self.offset;
+        let rest = &self.content[start..];
+        let line_len = rest.find('\n').map_or(rest.len(), |idx| idx + 1);
+        self.offset += line_len;
+        Some((start, &self.content[start..start + line_len]))
+    }
+}
+
+fn changelog_version(tag: &str) -> &str {
+    let version = tag.rsplit('/').next().unwrap_or(tag);
+    version.strip_prefix('v').unwrap_or(version)
+}
+
+fn find_version_section_start(contents: &str, version: &str) -> Option<usize> {
+    let version = changelog_version(version);
+
+    contents
+        .lines_with_offset()
+        .find(|(_, line)| {
+            header_version(line)
+                .map(|header| header.strip_prefix('v').unwrap_or(header) == version)
+                .unwrap_or(false)
+        })
+        .map(|(start, _)| start)
+}
+
+fn find_next_version_section_start(contents: &str, after: usize) -> Option<usize> {
+    contents
+        .lines_with_offset()
+        .find(|(start, line)| *start > after && is_version_header(line))
+        .map(|(start, _)| start)
+}
+
+fn join_changelog_head_tail(head: &str, tail: &str) -> String {
+    let head = head.trim_end();
+    let tail = tail.trim_start_matches(['\r', '\n']);
+
+    if tail.is_empty() {
+        head.to_string()
+    } else if head.is_empty() {
+        tail.to_string()
+    } else {
+        format!("{head}\n\n{tail}")
+    }
+}
+
+fn format_version_header(existing: &str, version: &str, date: &str, release_url: &str) -> String {
+    let version = changelog_version(version);
+    let template = existing
+        .lines_with_offset()
+        .find(|(_, line)| is_version_header(line))
+        .map(|(_, line)| line.trim());
+
+    let Some(template) = template else {
+        return format!("## [{version}]({release_url}) - {date}");
+    };
+
+    if template.starts_with("## [") {
+        if template.contains("](") {
+            if template.contains(" - ") {
+                format!("## [{version}]({release_url}) - {date}")
+            } else {
+                format!("## [{version}]({release_url})")
+            }
+        } else if template.contains(" - ") {
+            format!("## [{version}] - {date}")
+        } else {
+            format!("## [{version}]")
+        }
+    } else {
+        let prefix = if template.trim_start_matches("## ").starts_with('v') {
+            "v"
+        } else {
+            ""
+        };
+        if template.contains(" - ") {
+            format!("## {prefix}{version} - {date}")
+        } else {
+            format!("## {prefix}{version}")
+        }
+    }
+}
+
+fn remove_version_section(contents: &str, version: &str) -> String {
+    let Some(start) = find_version_section_start(contents, version) else {
+        return contents.to_string();
+    };
+    let end = find_next_version_section_start(contents, start).unwrap_or(contents.len());
+    join_changelog_head_tail(&contents[..start], &contents[end..])
+}
+
+fn upsert_version_changelog(
+    existing: &str,
+    tag: &str,
+    date: &str,
+    release_url: &str,
+    changelog: &str,
+) -> miette::Result<String> {
+    let existing = repair_changelog_section_boundaries(existing);
+    let version = changelog_version(tag);
+    let header = format_version_header(&existing, version, date, release_url);
+    let body = changelog.trim();
+    let section = if body.is_empty() {
+        header
+    } else {
+        format!("{header}\n\n{body}")
+    };
+
+    let without_existing = remove_version_section(&existing, version);
+    let Some(unreleased) = find_unreleased_section(&without_existing)? else {
+        return Err(miette::miette!(
+            "CHANGELOG.md exists but does not contain ## [Unreleased] or ## Unreleased; add an Unreleased section before running `communique generate {} --changelog`.",
+            tag
+        ));
+    };
+
+    let before = without_existing[..unreleased.body_end].trim_end();
+    let after = without_existing[unreleased.body_end..].trim_start_matches(['\r', '\n']);
+    let updated = if after.is_empty() {
+        format!("{before}\n\n{section}")
+    } else {
+        format!("{before}\n\n{section}\n\n{after}")
+    };
+
+    Ok(format!("{}\n", updated.trim_end()))
+}
+
+fn repair_changelog_section_boundaries(content: &str) -> String {
+    let mut repaired = String::with_capacity(content.len());
+    let mut rest = content;
+
+    while let Some(pos) = rest.find(")## ") {
+        let (before, after_marker) = rest.split_at(pos + 1);
+        repaired.push_str(before);
+        if is_version_header(after_marker.lines().next().unwrap_or("")) {
+            repaired.push_str("\n\n");
+        }
+        rest = after_marker;
+    }
+
+    repaired.push_str(rest);
+    repaired
+}
+
+#[cfg(test)]
+fn read_changelog_entry(repo_root: &Path, tag: &str) -> Option<String> {
+    read_changelog_entry_at(&repo_root.join("CHANGELOG.md"), tag)
+}
+fn read_changelog_entry_at(path: &Path, tag: &str) -> Option<String> {
+    let contents = xx::file::read_to_string(path).ok()?;
+
+    let start = find_version_section_start(&contents, tag)?;
+    let end = find_next_version_section_start(&contents, start).unwrap_or(contents.len());
+
+    Some(contents[start..end].trim().to_string())
+}
+
+fn find_unreleased_section(contents: &str) -> miette::Result<Option<ChangelogSection>> {
+    let mut lines = Vec::new();
+    let mut offset = 0;
+    for line in contents.split_inclusive('\n') {
+        let start = offset;
+        offset += line.len();
+        lines.push((start, offset, line));
+    }
+
+    let mut unreleased_index = None;
+    for (index, (_, _, line)) in lines.iter().enumerate() {
+        if is_unreleased_header(line) && unreleased_index.replace(index).is_some() {
+            return Err(miette::miette!(
+                "CHANGELOG.md contains multiple Unreleased sections; cannot update safely."
+            ));
+        }
+    }
+
+    let Some(index) = unreleased_index else {
+        return Ok(None);
+    };
+
+    let body_start = lines[index].1;
+    let mut body_end = contents.len();
+    for (start, _, line) in lines.iter().skip(index + 1) {
+        if is_version_header(line) {
+            body_end = *start;
+            break;
+        }
+    }
+
+    Ok(Some(ChangelogSection {
+        body_start,
+        body_end,
+    }))
+}
+
+fn normalize_generated_changelog_body(generated: &str) -> String {
+    generated
+        .lines()
+        .filter(|line| !is_forbidden_unreleased_target_header(line))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string()
+}
+
+fn new_unreleased_changelog(generated: &str) -> String {
+    let body = normalize_generated_changelog_body(generated);
+    if body.is_empty() {
+        "# Changelog\n\n## [Unreleased]\n".to_string()
+    } else {
+        format!("# Changelog\n\n## [Unreleased]\n\n{body}\n")
+    }
+}
+
+fn replace_unreleased_section(existing: &str, generated: &str) -> miette::Result<String> {
+    let Some(section) = find_unreleased_section(existing)? else {
+        return Err(miette::miette!(
+            "CHANGELOG.md exists but does not contain ## [Unreleased] or ## Unreleased; add an Unreleased section before running `communique generate HEAD --changelog`."
+        ));
+    };
+
+    let body = normalize_generated_changelog_body(generated);
+    let mut updated = existing[..section.body_start].trim_end().to_string();
+
+    if !body.is_empty() {
+        updated.push_str("\n\n");
+        updated.push_str(&body);
+    }
+
+    let tail = existing[section.body_end..].trim_start_matches(['\r', '\n']);
+    if !tail.is_empty() {
+        updated.push_str("\n\n");
+        updated.push_str(tail);
+    }
+
+    Ok(format!("{}\n", updated.trim_end()))
+}
+
+#[cfg(test)]
+fn read_unreleased_section(repo_root: &Path) -> miette::Result<Option<String>> {
+    read_unreleased_section_at(&repo_root.join("CHANGELOG.md"))
+}
+fn read_unreleased_section_at(path: &Path) -> miette::Result<Option<String>> {
+    let contents = match std::fs::read_to_string(path) {
+        Ok(contents) => contents,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => return Err(crate::error::Error::Io(err).into()),
+    };
+
+    let Some(section) = find_unreleased_section(&contents)? else {
+        return Ok(None);
+    };
+
+    Ok(Some(
+        contents[section.body_start..section.body_end]
+            .trim()
+            .to_string(),
+    ))
+}
+
+async fn update_changelog(
+    ctx: &Context,
+    parsed: &ParsedOutput,
+    dry_run: bool,
+    job: &Arc<ProgressJob>,
+) -> miette::Result<()> {
+    job.prop("message", "Updating CHANGELOG.md...");
+
+    let changelog_path = ctx.repo_root.join(
+        ctx.workflow
+            .changelog_path
+            .as_deref()
+            .unwrap_or(Path::new("CHANGELOG.md")),
+    );
+    if ctx.is_unreleased_head() {
+        debug_assert_eq!(ctx.tag, "HEAD");
+        let updated = match std::fs::read_to_string(&changelog_path) {
+            Ok(existing) => replace_unreleased_section(&existing, &parsed.changelog)?,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                new_unreleased_changelog(&parsed.changelog)
+            }
+            Err(err) => return Err(crate::error::Error::Io(err).into()),
+        };
+
+        if !dry_run {
+            xx::file::write(&changelog_path, updated)?;
+            info!("wrote {}", changelog_path.display());
+        }
+
+        return Ok(());
+    }
+
+    let existing = xx::file::read_to_string(&changelog_path)
+        .unwrap_or_else(|_| "# Changelog\n\n## [Unreleased]\n".to_string());
+
+    let date = today_iso();
+    let release_url = format!(
+        "https://github.com/{}/releases/tag/{}",
+        ctx.owner_repo, ctx.tag
+    );
+
+    let content =
+        upsert_version_changelog(&existing, &ctx.tag, &date, &release_url, &parsed.changelog)?;
+    if !dry_run {
+        xx::file::write(&changelog_path, content)?;
+        info!("wrote {}", changelog_path.display());
+    }
+
+    Ok(())
+}
+
+async fn apply_rules(
+    ctx: &Context,
+    log: &str,
+) -> miette::Result<(String, Vec<crate::workflow::Coverage>, String)> {
+    let rules = &ctx.rules;
+    let active = !rules.include_labels.is_empty()
+        || !rules.exclude_labels.is_empty()
+        || !rules.categories.is_empty();
+    if !active {
+        return Ok((log.into(), vec![], String::new()));
+    }
+    let gh = ctx.github_client.as_ref().ok_or_else(|| {
+        miette::miette!("GITHUB_TOKEN is required to apply configured label rules")
+    })?;
+    let mut prs = std::collections::BTreeMap::new();
+    for number in git::extract_pr_numbers(log) {
+        if let std::collections::btree_map::Entry::Vacant(entry) = prs.entry(number) {
+            entry.insert(gh.get_pr(number).await?);
+        }
+    }
+    let mut kept = Vec::new();
+    let mut excluded = Vec::new();
+    let mut guidance = String::new();
+    for line in log.lines() {
+        let numbers = git::extract_pr_numbers(line);
+        let labels: Vec<_> = numbers
+            .iter()
+            .filter_map(|n| prs.get(n))
+            .flat_map(|pr| pr.labels.iter().map(|l| l.name.as_str()))
+            .collect();
+        let include = rules
+            .include_labels
+            .iter()
+            .any(|l| labels.contains(&l.as_str()));
+        let skip = rules
+            .exclude_labels
+            .iter()
+            .find(|l| labels.contains(&l.as_str()));
+        let sha = line.split_whitespace().next().unwrap_or_default();
+        if !include && let Some(label) = skip {
+            excluded.push(crate::workflow::Coverage {
+                commit: sha.into(),
+                status: "omitted".into(),
+                reason: format!("Excluded by configured PR label '{label}'."),
+            });
+            guidance.push_str(&format!(
+                "Do not include commit {sha}: excluded by label {label}.\n"
+            ));
+            continue;
+        }
+        kept.push(line);
+        if include {
+            guidance.push_str(&format!(
+                "Commit {sha} MUST appear in the notes (include-label override).\n"
+            ));
+        }
+        for (label, category) in &rules.categories {
+            if labels.contains(&label.as_str()) {
+                guidance.push_str(&format!(
+                    "Categorize commit {sha} under {category} (label {label}).\n"
+                ));
+            }
+        }
+    }
+    Ok((kept.join("\n"), excluded, guidance))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2531,496 +3023,4 @@ mod tests {
         assert_eq!(date.as_bytes()[4], b'-');
         assert_eq!(date.as_bytes()[7], b'-');
     }
-}
-
-/// Split changelog content into (head, tail) keeping at most `max_versions` versioned sections
-/// in the head. This limits tokens sent to the LLM for large changelogs.
-#[cfg(test)]
-fn split_changelog(content: &str, max_versions: usize) -> (&str, &str) {
-    let mut version_count = 0;
-
-    for (start, line) in content.lines_with_offset() {
-        if !is_version_header(line) {
-            continue;
-        }
-
-        version_count += 1;
-        if version_count > max_versions {
-            return (&content[..start], &content[start..]);
-        }
-    }
-
-    (content, "")
-}
-
-/// Returns today's date as YYYY-MM-DD using std only.
-fn today_iso() -> String {
-    // Use UNIX_EPOCH + SystemTime to get days, then Hinnant civil_from_days
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-    let days = (secs / 86400) as i64;
-
-    // Hinnant's civil_from_days (epoch = 1970-01-01 = day 0)
-    let z = days + 719468;
-    let era = (if z >= 0 { z } else { z - 146096 }) / 146097;
-    let doe = (z - era * 146097) as u64;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    let y = (yoe as i64) + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = if m <= 2 { y + 1 } else { y };
-
-    format!("{y:04}-{m:02}-{d:02}")
-}
-
-#[derive(Debug, Clone, Copy)]
-struct ChangelogSection {
-    body_start: usize,
-    body_end: usize,
-}
-
-fn is_unreleased_header(line: &str) -> bool {
-    let line = line.trim();
-    line == "## Unreleased" || line == "## [Unreleased]" || line.starts_with("## [Unreleased](")
-}
-
-fn is_forbidden_unreleased_target_header(line: &str) -> bool {
-    let line = line.trim();
-    line == "## Unreleased"
-        || line == "## [Unreleased]"
-        || line.starts_with("## [Unreleased](")
-        || line == "## HEAD"
-        || line == "## [HEAD]"
-        || line.starts_with("## [HEAD](")
-}
-
-fn is_version_header(line: &str) -> bool {
-    header_version(line).is_some()
-}
-
-fn header_version(line: &str) -> Option<&str> {
-    let rest = line.trim().strip_prefix("## ")?;
-    let rest = rest.trim_start();
-
-    if let Some(bracketed) = rest.strip_prefix('[') {
-        let (version, _) = bracketed.split_once(']')?;
-        return is_version_like(version).then_some(version);
-    }
-
-    let version = rest
-        .split_once(char::is_whitespace)
-        .map_or(rest, |(version, _)| version);
-    is_version_like(version).then_some(version)
-}
-
-fn is_version_like(value: &str) -> bool {
-    let value = value.strip_prefix('v').unwrap_or(value);
-    value.chars().next().is_some_and(|c| c.is_ascii_digit()) && value.contains('.')
-}
-
-trait LinesWithOffset {
-    fn lines_with_offset(&self) -> LinesWithOffsetIter<'_>;
-}
-
-impl LinesWithOffset for str {
-    fn lines_with_offset(&self) -> LinesWithOffsetIter<'_> {
-        LinesWithOffsetIter {
-            content: self,
-            offset: 0,
-        }
-    }
-}
-
-struct LinesWithOffsetIter<'a> {
-    content: &'a str,
-    offset: usize,
-}
-
-impl<'a> Iterator for LinesWithOffsetIter<'a> {
-    type Item = (usize, &'a str);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.offset >= self.content.len() {
-            return None;
-        }
-
-        let start = self.offset;
-        let rest = &self.content[start..];
-        let line_len = rest.find('\n').map_or(rest.len(), |idx| idx + 1);
-        self.offset += line_len;
-        Some((start, &self.content[start..start + line_len]))
-    }
-}
-
-fn changelog_version(tag: &str) -> &str {
-    let version = tag.rsplit('/').next().unwrap_or(tag);
-    version.strip_prefix('v').unwrap_or(version)
-}
-
-fn find_version_section_start(contents: &str, version: &str) -> Option<usize> {
-    let version = changelog_version(version);
-
-    contents
-        .lines_with_offset()
-        .find(|(_, line)| {
-            header_version(line)
-                .map(|header| header.strip_prefix('v').unwrap_or(header) == version)
-                .unwrap_or(false)
-        })
-        .map(|(start, _)| start)
-}
-
-fn find_next_version_section_start(contents: &str, after: usize) -> Option<usize> {
-    contents
-        .lines_with_offset()
-        .find(|(start, line)| *start > after && is_version_header(line))
-        .map(|(start, _)| start)
-}
-
-fn join_changelog_head_tail(head: &str, tail: &str) -> String {
-    let head = head.trim_end();
-    let tail = tail.trim_start_matches(['\r', '\n']);
-
-    if tail.is_empty() {
-        head.to_string()
-    } else if head.is_empty() {
-        tail.to_string()
-    } else {
-        format!("{head}\n\n{tail}")
-    }
-}
-
-fn format_version_header(existing: &str, version: &str, date: &str, release_url: &str) -> String {
-    let version = changelog_version(version);
-    let template = existing
-        .lines_with_offset()
-        .find(|(_, line)| is_version_header(line))
-        .map(|(_, line)| line.trim());
-
-    let Some(template) = template else {
-        return format!("## [{version}]({release_url}) - {date}");
-    };
-
-    if template.starts_with("## [") {
-        if template.contains("](") {
-            if template.contains(" - ") {
-                format!("## [{version}]({release_url}) - {date}")
-            } else {
-                format!("## [{version}]({release_url})")
-            }
-        } else if template.contains(" - ") {
-            format!("## [{version}] - {date}")
-        } else {
-            format!("## [{version}]")
-        }
-    } else {
-        let prefix = if template.trim_start_matches("## ").starts_with('v') {
-            "v"
-        } else {
-            ""
-        };
-        if template.contains(" - ") {
-            format!("## {prefix}{version} - {date}")
-        } else {
-            format!("## {prefix}{version}")
-        }
-    }
-}
-
-fn remove_version_section(contents: &str, version: &str) -> String {
-    let Some(start) = find_version_section_start(contents, version) else {
-        return contents.to_string();
-    };
-    let end = find_next_version_section_start(contents, start).unwrap_or(contents.len());
-    join_changelog_head_tail(&contents[..start], &contents[end..])
-}
-
-fn upsert_version_changelog(
-    existing: &str,
-    tag: &str,
-    date: &str,
-    release_url: &str,
-    changelog: &str,
-) -> miette::Result<String> {
-    let existing = repair_changelog_section_boundaries(existing);
-    let version = changelog_version(tag);
-    let header = format_version_header(&existing, version, date, release_url);
-    let body = changelog.trim();
-    let section = if body.is_empty() {
-        header
-    } else {
-        format!("{header}\n\n{body}")
-    };
-
-    let without_existing = remove_version_section(&existing, version);
-    let Some(unreleased) = find_unreleased_section(&without_existing)? else {
-        return Err(miette::miette!(
-            "CHANGELOG.md exists but does not contain ## [Unreleased] or ## Unreleased; add an Unreleased section before running `communique generate {} --changelog`.",
-            tag
-        ));
-    };
-
-    let before = without_existing[..unreleased.body_end].trim_end();
-    let after = without_existing[unreleased.body_end..].trim_start_matches(['\r', '\n']);
-    let updated = if after.is_empty() {
-        format!("{before}\n\n{section}")
-    } else {
-        format!("{before}\n\n{section}\n\n{after}")
-    };
-
-    Ok(format!("{}\n", updated.trim_end()))
-}
-
-fn repair_changelog_section_boundaries(content: &str) -> String {
-    let mut repaired = String::with_capacity(content.len());
-    let mut rest = content;
-
-    while let Some(pos) = rest.find(")## ") {
-        let (before, after_marker) = rest.split_at(pos + 1);
-        repaired.push_str(before);
-        if is_version_header(after_marker.lines().next().unwrap_or("")) {
-            repaired.push_str("\n\n");
-        }
-        rest = after_marker;
-    }
-
-    repaired.push_str(rest);
-    repaired
-}
-
-#[cfg(test)]
-fn read_changelog_entry(repo_root: &Path, tag: &str) -> Option<String> {
-    read_changelog_entry_at(&repo_root.join("CHANGELOG.md"), tag)
-}
-fn read_changelog_entry_at(path: &Path, tag: &str) -> Option<String> {
-    let contents = xx::file::read_to_string(path).ok()?;
-
-    let start = find_version_section_start(&contents, tag)?;
-    let end = find_next_version_section_start(&contents, start).unwrap_or(contents.len());
-
-    Some(contents[start..end].trim().to_string())
-}
-
-fn find_unreleased_section(contents: &str) -> miette::Result<Option<ChangelogSection>> {
-    let mut lines = Vec::new();
-    let mut offset = 0;
-    for line in contents.split_inclusive('\n') {
-        let start = offset;
-        offset += line.len();
-        lines.push((start, offset, line));
-    }
-
-    let mut unreleased_index = None;
-    for (index, (_, _, line)) in lines.iter().enumerate() {
-        if is_unreleased_header(line) && unreleased_index.replace(index).is_some() {
-            return Err(miette::miette!(
-                "CHANGELOG.md contains multiple Unreleased sections; cannot update safely."
-            ));
-        }
-    }
-
-    let Some(index) = unreleased_index else {
-        return Ok(None);
-    };
-
-    let body_start = lines[index].1;
-    let mut body_end = contents.len();
-    for (start, _, line) in lines.iter().skip(index + 1) {
-        if is_version_header(line) {
-            body_end = *start;
-            break;
-        }
-    }
-
-    Ok(Some(ChangelogSection {
-        body_start,
-        body_end,
-    }))
-}
-
-fn normalize_generated_changelog_body(generated: &str) -> String {
-    generated
-        .lines()
-        .filter(|line| !is_forbidden_unreleased_target_header(line))
-        .collect::<Vec<_>>()
-        .join("\n")
-        .trim()
-        .to_string()
-}
-
-fn new_unreleased_changelog(generated: &str) -> String {
-    let body = normalize_generated_changelog_body(generated);
-    if body.is_empty() {
-        "# Changelog\n\n## [Unreleased]\n".to_string()
-    } else {
-        format!("# Changelog\n\n## [Unreleased]\n\n{body}\n")
-    }
-}
-
-fn replace_unreleased_section(existing: &str, generated: &str) -> miette::Result<String> {
-    let Some(section) = find_unreleased_section(existing)? else {
-        return Err(miette::miette!(
-            "CHANGELOG.md exists but does not contain ## [Unreleased] or ## Unreleased; add an Unreleased section before running `communique generate HEAD --changelog`."
-        ));
-    };
-
-    let body = normalize_generated_changelog_body(generated);
-    let mut updated = existing[..section.body_start].trim_end().to_string();
-
-    if !body.is_empty() {
-        updated.push_str("\n\n");
-        updated.push_str(&body);
-    }
-
-    let tail = existing[section.body_end..].trim_start_matches(['\r', '\n']);
-    if !tail.is_empty() {
-        updated.push_str("\n\n");
-        updated.push_str(tail);
-    }
-
-    Ok(format!("{}\n", updated.trim_end()))
-}
-
-#[cfg(test)]
-fn read_unreleased_section(repo_root: &Path) -> miette::Result<Option<String>> {
-    read_unreleased_section_at(&repo_root.join("CHANGELOG.md"))
-}
-fn read_unreleased_section_at(path: &Path) -> miette::Result<Option<String>> {
-    let contents = match std::fs::read_to_string(path) {
-        Ok(contents) => contents,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(err) => return Err(crate::error::Error::Io(err).into()),
-    };
-
-    let Some(section) = find_unreleased_section(&contents)? else {
-        return Ok(None);
-    };
-
-    Ok(Some(
-        contents[section.body_start..section.body_end]
-            .trim()
-            .to_string(),
-    ))
-}
-
-async fn update_changelog(
-    ctx: &Context,
-    parsed: &ParsedOutput,
-    dry_run: bool,
-    job: &Arc<ProgressJob>,
-) -> miette::Result<()> {
-    job.prop("message", "Updating CHANGELOG.md...");
-
-    let changelog_path = ctx.repo_root.join(
-        ctx.workflow
-            .changelog_path
-            .as_deref()
-            .unwrap_or(Path::new("CHANGELOG.md")),
-    );
-    if ctx.is_unreleased_head() {
-        debug_assert_eq!(ctx.tag, "HEAD");
-        let updated = match std::fs::read_to_string(&changelog_path) {
-            Ok(existing) => replace_unreleased_section(&existing, &parsed.changelog)?,
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                new_unreleased_changelog(&parsed.changelog)
-            }
-            Err(err) => return Err(crate::error::Error::Io(err).into()),
-        };
-
-        if !dry_run {
-            xx::file::write(&changelog_path, updated)?;
-            info!("wrote {}", changelog_path.display());
-        }
-
-        return Ok(());
-    }
-
-    let existing = xx::file::read_to_string(&changelog_path)
-        .unwrap_or_else(|_| "# Changelog\n\n## [Unreleased]\n".to_string());
-
-    let date = today_iso();
-    let release_url = format!(
-        "https://github.com/{}/releases/tag/{}",
-        ctx.owner_repo, ctx.tag
-    );
-
-    let content =
-        upsert_version_changelog(&existing, &ctx.tag, &date, &release_url, &parsed.changelog)?;
-    if !dry_run {
-        xx::file::write(&changelog_path, content)?;
-        info!("wrote {}", changelog_path.display());
-    }
-
-    Ok(())
-}
-
-async fn apply_rules(
-    ctx: &Context,
-    log: &str,
-) -> miette::Result<(String, Vec<crate::workflow::Coverage>, String)> {
-    let rules = &ctx.rules;
-    let active = !rules.include_labels.is_empty()
-        || !rules.exclude_labels.is_empty()
-        || !rules.categories.is_empty();
-    if !active {
-        return Ok((log.into(), vec![], String::new()));
-    }
-    let gh = ctx.github_client.as_ref().ok_or_else(|| {
-        miette::miette!("GITHUB_TOKEN is required to apply configured label rules")
-    })?;
-    let mut prs = std::collections::BTreeMap::new();
-    for number in git::extract_pr_numbers(log) {
-        if let std::collections::btree_map::Entry::Vacant(entry) = prs.entry(number) {
-            entry.insert(gh.get_pr(number).await?);
-        }
-    }
-    let mut kept = Vec::new();
-    let mut excluded = Vec::new();
-    let mut guidance = String::new();
-    for line in log.lines() {
-        let numbers = git::extract_pr_numbers(line);
-        let labels: Vec<_> = numbers
-            .iter()
-            .filter_map(|n| prs.get(n))
-            .flat_map(|pr| pr.labels.iter().map(|l| l.name.as_str()))
-            .collect();
-        let include = rules
-            .include_labels
-            .iter()
-            .any(|l| labels.contains(&l.as_str()));
-        let skip = rules
-            .exclude_labels
-            .iter()
-            .find(|l| labels.contains(&l.as_str()));
-        let sha = line.split_whitespace().next().unwrap_or_default();
-        if !include && let Some(label) = skip {
-            excluded.push(crate::workflow::Coverage {
-                commit: sha.into(),
-                status: "omitted".into(),
-                reason: format!("Excluded by configured PR label '{label}'."),
-            });
-            guidance.push_str(&format!(
-                "Do not include commit {sha}: excluded by label {label}.\n"
-            ));
-            continue;
-        }
-        kept.push(line);
-        if include {
-            guidance.push_str(&format!(
-                "Commit {sha} MUST appear in the notes (include-label override).\n"
-            ));
-        }
-        for (label, category) in &rules.categories {
-            if labels.contains(&label.as_str()) {
-                guidance.push_str(&format!(
-                    "Categorize commit {sha} under {category} (label {label}).\n"
-                ));
-            }
-        }
-    }
-    Ok((kept.join("\n"), excluded, guidance))
 }
