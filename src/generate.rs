@@ -382,7 +382,7 @@ async fn generate_notes(
         &ctx.target_commit,
         &ctx.workflow.paths,
     )?;
-    let change_refs = change_refs(ctx, &raw_log).await?;
+    let (change_refs, confirmed_refs) = change_refs(ctx, &raw_log).await?;
     let (git_log, excluded, rule_context) = apply_rules(ctx, &raw_log, &change_refs).await?;
     let pr_numbers = match ctx.repo.kind {
         ForgeKind::GitHub => git::extract_pr_numbers(&git_log),
@@ -557,12 +557,14 @@ async fn generate_notes(
     );
 
     let verify_links = !dry_run && ctx.defaults.verify_links.unwrap_or(true);
-    // The commits being released name these pull requests, so links to them
-    // need no request to confirm.
-    let known_links: Vec<String> = pr_numbers
-        .iter()
-        .map(|n| ctx.repo.change_request_url(*n))
-        .collect();
+    // Links to the release's own pull requests need no request to confirm. On
+    // GitHub the `(#123)` suffix comes from the merge itself. On GitLab a
+    // `!123` in a commit message is free text that may name a merge request
+    // that doesn't exist, so only numbers the API reported count.
+    let known_links: Vec<String> =
+        known_change_requests(ctx.repo.kind, &pr_numbers, &confirmed_refs)
+            .map(|n| ctx.repo.change_request_url(n))
+            .collect();
 
     let mut parsed = agent::run(agent::AgentContext {
         client: &*ctx.client,
@@ -1077,18 +1079,22 @@ async fn update_changelog(
 const MAX_MERGE_REQUEST_LOOKUPS: usize = 100;
 
 /// Map each commit's short hash to the pull/merge requests it belongs to.
+///
+/// On GitLab, also return the merge request numbers the API reported. The
+/// numbers taken from commit messages are only text a commit author wrote.
 async fn change_refs(
     ctx: &Context,
     log: &str,
-) -> miette::Result<std::collections::HashMap<String, Vec<u64>>> {
+) -> miette::Result<(std::collections::HashMap<String, Vec<u64>>, Vec<u64>)> {
     if ctx.repo.kind == ForgeKind::GitHub {
-        return Ok(log
+        let map = log
             .lines()
             .filter_map(|line| {
                 let sha = line.split_whitespace().next()?;
                 Some((sha.to_string(), git::extract_pr_numbers(line)))
             })
-            .collect());
+            .collect();
+        return Ok((map, Vec::new()));
     }
     let refs = git::merge_request_refs(
         &ctx.repo_root,
@@ -1115,8 +1121,9 @@ async fn change_refs(
         .iter()
         .map(|(short, _, numbers)| (short.clone(), numbers.clone()))
         .collect();
+    let mut confirmed = Vec::new();
     let Some(ForgeClient::GitLab(gitlab)) = &ctx.forge_client else {
-        return Ok(map);
+        return Ok((map, confirmed));
     };
     // Squash and fast-forward merges leave no `!123` in the commit message,
     // so ask GitLab which merged merge request introduced each commit.
@@ -1144,6 +1151,7 @@ async fn change_refs(
         for ((short, _, _), result) in chunk.iter().zip(results) {
             match result {
                 Ok(numbers) => {
+                    confirmed.extend(numbers.iter().copied());
                     map.insert(short.clone(), numbers);
                 }
                 // Without labels, a commit whose lookup failed would look
@@ -1157,7 +1165,19 @@ async fn change_refs(
             }
         }
     }
-    Ok(map)
+    Ok((map, confirmed))
+}
+
+/// The release's pull/merge requests whose links need no check.
+fn known_change_requests<'a>(
+    kind: ForgeKind,
+    numbers: &'a [u64],
+    confirmed: &'a [u64],
+) -> impl Iterator<Item = u64> + 'a {
+    numbers
+        .iter()
+        .copied()
+        .filter(move |n| kind == ForgeKind::GitHub || confirmed.contains(n))
 }
 
 fn rules_active(rules: &crate::workflow::Rules) -> bool {
@@ -1461,11 +1481,56 @@ mod tests {
             )
             .unwrap(),
         ));
-        let refs = change_refs(&ctx, "").await.unwrap();
+        let (refs, confirmed) = change_refs(&ctx, "").await.unwrap();
         assert!(refs.values().all(Vec::is_empty));
+        assert!(confirmed.is_empty());
         ctx.rules.exclude_labels = vec!["skip".into()];
         let err = change_refs(&ctx, "").await.unwrap_err();
         assert!(err.to_string().contains("label rules"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn only_gitlab_merge_requests_the_api_reported_skip_link_checks() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path_regex(
+                r"^/api/v4/projects/group%2Fproj/repository/commits/[0-9a-f]{40}/merge_requests$",
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+                {"iid": 7, "state": "merged"},
+                {"iid": 8, "state": "opened"}
+            ])))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let repo = TempRepo::new();
+        repo.write_file("f", "a");
+        repo.commit("base");
+        repo.tag("v1");
+        repo.write_file("f", "b");
+        repo.commit("fix: mentions a merge request\n\nSee !9");
+        repo.write_file("f", "c");
+        repo.commit("fix: squashed change");
+        let mut ctx = test_context(repo.path().to_path_buf(), "HEAD", "v1");
+        ctx.repo = forge::Repo::gitlab("group/proj", &server.uri());
+        ctx.forge_client = Some(ForgeClient::GitLab(
+            crate::gitlab::GitLabClient::new(
+                "token".into(),
+                "group/proj",
+                &format!("{}/api/v4", server.uri()),
+            )
+            .unwrap(),
+        ));
+        let (refs, confirmed) = change_refs(&ctx, "").await.unwrap();
+        let mut numbers: Vec<u64> = refs.values().flatten().copied().collect();
+        numbers.sort_unstable();
+        assert_eq!(numbers, [7, 9]);
+        assert_eq!(confirmed, [7]);
+        let known: Vec<u64> =
+            known_change_requests(ForgeKind::GitLab, &numbers, &confirmed).collect();
+        assert_eq!(known, [7]);
+        let known: Vec<u64> = known_change_requests(ForgeKind::GitHub, &numbers, &[]).collect();
+        assert_eq!(known, [7, 9]);
     }
 
     #[tokio::test]
@@ -1496,7 +1561,7 @@ mod tests {
         ctx.rules.exclude_labels = vec!["skip".into()];
         ctx.rules.categories.insert("bug".into(), "Fixed".into());
         let log = "abc Internal (#1)\ndef Important (#2)\nghi Followup (#2)";
-        let refs = change_refs(&ctx, log).await.unwrap();
+        let (refs, _) = change_refs(&ctx, log).await.unwrap();
         let (log, excluded, guidance) = apply_rules(&ctx, log, &refs).await.unwrap();
         assert!(!log.contains("abc"));
         assert!(log.contains("def"));
@@ -1504,7 +1569,7 @@ mod tests {
         assert!(guidance.contains("def MUST appear"));
         assert!(guidance.contains("under Fixed"));
         ctx.forge_client = None;
-        let refs = change_refs(&ctx, "abc (#1)").await.unwrap();
+        let (refs, _) = change_refs(&ctx, "abc (#1)").await.unwrap();
         assert!(apply_rules(&ctx, "abc (#1)", &refs).await.is_err());
     }
 
