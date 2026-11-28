@@ -48,6 +48,7 @@ repo = "owner/repo"
 | `repo` | GitHub `owner/repo`, or a GitLab `group/subgroup/project` path when `forge = "gitlab"` (a `repo` without `forge` is treated as GitHub) | Auto-detected from git remote |
 | `forge` | `github` or `gitlab` | Auto-detected from GitLab CI or the git remote |
 | `forge_url` | HTTPS web URL of a self-managed GitLab instance, e.g. `https://gitlab.example.com` | `CI_SERVER_URL` in GitLab CI, otherwise the `origin` remote's host (required when that remote is not on the GitLab instance) |
+| `prefetch_prs` | Include the title, author, labels and description of every pull or merge request in the release in the first prompt, so the model does not spend a turn fetching each one. Needs a forge token. Set to `false` to have the model fetch only the ones it asks for | `true` |
 
 See the [GitLab guide](./gitlab.md) for GitLab.com and self-managed GitLab.
 

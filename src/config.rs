@@ -32,6 +32,9 @@ pub struct Defaults {
     pub emoji: Option<bool>,
     pub verify_links: Option<bool>,
     pub match_style: Option<bool>,
+    /// Put the description of every pull/merge request in the release into
+    /// the first prompt, instead of leaving the model to fetch each one.
+    pub prefetch_prs: Option<bool>,
 }
 
 const TEMPLATE: &str = r#"# Extra instructions appended to the system prompt.
@@ -53,6 +56,7 @@ const TEMPLATE: &str = r#"# Extra instructions appended to the system prompt.
 #emoji = true
 #verify_links = true
 #match_style = true
+#prefetch_prs = true  # false leaves the model to fetch PR descriptions one by one
 "#;
 
 impl Config {
