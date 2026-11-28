@@ -209,13 +209,14 @@ impl<'a> Line<'a> {
         }
     }
 
-    /// A setext heading underline (`===`, `---`) or a thematic break (`***`,
-    /// `___`). Either one ends the paragraph above it.
+    /// A setext heading underline (`=` or `-`, any number, no spaces between)
+    /// or a thematic break (three or more `*`, `-` or `_`). Either one ends the
+    /// paragraph above it. Shorter `*` or `_` runs are ordinary text.
     fn is_underline(&self) -> bool {
-        let mut chars = self.content.chars().filter(|c| !c.is_whitespace());
-        chars.next().is_some_and(|first| {
-            matches!(first, '=' | '-' | '*' | '_') && chars.all(|c| c == first)
-        })
+        let setext = ['=', '-']
+            .into_iter()
+            .any(|marker| !self.content.is_empty() && self.content.chars().all(|c| c == marker));
+        setext || is_thematic_break(self.content)
     }
 
     fn is_heading(&self) -> bool {
@@ -529,6 +530,14 @@ mod tests {
     fn test_extract_urls_ends_paragraphs_at_spaced_rules() {
         let text = "A literal `\n* * *\nSee https://docs.rs/tokio and `config`";
         assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+    }
+
+    #[test]
+    fn test_extract_urls_keeps_short_underscore_and_asterisk_lines_in_the_paragraph() {
+        for marker in ["_", "__", "**"] {
+            let text = format!("Run `curl\n{marker}\nhttp://127.0.0.1:1/sample` now.");
+            assert!(extract_urls(&text).is_empty(), "{marker}");
+        }
     }
 
     #[test]
