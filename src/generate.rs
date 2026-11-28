@@ -1109,11 +1109,24 @@ async fn change_refs(
                 Ok(numbers) => {
                     map.insert(short.clone(), numbers);
                 }
+                // Without labels, a commit whose lookup failed would look
+                // like one with no merge request and slip past label rules.
+                Err(e) if rules_active(&ctx.rules) => {
+                    return Err(miette::miette!(
+                        "failed to look up the merge request for {short}, which label rules need: {e}"
+                    ));
+                }
                 Err(e) => info!("failed to look up merge requests for {short}: {e}"),
             }
         }
     }
     Ok(map)
+}
+
+fn rules_active(rules: &crate::workflow::Rules) -> bool {
+    !rules.include_labels.is_empty()
+        || !rules.exclude_labels.is_empty()
+        || !rules.categories.is_empty()
 }
 
 async fn apply_rules(
@@ -1122,10 +1135,7 @@ async fn apply_rules(
     change_refs: &std::collections::HashMap<String, Vec<u64>>,
 ) -> miette::Result<(String, Vec<crate::workflow::Coverage>, String)> {
     let rules = &ctx.rules;
-    let active = !rules.include_labels.is_empty()
-        || !rules.exclude_labels.is_empty()
-        || !rules.categories.is_empty();
-    if !active {
+    if !rules_active(rules) {
         return Ok((log.into(), vec![], String::new()));
     }
     let gh = ctx.forge_client.as_ref().ok_or_else(|| {
@@ -1200,7 +1210,7 @@ mod tests {
         MockLlmClient, TempRepo, fake_usage, fake_usage_with, submit_tool_call,
     };
     use serde_json::json;
-    use wiremock::matchers::{header, method, path};
+    use wiremock::matchers::{header, method, path, path_regex};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn gh_client(token: &str, uri: &str) -> ForgeClient {
@@ -1386,6 +1396,39 @@ mod tests {
         let prompt = &prompts.lock().unwrap()[0];
         assert!(prompt.contains("Reviewed feature"));
         assert!(!prompt.contains("Later unrelated feature"));
+    }
+
+    #[tokio::test]
+    async fn gitlab_lookup_failures_stop_generation_only_when_labels_matter() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path_regex(
+                r"^/api/v4/projects/group%2Fproj/repository/commits/[0-9a-f]{40}/merge_requests$",
+            ))
+            .respond_with(ResponseTemplate::new(403))
+            .mount(&server)
+            .await;
+        let repo = TempRepo::new();
+        repo.write_file("f", "a");
+        repo.commit("base");
+        repo.tag("v1");
+        repo.write_file("f", "b");
+        repo.commit("fix: squashed change");
+        let mut ctx = test_context(repo.path().to_path_buf(), "HEAD", "v1");
+        ctx.repo = forge::Repo::gitlab("group/proj", &server.uri());
+        ctx.forge_client = Some(ForgeClient::GitLab(
+            crate::gitlab::GitLabClient::new(
+                "token".into(),
+                "group/proj",
+                &format!("{}/api/v4", server.uri()),
+            )
+            .unwrap(),
+        ));
+        let refs = change_refs(&ctx, "").await.unwrap();
+        assert!(refs.values().all(Vec::is_empty));
+        ctx.rules.exclude_labels = vec!["skip".into()];
+        let err = change_refs(&ctx, "").await.unwrap_err();
+        assert!(err.to_string().contains("label rules"), "{err}");
     }
 
     #[tokio::test]

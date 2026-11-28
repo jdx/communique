@@ -242,6 +242,11 @@ struct Remote {
 
 /// Parse `git@host:path.git`, `ssh://[user@]host[:port]/path.git`, or
 /// `https://[credentials@]host[:port]/path.git`.
+/// Web URL of the host serving a git remote, e.g. `https://gitlab.example.com`.
+pub fn remote_web_base(url: &str) -> Option<String> {
+    parse_remote(url).map(|r| r.web_base)
+}
+
 fn parse_remote(url: &str) -> Option<Remote> {
     let (host_port, path, web_scheme_keeps_port) = if let Some(rest) = url
         .strip_prefix("https://")

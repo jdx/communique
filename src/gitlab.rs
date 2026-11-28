@@ -93,12 +93,32 @@ const DIFF_PAGE_SIZE: usize = 100;
 /// result is truncated further before it reaches the model.
 const DIFF_COLLECT_LIMIT: usize = 64 * 1024;
 
+/// `PRIVATE-TOKEN` is a custom header, so reqwest would forward it on a
+/// cross-origin redirect. Follow redirects only within the original origin;
+/// any other redirect is returned as-is and reported as an API error.
+fn same_origin_redirects() -> reqwest::redirect::Policy {
+    reqwest::redirect::Policy::custom(|attempt| {
+        let same_origin = attempt
+            .previous()
+            .first()
+            .is_some_and(|first| first.origin() == attempt.url().origin());
+        if attempt.previous().len() > 5 {
+            attempt.error("too many redirects")
+        } else if same_origin {
+            attempt.follow()
+        } else {
+            attempt.stop()
+        }
+    })
+}
+
 impl GitLabClient {
     /// `project` is the full project path (`group/subgroup/project`);
     /// `api_base` is the v4 API root, e.g. `https://gitlab.com/api/v4`.
     pub fn new(token: String, project: &str, api_base: &str) -> Result<Self> {
         let client = reqwest::Client::builder()
             .user_agent("communique/0.1")
+            .redirect(same_origin_redirects())
             .build()?;
         Ok(Self {
             client,
@@ -390,6 +410,27 @@ mod tests {
         assert_eq!(release.tag_name, "cli/v1.0.0");
         assert_eq!(release.body.as_deref(), Some("notes"));
         assert_eq!(release.id, None);
+    }
+
+    #[tokio::test]
+    async fn token_is_not_sent_across_origins_on_redirect() {
+        let (server, client) = setup().await;
+        let other = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(format!("{PROJECT}/releases/v1.0.0")))
+            .respond_with(
+                ResponseTemplate::new(302)
+                    .insert_header("Location", format!("{}/steal", other.uri())),
+            )
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(0)
+            .mount(&other)
+            .await;
+        assert!(client.get_release_by_tag("v1.0.0").await.is_err());
+        other.verify().await;
     }
 
     #[tokio::test]

@@ -321,13 +321,20 @@ pub fn merge_body(existing: &str, generated: &str) -> miette::Result<String> {
     }
 }
 
-pub async fn publish_draft(path: &Path, dry_run: bool) -> miette::Result<()> {
+pub async fn publish_draft(
+    path: &Path,
+    dry_run: bool,
+    config: Option<&Path>,
+) -> miette::Result<()> {
     let draft: Draft = serde_json::from_str(&std::fs::read_to_string(path).into_diagnostic()?)
         .into_diagnostic()?;
     draft.validate()?;
     if dry_run && !draft.preserve_sections {
         println!("# {}\n\n{}", draft.release_title, draft.release_body);
         return Ok(());
+    }
+    if let Some(url) = &draft.forge_url {
+        check_trusted_forge_url(url, &trusted_gitlab_urls(config)?)?;
     }
     let repo = draft.repo_info();
     let token_var = repo.kind.token_var();
@@ -337,6 +344,46 @@ pub async fn publish_draft(path: &Path, dry_run: bool) -> miette::Result<()> {
         .ok_or_else(|| miette::miette!("{token_var} is required to read or update the release"))?;
     let client = ForgeClient::new(&repo, token)?;
     publish_with_client(draft, dry_run, &client).await
+}
+
+/// GitLab instances the local setup already points at: `forge_url` in
+/// communique.toml, the GitLab CI server, and the `origin` remote's host.
+fn trusted_gitlab_urls(config: Option<&Path>) -> miette::Result<Vec<String>> {
+    let mut urls = Vec::new();
+    if std::env::var("GITLAB_CI").is_ok_and(|v| v == "true")
+        && let Ok(url) = std::env::var("CI_SERVER_URL")
+    {
+        urls.push(url);
+    }
+    let root = crate::git::repo_root().ok();
+    let config = match (config, &root) {
+        (Some(path), _) => crate::config::Config::load_from(path)?,
+        (None, Some(root)) => crate::config::Config::load(root)?,
+        (None, None) => None,
+    };
+    if let Some(url) = config.and_then(|c| c.defaults).and_then(|d| d.forge_url) {
+        urls.push(url);
+    }
+    if let Some(url) = root
+        .as_deref()
+        .and_then(crate::git::remote_url)
+        .and_then(|u| crate::forge::remote_web_base(&u))
+    {
+        urls.push(url);
+    }
+    Ok(urls)
+}
+
+/// Refuse to send `GITLAB_TOKEN` to an instance named only by the draft file,
+/// which may have been edited or come from elsewhere.
+fn check_trusted_forge_url(url: &str, trusted: &[String]) -> miette::Result<()> {
+    let normalize = |u: &str| u.trim_end_matches('/').to_ascii_lowercase();
+    if trusted.iter().any(|t| normalize(t) == normalize(url)) {
+        return Ok(());
+    }
+    Err(miette::miette!(
+        "Draft targets {url}, which does not match forge_url in communique.toml, CI_SERVER_URL, or the origin remote; refusing to send GITLAB_TOKEN there. Set forge_url = \"{url}\" under [defaults] if this instance is trusted."
+    ))
 }
 
 async fn publish_with_client(
@@ -534,6 +581,15 @@ mod tests {
         );
         publish_with_client(draft, false, &client).await.unwrap();
         server.verify().await;
+    }
+
+    #[test]
+    fn draft_forge_url_must_match_a_trusted_url() {
+        let trusted = vec!["https://gitlab.example.com/".to_string()];
+        check_trusted_forge_url("https://GitLab.example.com", &trusted).unwrap();
+        let err = check_trusted_forge_url("https://evil.example", &trusted).unwrap_err();
+        assert!(err.to_string().contains("refusing to send GITLAB_TOKEN"));
+        assert!(check_trusted_forge_url("https://gitlab.example.com", &[]).is_err());
     }
 
     #[test]

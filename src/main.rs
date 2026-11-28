@@ -60,7 +60,9 @@ async fn main() -> miette::Result<()> {
         }
         Command::Usage(usage) => usage.run(),
         Command::Sponsors => sponsors(),
-        Command::Publish { draft, dry_run } => workflow::publish_draft(&draft, dry_run).await,
+        Command::Publish { draft, dry_run } => {
+            workflow::publish_draft(&draft, dry_run, cli.config.as_deref()).await
+        }
         Command::Init(init_args) => init(init_args.force),
         Command::Generate(g) => {
             generate::run(generate::GenerateOptions {

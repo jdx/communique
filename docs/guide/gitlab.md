@@ -81,3 +81,8 @@ history between the previous tag and the new one.
 `generate --draft` records the forge in the JSON draft, and `publish` uses
 `GITLAB_TOKEN` to create or update the GitLab release from it. Drafts for GitHub
 projects keep their existing format.
+
+A draft for a self-managed instance names that instance's URL. Before sending
+`GITLAB_TOKEN`, `publish` checks that the URL matches `forge_url` in
+`communique.toml`, `CI_SERVER_URL` in GitLab CI, or the host of the `origin`
+remote, and refuses to publish otherwise.
