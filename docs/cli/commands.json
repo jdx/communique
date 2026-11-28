@@ -327,8 +327,8 @@
           {
             "name": "repo",
             "usage": "--repo <REPO>",
-            "help": "Repository: GitHub owner/repo or GitLab group/project (auto-detected from git remote)",
-            "help_first_line": "Repository: GitHub owner/repo or GitLab group/project (auto-detected from git remote)",
+            "help": "Repository: GitHub owner/repo, or a GitLab group/subgroup/project path when `forge = \"gitlab\"` is set in communique.toml (auto-detected from git remote)",
+            "help_first_line": "Repository: GitHub owner/repo, or a GitLab group/subgroup/project path when `forge = \"gitlab\"` is set in communique.toml (auto-detected from git remote)",
             "short": [],
             "long": [
               "repo"

@@ -23,7 +23,12 @@ forge_url = "https://gitlab.example.com"
 ```
 
 Nested group paths such as `group/subgroup/project` are supported. A `repo`
-setting without `forge` still means a GitHub `owner/repo`.
+setting (or `--repo`) without `forge` still means a GitHub `owner/repo`. When
+the `origin` remote is not on the GitLab instance (for example a GitHub mirror),
+set `forge_url` and `repo` explicitly.
+
+`forge_url` must use `https://`; communiqué refuses to send `GITLAB_TOKEN` over
+plain HTTP except to `localhost`.
 
 ## Token
 
@@ -37,7 +42,8 @@ communique generate v1.2.0 --gitlab-release
 ```
 
 `--gitlab-release` updates the release for the tag, or creates it when the tag
-has no release yet. Without a token, generation still works from the local git
+has no release yet. The tag must already be pushed to GitLab and point at the
+same commit as the local tag; otherwise communiqué stops before publishing. Without a token, generation still works from the local git
 history, but merge request details are unavailable to the model.
 
 communiqué does not use the CI job token (`CI_JOB_TOKEN`). Job tokens have

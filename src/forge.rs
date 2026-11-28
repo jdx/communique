@@ -87,8 +87,13 @@ impl Repo {
 
     pub fn release_url(&self, tag: &str) -> String {
         match self.kind {
-            ForgeKind::GitHub => format!("{}/releases/tag/{tag}", self.web_url()),
-            ForgeKind::GitLab => format!("{}/-/releases/{tag}", self.web_url()),
+            ForgeKind::GitHub => {
+                format!("{}/releases/tag/{}", self.web_url(), encode_path(tag, true))
+            }
+            // GitLab's release route takes the tag as a single path segment.
+            ForgeKind::GitLab => {
+                format!("{}/-/releases/{}", self.web_url(), encode_path(tag, false))
+            }
         }
     }
 
@@ -130,6 +135,20 @@ impl Repo {
             )))
         }
     }
+}
+
+/// Percent-encode `s` for use in a URL path, leaving RFC 3986 unreserved
+/// characters (and `/` when `keep_slash`) as they are.
+fn encode_path(s: &str, keep_slash: bool) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        if b.is_ascii_alphanumeric() || b"-._~".contains(&b) || (keep_slash && b == b'/') {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
 }
 
 /// Inputs for [`resolve_repo`], gathered from the CLI, `communique.toml`,
@@ -180,12 +199,11 @@ pub fn resolve_repo(settings: RepoSettings, env: impl Fn(&str) -> Option<String>
                 )));
             }
             None => {
-                return Err(match &settings.remote_url {
-                    Some(url) => {
-                        Error::Git(format!("cannot parse repository from remote URL: {url}"))
-                    }
-                    None => Error::Git("no origin remote found".into()),
-                });
+                // The remote URL is left out: it can embed credentials.
+                return Err(Error::Git(match &settings.remote_url {
+                    Some(_) => "cannot parse a repository from the origin remote URL".into(),
+                    None => "no origin remote found".into(),
+                }));
             }
         },
     };
@@ -202,10 +220,10 @@ pub fn resolve_repo(settings: RepoSettings, env: impl Fn(&str) -> Option<String>
                 None => match remote {
                     Some(r) if r.host == "github.com" => r.path,
                     _ => {
-                        return Err(Error::Git(format!(
-                            "cannot parse GitHub repo from remote URL: {}",
-                            settings.remote_url.as_deref().unwrap_or("(none)")
-                        )));
+                        return Err(Error::Git(
+                            "the origin remote is not a github.com repository; set repo or forge"
+                                .into(),
+                        ));
                     }
                 },
             };
@@ -213,11 +231,16 @@ pub fn resolve_repo(settings: RepoSettings, env: impl Fn(&str) -> Option<String>
         }
         ForgeKind::GitLab => {
             let ci = ci_project.as_ref();
+            // A github.com remote cannot tell us where the GitLab project lives.
+            let remote = remote.filter(|r| r.host != "github.com");
             let web_base = forge_url
                 .or_else(|| ci.map(|(url, _)| url.clone()))
                 .or_else(|| remote.as_ref().map(|r| r.web_base.clone()))
                 .ok_or_else(|| {
-                    Error::Config("cannot determine the GitLab URL; set forge_url".into())
+                    Error::Config(
+                        "cannot determine the GitLab URL; set forge_url under [defaults] in communique.toml"
+                            .into(),
+                    )
                 })?;
             let path = settings
                 .repo
@@ -240,13 +263,13 @@ struct Remote {
     path: String,
 }
 
-/// Parse `git@host:path.git`, `ssh://[user@]host[:port]/path.git`, or
-/// `https://[credentials@]host[:port]/path.git`.
 /// Web URL of the host serving a git remote, e.g. `https://gitlab.example.com`.
 pub fn remote_web_base(url: &str) -> Option<String> {
     parse_remote(url).map(|r| r.web_base)
 }
 
+/// Parse `git@host:path.git`, `ssh://[user@]host[:port]/path.git`, or
+/// `https://[credentials@]host[:port]/path.git`.
 fn parse_remote(url: &str) -> Option<Remote> {
     let (host_port, path, web_scheme_keeps_port) = if let Some(rest) = url
         .strip_prefix("https://")
@@ -305,8 +328,9 @@ pub struct ChangeRequest {
     pub body: Option<String>,
     pub author: String,
     pub labels: Vec<String>,
-    /// Issues the merge request closes (GitLab only).
-    pub closes: Vec<u64>,
+    /// Issues the merge request closes (GitLab only), as `#12` for this
+    /// project or `group/other#12` for another one.
+    pub closes: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -534,6 +558,51 @@ mod tests {
             "https://gitlab.com/group/sub/proj/-/commit/abc1234"
         );
         assert_eq!(repo.custom_web_base(), None);
+    }
+
+    #[test]
+    fn release_urls_encode_the_tag() {
+        let gl = Repo::gitlab("group/proj", "https://gitlab.example.com");
+        assert_eq!(
+            gl.release_url("cli/v1.2.0"),
+            "https://gitlab.example.com/group/proj/-/releases/cli%2Fv1.2.0"
+        );
+        assert_eq!(
+            gl.release_url("v1.2.0#hotfix?x=%"),
+            "https://gitlab.example.com/group/proj/-/releases/v1.2.0%23hotfix%3Fx%3D%25"
+        );
+        assert_eq!(
+            Repo::github("o/r").release_url("cli/v1.2.0#a"),
+            "https://github.com/o/r/releases/tag/cli/v1.2.0%23a"
+        );
+    }
+
+    #[test]
+    fn remote_credentials_stay_out_of_errors() {
+        let err = resolve_repo(settings("https://user:s3cret@host.example/x"), no_env).unwrap_err();
+        assert!(!err.to_string().contains("s3cret"), "{err}");
+        let err = resolve_repo(
+            RepoSettings {
+                forge: Some(ForgeKind::GitHub),
+                ..settings("https://user:s3cret@gitlab.com/g/p.git")
+            },
+            no_env,
+        )
+        .unwrap_err();
+        assert!(!err.to_string().contains("s3cret"), "{err}");
+    }
+
+    #[test]
+    fn gitlab_forge_ignores_a_github_remote() {
+        let err = resolve_repo(
+            RepoSettings {
+                forge: Some(ForgeKind::GitLab),
+                ..settings("git@github.com:jdx/communique.git")
+            },
+            no_env,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("forge_url"), "{err}");
     }
 
     #[test]

@@ -59,6 +59,30 @@ struct GlIssue {
 #[derive(Debug, Deserialize)]
 struct GlIssueRef {
     iid: u64,
+    references: Option<GlReferences>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GlReferences {
+    /// Fully qualified reference, e.g. `group/project#12`.
+    full: String,
+}
+
+impl GlIssueRef {
+    /// `#12` for an issue in `project`, otherwise the full `group/other#12`
+    /// so the model does not attribute it to the wrong project.
+    fn display(&self, project: &str) -> String {
+        match &self.references {
+            Some(r)
+                if !r
+                    .full
+                    .eq_ignore_ascii_case(&format!("{project}#{}", self.iid)) =>
+            {
+                r.full.clone()
+            }
+            _ => format!("#{}", self.iid),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -70,6 +94,11 @@ struct GlDiff {
     new_file: bool,
     #[serde(default)]
     deleted_file: bool,
+    /// GitLab omits the diff text of large or collapsed files.
+    #[serde(default)]
+    collapsed: bool,
+    #[serde(default)]
+    too_large: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -116,6 +145,21 @@ impl GitLabClient {
     /// `project` is the full project path (`group/subgroup/project`);
     /// `api_base` is the v4 API root, e.g. `https://gitlab.com/api/v4`.
     pub fn new(token: String, project: &str, api_base: &str) -> Result<Self> {
+        let parsed = reqwest::Url::parse(api_base)
+            .map_err(|e| Error::GitLab(format!("invalid GitLab API URL: {e}")))?;
+        let host = parsed.host_str().unwrap_or_default();
+        let loopback = host.eq_ignore_ascii_case("localhost")
+            || host
+                .trim_matches(['[', ']'])
+                .parse::<std::net::IpAddr>()
+                .is_ok_and(|ip| ip.is_loopback());
+        // GITLAB_TOKEN must not travel in cleartext.
+        if parsed.scheme() != "https" && !loopback {
+            return Err(Error::GitLab(format!(
+                "refusing to send GITLAB_TOKEN over {}; use an https:// GitLab URL",
+                parsed.scheme()
+            )));
+        }
         let client = reqwest::Client::builder()
             .user_agent("communique/0.1")
             .redirect(same_origin_redirects())
@@ -253,6 +297,20 @@ impl GitLabClient {
         let resp = self
             .send(reqwest::Method::POST, url, Some(&payload))
             .await?;
+        if resp.status() == reqwest::StatusCode::CONFLICT {
+            // Someone else created the release first (for example a retried
+            // request that already succeeded). Accept it only if it matches.
+            let existing = self.get_release_by_tag(tag).await?;
+            let matches = existing.is_some_and(|r| {
+                r.body.as_deref() == Some(body) && (title.is_none() || r.name.as_deref() == title)
+            });
+            if matches {
+                return Ok(());
+            }
+            return Err(Error::GitLab(format!(
+                "a different release for {tag} already exists; rerun to update it"
+            )));
+        }
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
@@ -279,7 +337,7 @@ impl GitLabClient {
             )
             .await
         {
-            Ok(issues) => issues.into_iter().map(|i| i.iid).collect(),
+            Ok(issues) => issues.iter().map(|i| i.display(&self.project)).collect(),
             Err(e) => {
                 log::info!("failed to fetch issues closed by !{iid}: {e}");
                 vec![]
@@ -319,9 +377,14 @@ impl GitLabClient {
                 } else {
                     format!("b/{}", d.new_path)
                 };
+                let text = if d.diff.is_empty() && (d.too_large || d.collapsed) {
+                    "(diff omitted by GitLab: file too large)\n"
+                } else {
+                    d.diff.as_str()
+                };
                 out.push_str(&format!(
-                    "diff --git a/{} b/{}\n--- {old}\n+++ {new}\n{}",
-                    d.old_path, d.new_path, d.diff
+                    "diff --git a/{} b/{}\n--- {old}\n+++ {new}\n{text}",
+                    d.old_path, d.new_path
                 ));
                 if !out.ends_with('\n') {
                     out.push('\n');
@@ -491,14 +554,18 @@ mod tests {
             .await;
         Mock::given(method("GET"))
             .and(path(format!("{PROJECT}/merge_requests/12/closes_issues")))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!([{"iid": 3}])))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+                {"iid": 3, "references": {"full": "group/sub/proj#3"}},
+                {"iid": 4, "references": {"full": "group/other#4"}},
+                {"iid": 5}
+            ])))
             .mount(&server)
             .await;
         let mr = client.get_merge_request(12).await.unwrap();
         assert_eq!(mr.number, 12);
         assert_eq!(mr.author, "ada");
         assert_eq!(mr.labels, vec!["feature"]);
-        assert_eq!(mr.closes, vec![3]);
+        assert_eq!(mr.closes, vec!["#3", "group/other#4", "#5"]);
     }
 
     #[tokio::test]
@@ -532,7 +599,8 @@ mod tests {
             .and(query_param("page", "1"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!([
                 {"old_path": "a.rs", "new_path": "a.rs", "diff": "@@ -1 +1 @@\n-a\n+b\n"},
-                {"old_path": "new.rs", "new_path": "new.rs", "diff": "@@ -0,0 +1 @@\n+c", "new_file": true}
+                {"old_path": "new.rs", "new_path": "new.rs", "diff": "@@ -0,0 +1 @@\n+c", "new_file": true},
+                {"old_path": "big.json", "new_path": "big.json", "diff": "", "too_large": true}
             ])))
             .expect(1)
             .mount(&server)
@@ -540,6 +608,51 @@ mod tests {
         let diff = client.get_merge_request_diff(12).await.unwrap();
         assert!(diff.contains("diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@"));
         assert!(diff.contains("--- /dev/null\n+++ b/new.rs\n@@ -0,0 +1 @@\n+c\n"));
+        assert!(diff.contains("+++ b/big.json\n(diff omitted by GitLab: file too large)\n"));
+    }
+
+    #[test]
+    fn token_requires_https_except_on_loopback() {
+        let err = GitLabClient::new("t".into(), "g/p", "http://gitlab.example.com/api/v4")
+            .err()
+            .unwrap();
+        assert!(err.to_string().contains("https://"), "{err}");
+        for ok in [
+            "https://gitlab.example.com/api/v4",
+            "http://127.0.0.1:8080/api/v4",
+            "http://localhost/api/v4",
+            "http://[::1]:8080/api/v4",
+        ] {
+            assert!(GitLabClient::new("t".into(), "g/p", ok).is_ok(), "{ok}");
+        }
+    }
+
+    #[tokio::test]
+    async fn create_conflict_accepts_only_an_identical_release() {
+        let (server, client) = setup().await;
+        Mock::given(method("POST"))
+            .and(path(format!("{PROJECT}/releases")))
+            .respond_with(ResponseTemplate::new(409))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(format!("{PROJECT}/releases/v1.0.0")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "tag_name": "v1.0.0",
+                "name": "v1.0.0: title",
+                "description": "body"
+            })))
+            .mount(&server)
+            .await;
+        client
+            .create_release("v1.0.0", Some("v1.0.0: title"), "body")
+            .await
+            .unwrap();
+        let err = client
+            .create_release("v1.0.0", Some("v1.0.0: title"), "other body")
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("already exists"), "{err}");
     }
 
     #[tokio::test]

@@ -54,7 +54,7 @@ cmd generate help="Generate release notes for a git tag" effect=read {
     flag --changelog help="Update CHANGELOG.md with the generated changelog entry" effect=write
     flag --concise help="Output concise changelog entry instead of detailed notes"
     flag "-n --dry-run" help="Generate notes without updating the release or verifying links"
-    flag --repo help="Repository: GitHub owner/repo or GitLab group/project (auto-detected from git remote)" {
+    flag --repo help="Repository: GitHub owner/repo, or a GitLab group/subgroup/project path when `forge = \"gitlab\"` is set in communique.toml (auto-detected from git remote)" {
         arg <REPO>
     }
     flag --model help="LLM model to use" {

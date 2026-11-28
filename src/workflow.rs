@@ -392,6 +392,21 @@ async fn publish_with_client(
     client: &ForgeClient,
 ) -> miette::Result<()> {
     draft.validate()?;
+    // Check the tag before reading the release so the merged body below is
+    // written straight after the read it is based on. Neither forge offers a
+    // conditional release update, so edits made in that short window can
+    // still be overwritten.
+    if !dry_run {
+        let remote_commit = client.tag_commit(&draft.tag).await?;
+        if remote_commit != draft.target_commit {
+            return Err(miette::miette!(
+                "Tag {} now resolves to {}, but this draft was generated for {}. Regenerate and review the draft before publishing.",
+                draft.tag,
+                remote_commit,
+                draft.target_commit
+            ));
+        }
+    }
     let release = client.get_release_by_tag(&draft.tag).await?;
     // GitHub releases are created by the release workflow (often as drafts);
     // GitLab tags usually have no release yet, so one is created on publish.
@@ -420,15 +435,6 @@ async fn publish_with_client(
         };
         println!("# {title}\n\n{body}");
         return Ok(());
-    }
-    let remote_commit = client.tag_commit(&draft.tag).await?;
-    if remote_commit != draft.target_commit {
-        return Err(miette::miette!(
-            "Tag {} now resolves to {}, but this draft was generated for {}. Regenerate and review the draft before publishing.",
-            draft.tag,
-            remote_commit,
-            draft.target_commit
-        ));
     }
     let title = if draft.preserve_sections {
         None

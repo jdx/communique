@@ -221,18 +221,21 @@ pub fn merge_request_refs(
     let mut args = vec![
         "log".to_string(),
         format!("{from}..{to}"),
-        "--pretty=format:%h%x1f%H%x1f%B%x1d".into(),
+        // `-z` ends each record with NUL, which a commit message cannot contain.
+        "-z".into(),
+        "--pretty=format:%h%x1f%H%x1f%B".into(),
         "--reverse".into(),
         "--".into(),
     ];
     args.extend(paths.iter().map(|p| format!(":(literal){p}")));
     let raw = process::cmd("git", args).cwd(repo_root).read()?;
     Ok(raw
-        .split('\x1d')
+        .split('\0')
         .filter_map(|record| {
-            let mut fields = record.trim().splitn(3, '\x1f');
-            let short = fields.next().filter(|h| !h.is_empty())?;
-            let full = fields.next().unwrap_or_default();
+            let is_hash = |h: &&str| !h.is_empty() && h.bytes().all(|b| b.is_ascii_hexdigit());
+            let mut fields = record.trim_start().splitn(3, '\x1f');
+            let short = fields.next().filter(is_hash)?;
+            let full = fields.next().filter(is_hash)?;
             let message = fields.next().unwrap_or_default();
             Some((
                 short.to_string(),
@@ -355,11 +358,14 @@ mod tests {
         repo.commit("Merge branch 'x' into 'main'\n\nSee merge request group/proj!7");
         repo.write_file("f", "c");
         repo.commit("fix: squashed change");
+        repo.write_file("f", "d");
+        repo.commit("fix: odd body\n\nseparators \x1d and \x1f inside (!9)");
         let refs = merge_request_refs(repo.path(), "v1", "HEAD", &[], "group/proj").unwrap();
-        assert_eq!(refs.len(), 2);
+        assert_eq!(refs.len(), 3);
         assert_eq!(refs[0].2, vec![7]);
         assert_eq!(refs[0].1.len(), 40);
         assert!(refs[1].2.is_empty());
+        assert_eq!(refs[2].2, vec![9]);
     }
 
     #[test]

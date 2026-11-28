@@ -50,12 +50,7 @@ pub async fn execute(forge: &ForgeClient, input: &serde_json::Value) -> Result<S
         pr.labels.join(", "),
     );
     if !pr.closes.is_empty() {
-        let issues = pr
-            .closes
-            .iter()
-            .map(|n| format!("#{n}"))
-            .collect::<Vec<_>>()
-            .join(", ");
+        let issues = pr.closes.join(", ");
         out.push_str(&format!("Closes issues: {issues}\n"));
     }
     out.push('\n');

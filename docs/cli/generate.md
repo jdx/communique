@@ -39,7 +39,7 @@ Generate release notes for a git tag
   **Effect:** modifies state
 - **`--concise`** — Output concise changelog entry instead of detailed notes
 - **`-n --dry-run`** — Generate notes without updating the release or verifying links
-- **`--repo <REPO>`** — Repository: GitHub owner/repo or GitLab group/project (auto-detected from git remote)
+- **`--repo <REPO>`** — Repository: GitHub owner/repo, or a GitLab group/subgroup/project path when `forge = "gitlab"` is set in communique.toml (auto-detected from git remote)
 - **`--model <MODEL>`** — LLM model to use
 - **`--max-tokens <MAX_TOKENS>`** — Max response tokens
 - **`--provider <PROVIDER>`** — LLM provider (anthropic or openai, auto-detected from model if omitted)

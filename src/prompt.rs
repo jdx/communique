@@ -126,6 +126,20 @@ Existing release bodies, changelog entries, and recent releases are source mater
     prompt
 }
 
+/// Remove the forge API tools from the system prompt's tool list when no
+/// forge token is available, so the model is not told to call them.
+pub fn without_forge_tools(prompt: &str) -> String {
+    prompt
+        .lines()
+        .filter(|line| {
+            !["- get_pr:", "- get_pr_diff:", "- get_issue:"]
+                .iter()
+                .any(|t| line.starts_with(t))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// GitHub wording in the system prompt and its GitLab equivalent. Links use a
 /// `PROJECT_URL` placeholder that the user prompt defines.
 const GITLAB_WORDING: &[(&str, &str)] = &[
@@ -204,6 +218,9 @@ pub struct UserPromptContext<'a> {
     pub existing_release: Option<&'a str>,
     pub context: Option<&'a str>,
     pub recent_releases: &'a [(String, String)],
+    /// Whether the forge API tools (`get_pr`, `get_pr_diff`, `get_issue`) are
+    /// available, which requires a forge token.
+    pub forge_tools: bool,
 }
 
 /// Prompt section naming the GitHub logins credited on commits (authors and
@@ -241,6 +258,7 @@ pub fn user_prompt(ctx: &UserPromptContext) -> String {
         existing_release,
         context,
         recent_releases,
+        forge_tools,
     } = ctx;
     let mut parts = Vec::new();
 
@@ -277,9 +295,12 @@ pub fn user_prompt(ctx: &UserPromptContext) -> String {
             ForgeKind::GitHub => "Referenced PRs",
             ForgeKind::GitLab => "Referenced Merge Requests",
         };
-        parts.push(format!(
-            "\n## {heading}\n{prs}\n\nUse the `get_pr` and `get_pr_diff` tools to understand these changes in detail."
-        ));
+        let hint = if *forge_tools {
+            "\n\nUse the `get_pr` and `get_pr_diff` tools to understand these changes in detail."
+        } else {
+            ""
+        };
+        parts.push(format!("\n## {heading}\n{prs}{hint}"));
     }
 
     if let Some(entry) = changelog_entry {
@@ -436,12 +457,37 @@ mod tests {
             existing_release: Some("old body"),
             context: None,
             recent_releases: &[],
+            forge_tools: true,
         });
         assert!(prompt.contains("PROJECT_URL: https://gitlab.example.com/group/sub/proj"));
         assert!(prompt.contains("Referenced Merge Requests"));
         assert!(prompt.contains("!42"));
         assert!(prompt.contains("Existing GitLab Release Body"));
         assert!(!prompt.contains("GitHub"));
+    }
+
+    #[test]
+    fn tokenless_prompts_omit_forge_tools() {
+        let repo = Repo::gitlab("group/proj", "https://gitlab.com");
+        let prompt = user_prompt(&UserPromptContext {
+            tag: "v1.0.0",
+            prev_tag: "v0.9.0",
+            repo: &repo,
+            git_log: "abc1234 feat: add feature (!42)",
+            pr_numbers: &[42],
+            is_unreleased_head: false,
+            changelog_entry: None,
+            existing_release: None,
+            context: None,
+            recent_releases: &[],
+            forge_tools: false,
+        });
+        assert!(prompt.contains("!42"));
+        assert!(!prompt.contains("get_pr"));
+        let system = without_forge_tools(&system_prompt(ForgeKind::GitLab, None, true, true, true));
+        assert!(!system.contains("get_pr"), "{system}");
+        assert!(!system.contains("get_issue"));
+        assert!(system.contains("- git_show:"));
     }
 
     #[test]
@@ -457,6 +503,7 @@ mod tests {
             existing_release: None,
             context: None,
             recent_releases: &[],
+            forge_tools: true,
         });
         assert!(prompt.contains("v1.0.0"));
         assert!(prompt.contains("v0.9.0"));
@@ -480,6 +527,7 @@ mod tests {
             existing_release: None,
             context: None,
             recent_releases: &[],
+            forge_tools: true,
         });
         assert!(prompt.contains("Referenced PRs"));
         assert!(prompt.contains("#42"));
@@ -500,6 +548,7 @@ mod tests {
             existing_release: Some("Previous release body"),
             context: Some("This is a CLI tool for release notes."),
             recent_releases: &[("v1.0.0".into(), "Release 1.0 notes".into())],
+            forge_tools: true,
         });
         assert!(prompt.contains("Project Context"));
         assert!(prompt.contains("CLI tool for release notes"));
@@ -525,6 +574,7 @@ mod tests {
             existing_release: None,
             context: None,
             recent_releases: &[("v1.0.0".into(), long_body)],
+            forge_tools: true,
         });
         assert!(prompt.contains("[truncated]"));
     }
@@ -542,6 +592,7 @@ mod tests {
             existing_release: None,
             context: None,
             recent_releases: &[],
+            forge_tools: true,
         });
 
         assert!(prompt.contains("Generate release notes for unreleased changes since v1.0.0."));
@@ -561,6 +612,7 @@ mod tests {
             existing_release: None,
             context: None,
             recent_releases: &[],
+            forge_tools: true,
         });
 
         assert!(
@@ -581,6 +633,7 @@ mod tests {
             existing_release: None,
             context: None,
             recent_releases: &[],
+            forge_tools: true,
         });
 
         assert!(prompt.contains("Existing Unreleased CHANGELOG.md Draft"));
@@ -608,6 +661,7 @@ mod tests {
             existing_release: None,
             context: None,
             recent_releases: &[("v1.0.0".into(), body)],
+            forge_tools: true,
         });
         assert!(prompt.contains("[truncated]"));
     }

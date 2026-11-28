@@ -40,7 +40,7 @@ pub struct Generate {
     #[usage(long, short = 'n')]
     pub dry_run: bool,
 
-    /// Repository: GitHub owner/repo or GitLab group/project (auto-detected from git remote)
+    /// Repository: GitHub owner/repo, or a GitLab group/subgroup/project path when `forge = "gitlab"` is set in communique.toml (auto-detected from git remote)
     #[usage(long)]
     pub repo: Option<String>,
 

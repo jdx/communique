@@ -511,13 +511,16 @@ async fn generate_notes(
     };
 
     let emoji = ctx.defaults.emoji.unwrap_or(true);
-    let system = prompt::system_prompt(
+    let mut system = prompt::system_prompt(
         ctx.repo.kind,
         ctx.system_extra.as_deref(),
         emoji,
         include_release_notes,
         include_changelog,
     );
+    if ctx.forge_client.is_none() {
+        system = prompt::without_forge_tools(&system);
+    }
     let mut user_msg = prompt::user_prompt(&prompt::UserPromptContext {
         tag: &ctx.tag,
         prev_tag: &ctx.prev_tag,
@@ -529,6 +532,7 @@ async fn generate_notes(
         existing_release: existing_release.as_deref(),
         context: ctx.context.as_deref(),
         recent_releases: &recent_releases,
+        forge_tools: ctx.forge_client.is_some(),
     });
 
     if let Some(section) = prompt::commit_credits_section(&commit_credits) {
@@ -586,6 +590,18 @@ async fn publish(
         &format!("Updating {forge_name} release for {}...", ctx.tag),
     );
     let client = ctx.forge_client.as_ref().unwrap();
+    if client.kind() == ForgeKind::GitLab {
+        // The release attaches to the tag on GitLab, so make sure it is the
+        // commit these notes describe (the tag may be missing or moved there).
+        let remote_commit = client.tag_commit(&ctx.tag).await?;
+        if remote_commit != ctx.target_commit {
+            return Err(miette::miette!(
+                "Tag {} on GitLab points to {remote_commit}, but these notes were generated for {}. Push the tag or regenerate before publishing.",
+                ctx.tag,
+                ctx.target_commit
+            ));
+        }
+    }
     let title = if opts.workflow.preserve_sections {
         None
     } else {
@@ -1074,6 +1090,20 @@ async fn change_refs(
         &ctx.workflow.paths,
         &ctx.repo.path,
     )?;
+    // Key the map by the abbreviations `log` uses. Joining on the full hash
+    // keeps commits matched even if git picks a different abbreviation length
+    // between the two reads.
+    let refs: Vec<_> = refs
+        .into_iter()
+        .map(|(short, full, numbers)| {
+            let key = log
+                .lines()
+                .filter_map(|line| line.split_whitespace().next())
+                .find(|sha| full.starts_with(sha))
+                .map_or(short, str::to_string);
+            (key, full, numbers)
+        })
+        .collect();
     let mut map: std::collections::HashMap<String, Vec<u64>> = refs
         .iter()
         .map(|(short, _, numbers)| (short.clone(), numbers.clone()))
@@ -1838,6 +1868,57 @@ mod tests {
         let job = Arc::new(ProgressJobBuilder::new().build());
         publish(&opts, &ctx, &parsed, &job).await.unwrap();
         // wiremock expect(1) verifies PATCH was called
+    }
+
+    #[tokio::test]
+    async fn gitlab_publish_requires_the_remote_tag_to_match() {
+        let server = MockServer::start().await;
+        let tags = "/api/v4/projects/group%2Fproj/repository/tags/v1.0.0";
+        Mock::given(method("GET"))
+            .and(path(tags))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "commit": {"id": "b".repeat(40)}
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/api/v4/projects/group%2Fproj/releases"))
+            .respond_with(ResponseTemplate::new(201).set_body_json(json!({})))
+            .expect(0)
+            .mount(&server)
+            .await;
+        let gl = ForgeClient::GitLab(
+            crate::gitlab::GitLabClient::new(
+                "t".into(),
+                "group/proj",
+                &format!("{}/api/v4", server.uri()),
+            )
+            .unwrap(),
+        );
+        let ctx = Context {
+            repo_root: PathBuf::from("/tmp"),
+            repo: forge::Repo::gitlab("group/proj", &server.uri()),
+            tag: "v1.0.0".into(),
+            target_commit: "a".repeat(40),
+            prev_tag: "v0.9.0".into(),
+            client: Box::new(MockLlmClient::new(vec![])),
+            workflow: Default::default(),
+            rules: Default::default(),
+            defaults: Defaults::default(),
+            system_extra: None,
+            context: None,
+            forge_client: Some(gl),
+        };
+        let opts = GenerateOptions {
+            gitlab_release: true,
+            dry_run: false,
+            ..test_opts("v1.0.0")
+        };
+        let job = Arc::new(ProgressJobBuilder::new().build());
+        let err = publish(&opts, &ctx, &test_parsed_output("Change"), &job)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("points to"), "{err}");
     }
 
     #[tokio::test]

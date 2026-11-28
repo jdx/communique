@@ -45,9 +45,9 @@ repo = "owner/repo"
 |-----|-------------|---------|
 | `model` | Model identifier | `claude-opus-5-5` |
 | `max_tokens` | Maximum tokens permitted per model response (billing is based on actual usage) | `16384` |
-| `repo` | GitHub `owner/repo` or GitLab `group/project` path | Auto-detected from git remote |
+| `repo` | GitHub `owner/repo`, or a GitLab `group/subgroup/project` path when `forge = "gitlab"` (a `repo` without `forge` is treated as GitHub) | Auto-detected from git remote |
 | `forge` | `github` or `gitlab` | Auto-detected from GitLab CI or the git remote |
-| `forge_url` | Web URL of a self-managed GitLab instance, e.g. `https://gitlab.example.com` | `https://gitlab.com` (or `CI_SERVER_URL` in GitLab CI) |
+| `forge_url` | HTTPS web URL of a self-managed GitLab instance, e.g. `https://gitlab.example.com` | `CI_SERVER_URL` in GitLab CI, otherwise the `origin` remote's host (required when that remote is not on the GitLab instance) |
 
 See the [GitLab guide](./gitlab.md) for GitLab.com and self-managed GitLab.
 
