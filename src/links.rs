@@ -41,7 +41,7 @@ fn without_code(text: &str) -> String {
     for raw in text.lines() {
         let line = Line::parse(raw);
         if let Some(open) = &fence {
-            if open.contains(&line) {
+            if open.contains(raw, &line) {
                 if open.is_closed_by(raw) {
                     fence = None;
                 }
@@ -52,15 +52,20 @@ fn without_code(text: &str) -> String {
             // fence with it. This line is ordinary Markdown again.
             fence = None;
         }
+        let continues_paragraph = !paragraph.text.is_empty()
+            && line.quotes == paragraph.quotes
+            && !item.is_some_and(|(quotes, col)| quotes == line.quotes && line.indent < col);
+        // A lone `-` under a paragraph is a setext underline, not an empty list
+        // item, so it ends the paragraph as a heading.
+        if continues_paragraph && line.bare == "-" {
+            paragraph.push(raw, line.quotes);
+            paragraph.flush(&mut out);
+            continue;
+        }
         // A list item numbered other than 1, or an empty one, cannot interrupt
         // a paragraph, so the line continues it. A new item of the list that
         // holds the paragraph is not an interruption.
-        if line.item.is_some()
-            && !line.interrupts
-            && !paragraph.text.is_empty()
-            && line.quotes == paragraph.quotes
-            && !item.is_some_and(|(quotes, col)| quotes == line.quotes && line.indent < col)
-        {
+        if line.item.is_some() && !line.interrupts && continues_paragraph {
             paragraph.push(raw, line.quotes);
             continue;
         }
@@ -74,13 +79,18 @@ fn without_code(text: &str) -> String {
         {
             item = None;
         }
-        if let Some((marker, len)) = fence_opener(line.content) {
+        let col = match (line.item, item) {
+            (Some(col), _) => col,
+            (None, Some((quotes, col))) if quotes == line.quotes && line.indent >= col => col,
+            _ => 0,
+        };
+        // A marker indented four or more columns into its container is
+        // indented text, not a fence.
+        let opener = fence_opener(line.content).filter(|_| {
+            line.item.is_some() || line.indent <= fence_base(raw, line.quotes, col) + 3
+        });
+        if let Some((marker, len)) = opener {
             paragraph.flush(&mut out);
-            let col = match (line.item, item) {
-                (Some(col), _) => col,
-                (None, Some((quotes, col))) if quotes == line.quotes && line.indent >= col => col,
-                _ => 0,
-            };
             fence = Some(Fence {
                 marker,
                 len,
@@ -134,19 +144,24 @@ struct Fence {
 
 impl Fence {
     /// Whether a line is still inside the blockquote or list item the fence
-    /// opened in. A blank line does not end a list item.
-    fn contains(&self, line: &Line) -> bool {
-        line.quotes >= self.quotes && (line.content.is_empty() || line.indent >= self.col)
+    /// opened in. A blank line does not end a list item, but a blockquote
+    /// marker left of the item's content column does.
+    fn contains(&self, raw: &str, line: &Line) -> bool {
+        if line.quotes < self.quotes {
+            return false;
+        }
+        let blank = line.quotes == self.quotes && line.item.is_none() && line.content.is_empty();
+        blank || start_column(raw, self.quotes) >= self.col
     }
 
+    /// Whether a line closes the fence: a run of its marker at least as long,
+    /// indented at most three columns into the fence's container.
     fn is_closed_by(&self, raw: &str) -> bool {
-        let mut rest = raw.trim_start();
-        for _ in 0..self.quotes {
-            rest = rest.strip_prefix('>').unwrap_or(rest).trim_start();
-        }
-        fence_marker(rest).is_some_and(|(marker, run, info)| {
-            marker == self.marker && run >= self.len && info.trim().is_empty()
-        })
+        let rest = after_quotes(raw, self.quotes).trim_start();
+        start_column(raw, self.quotes) <= fence_base(raw, self.quotes, self.col) + 3
+            && fence_marker(rest).is_some_and(|(marker, run, info)| {
+                marker == self.marker && run >= self.len && info.trim().is_empty()
+            })
     }
 }
 
@@ -163,6 +178,8 @@ struct Line<'a> {
     /// Whether that list item may interrupt a paragraph: it is a bullet or
     /// numbered 1, and it is not empty.
     interrupts: bool,
+    /// The text after the leading blockquote markers, list markers included.
+    bare: &'a str,
     /// The text inside the containers.
     content: &'a str,
 }
@@ -177,6 +194,7 @@ impl<'a> Line<'a> {
             rest = after.trim_start();
         }
         let indent = column(rest);
+        let bare = rest.trim_end();
         let mut item = None;
         let mut first_marker = None;
         loop {
@@ -205,6 +223,7 @@ impl<'a> Line<'a> {
             indent,
             item,
             interrupts,
+            bare,
             content,
         }
     }
@@ -227,6 +246,33 @@ impl<'a> Line<'a> {
                 .next()
                 .is_none_or(char::is_whitespace)
     }
+}
+
+/// The rest of a line after its first `quotes` blockquote markers, each with
+/// the spaces before it and at most one space after it.
+fn after_quotes(raw: &str, quotes: usize) -> &str {
+    let mut rest = raw;
+    for _ in 0..quotes {
+        let trimmed = rest.trim_start();
+        rest = trimmed
+            .strip_prefix('>')
+            .map_or(trimmed, |after| after.strip_prefix(' ').unwrap_or(after));
+    }
+    rest
+}
+
+/// Column of the first non-space character after a line's first `quotes`
+/// blockquote markers.
+fn start_column(raw: &str, quotes: usize) -> usize {
+    let rest = after_quotes(raw, quotes).trim_start();
+    columns(&raw[..raw.len() - rest.len()])
+}
+
+/// Column where a fence's container starts: the content column of the list
+/// item holding it, or else the column after its blockquote markers.
+fn fence_base(raw: &str, quotes: usize, col: usize) -> usize {
+    let rest = after_quotes(raw, quotes);
+    col.max(columns(&raw[..raw.len() - rest.len()]))
 }
 
 /// A thematic break: three or more `*`, `-` or `_`, all the same, with only
@@ -529,6 +575,41 @@ mod tests {
     #[test]
     fn test_extract_urls_ends_paragraphs_at_spaced_rules() {
         let text = "A literal `\n* * *\nSee https://docs.rs/tokio and `config`";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+    }
+
+    #[test]
+    fn test_extract_urls_ignores_fence_markers_indented_into_code() {
+        // An inner marker indented four columns does not close the fence.
+        let text = "```text\n    ```\nhttp://127.0.0.1:1/sample\n```\nSee https://docs.rs/tokio";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+        let text =
+            "> ```text\n>     ```\n> http://127.0.0.1:1/sample\n> ```\nhttps://docs.rs/tokio";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+        let text =
+            "- ```text\n      ```\n  http://127.0.0.1:1/sample\n  ```\nhttps://docs.rs/tokio";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+        // Up to three columns still close it.
+        let text = "```text\nhttp://127.0.0.1:1/sample\n   ```\nSee https://docs.rs/tokio";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+        // And an indented marker does not open one.
+        let text = "Intro\n\n    ```\nSee https://docs.rs/tokio";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+    }
+
+    #[test]
+    fn test_extract_urls_ends_paragraphs_at_a_lone_dash_underline() {
+        let text = "A literal `\n-\nSee https://docs.rs/tokio and `config`";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+        let text = "> A literal `\n> -\n> See https://docs.rs/tokio and `config`";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+    }
+
+    #[test]
+    fn test_extract_urls_ends_list_fences_at_a_blockquote() {
+        let text = "- ```text\n  http://127.0.0.1:1/sample\n> See https://docs.rs/tokio";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+        let text = "- ```text\n  > http://127.0.0.1:1/sample\n  ```\n> See https://docs.rs/tokio";
         assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
     }
 
