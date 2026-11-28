@@ -24,6 +24,10 @@ pub struct Generate {
     #[usage(long, effect = "write", conflicts = "--draft")]
     pub github_release: bool,
 
+    /// Create or update the GitLab release with the editorialized notes
+    #[usage(long, effect = "write", conflicts = "--draft")]
+    pub gitlab_release: bool,
+
     /// Update CHANGELOG.md with the generated changelog entry
     #[usage(long, effect = "write")]
     pub changelog: bool,
@@ -32,11 +36,11 @@ pub struct Generate {
     #[usage(long)]
     pub concise: bool,
 
-    /// Generate notes without updating GitHub or verifying links
+    /// Generate notes without updating the release or verifying links
     #[usage(long, short = 'n')]
     pub dry_run: bool,
 
-    /// GitHub repo in owner/repo format (auto-detected from git remote)
+    /// Repository: GitHub owner/repo, or a GitLab group/subgroup/project path when `forge = "gitlab"` is set in communique.toml (auto-detected from git remote)
     #[usage(long)]
     pub repo: Option<String>,
 
@@ -91,7 +95,7 @@ pub enum Command {
         /// JSON artifact written by generate --draft
         #[usage(arg)]
         draft: PathBuf,
-        /// Preview the final release body without writing to GitHub
+        /// Preview the final release body without writing to GitHub or GitLab
         #[usage(long)]
         dry_run: bool,
     },

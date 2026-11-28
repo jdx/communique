@@ -5,7 +5,7 @@ use clx::progress::ProgressJob;
 use log::info;
 
 use crate::error::{Error, Result};
-use crate::github::GitHubClient;
+use crate::forge::ForgeClient;
 use crate::links;
 use crate::llm::{LlmClient, StopReason, ToolDefinition, ToolResult, Usage};
 use crate::output::{self, ParsedOutput};
@@ -129,7 +129,7 @@ pub struct AgentContext<'a> {
     pub user_message: &'a str,
     pub tool_defs: Vec<ToolDefinition>,
     pub repo_root: &'a Path,
-    pub github: Option<&'a GitHubClient>,
+    pub forge: Option<&'a ForgeClient>,
     pub verify_links: bool,
     pub require_release_notes: bool,
     pub require_changelog: bool,
@@ -143,7 +143,7 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
         user_message,
         tool_defs,
         repo_root,
-        github,
+        forge,
         verify_links,
         require_release_notes,
         require_changelog,
@@ -338,7 +338,7 @@ pub async fn run(ctx: AgentContext<'_>) -> Result<ParsedOutput> {
             .iter()
             .map(|&i| {
                 let tc = &response.tool_calls[i];
-                tools::dispatch(&tc.name, &tc.input, repo_root, github)
+                tools::dispatch(&tc.name, &tc.input, repo_root, forge)
             })
             .collect();
         let dispatch_outcomes = futures_util::future::join_all(futures).await;
@@ -561,7 +561,7 @@ mod tests {
             user_message: "",
             tool_defs: vec![],
             repo_root: &tmp,
-            github: None,
+            forge: None,
             verify_links: false,
             require_release_notes: true,
             require_changelog: true,
@@ -593,7 +593,7 @@ mod tests {
             user_message: "",
             tool_defs: vec![],
             repo_root: &tmp,
-            github: None,
+            forge: None,
             verify_links: false,
             require_release_notes: false,
             require_changelog: true,
@@ -633,7 +633,7 @@ mod tests {
             user_message: "",
             tool_defs: vec![],
             repo_root: &tmp,
-            github: None,
+            forge: None,
             verify_links: false,
             require_release_notes: true,
             require_changelog: true,
@@ -661,7 +661,7 @@ mod tests {
             user_message: "",
             tool_defs: vec![],
             repo_root: &tmp,
-            github: None,
+            forge: None,
             verify_links: false,
             require_release_notes: true,
             require_changelog: true,
@@ -688,7 +688,7 @@ mod tests {
             user_message: "",
             tool_defs: vec![],
             repo_root: &tmp,
-            github: None,
+            forge: None,
             verify_links: false,
             require_release_notes: true,
             require_changelog: true,
@@ -715,7 +715,7 @@ mod tests {
             user_message: "",
             tool_defs: vec![],
             repo_root: &tmp,
-            github: None,
+            forge: None,
             verify_links: false,
             require_release_notes: true,
             require_changelog: true,
@@ -741,7 +741,7 @@ mod tests {
             user_message: "",
             tool_defs: vec![],
             repo_root: &tmp,
-            github: None,
+            forge: None,
             verify_links: false,
             require_release_notes: true,
             require_changelog: false,
@@ -783,7 +783,7 @@ mod tests {
             user_message: "",
             tool_defs: vec![],
             repo_root: &tmp,
-            github: None,
+            forge: None,
             verify_links: false,
             require_release_notes: true,
             require_changelog: true,
@@ -826,7 +826,7 @@ mod tests {
             user_message: "",
             tool_defs: vec![],
             repo_root: &tmp,
-            github: None,
+            forge: None,
             verify_links: false,
             require_release_notes: true,
             require_changelog: true,
@@ -869,7 +869,7 @@ mod tests {
             user_message: "",
             tool_defs: vec![],
             repo_root: &tmp,
-            github: None,
+            forge: None,
             verify_links: false,
             require_release_notes: true,
             require_changelog: true,
@@ -920,7 +920,7 @@ mod tests {
             user_message: "",
             tool_defs: vec![],
             repo_root: &tmp,
-            github: None,
+            forge: None,
             verify_links: false,
             require_release_notes: true,
             require_changelog: true,
@@ -967,7 +967,7 @@ mod tests {
             user_message: "",
             tool_defs: vec![],
             repo_root: &tmp,
-            github: None,
+            forge: None,
             verify_links: false,
             require_release_notes: true,
             require_changelog: true,
@@ -1046,7 +1046,7 @@ mod tests {
             user_message: "",
             tool_defs: vec![],
             repo_root: &tmp,
-            github: None,
+            forge: None,
             verify_links: false,
             require_release_notes: true,
             require_changelog: true,
@@ -1089,7 +1089,7 @@ mod tests {
             user_message: "",
             tool_defs: vec![],
             repo_root: &tmp,
-            github: None,
+            forge: None,
             verify_links: true,
             require_release_notes: true,
             require_changelog: true,
@@ -1141,7 +1141,7 @@ mod tests {
             user_message: "",
             tool_defs: vec![],
             repo_root: &tmp,
-            github: None,
+            forge: None,
             verify_links: true,
             require_release_notes: true,
             require_changelog: true,
@@ -1174,7 +1174,7 @@ mod tests {
             user_message: "",
             tool_defs: vec![],
             repo_root: &tmp,
-            github: None,
+            forge: None,
             verify_links: false,
             require_release_notes: true,
             require_changelog: true,

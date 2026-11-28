@@ -2,9 +2,11 @@ mod agent;
 mod cli;
 mod config;
 mod error;
+mod forge;
 mod generate;
 mod git;
 mod github;
+mod gitlab;
 mod links;
 mod llm;
 mod output;
@@ -58,7 +60,9 @@ async fn main() -> miette::Result<()> {
         }
         Command::Usage(usage) => usage.run(),
         Command::Sponsors => sponsors(),
-        Command::Publish { draft, dry_run } => workflow::publish_draft(&draft, dry_run).await,
+        Command::Publish { draft, dry_run } => {
+            workflow::publish_draft(&draft, dry_run, cli.config.as_deref()).await
+        }
         Command::Init(init_args) => init(init_args.force),
         Command::Generate(g) => {
             generate::run(generate::GenerateOptions {
@@ -66,6 +70,7 @@ async fn main() -> miette::Result<()> {
                 workflow: g.workflow,
                 prev_tag: g.prev_tag,
                 github_release: g.github_release,
+                gitlab_release: g.gitlab_release,
                 changelog: g.changelog,
                 concise: g.concise,
                 dry_run: g.dry_run,

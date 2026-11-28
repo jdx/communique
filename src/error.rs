@@ -11,6 +11,9 @@ pub enum Error {
     #[error("GitHub API error: {0}")]
     GitHub(String),
 
+    #[error("GitLab API error: {0}")]
+    GitLab(String),
+
     #[error("LLM API error: {0}")]
     Llm(String),
 

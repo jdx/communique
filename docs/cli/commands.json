@@ -244,8 +244,8 @@
           {
             "name": "preserve-sections",
             "usage": "--preserve-sections",
-            "help": "Replace only the communique-marked section of a GitHub release",
-            "help_first_line": "Replace only the communique-marked section of a GitHub release",
+            "help": "Replace only the communique-marked section of a GitHub or GitLab release",
+            "help_first_line": "Replace only the communique-marked section of a GitHub or GitLab release",
             "short": [],
             "long": [
               "preserve-sections"
@@ -261,6 +261,22 @@
             "short": [],
             "long": [
               "github-release"
+            ],
+            "hide": false,
+            "global": false,
+            "conflicts": [
+              "--draft"
+            ],
+            "effect": "write"
+          },
+          {
+            "name": "gitlab-release",
+            "usage": "--gitlab-release",
+            "help": "Create or update the GitLab release with the editorialized notes",
+            "help_first_line": "Create or update the GitLab release with the editorialized notes",
+            "short": [],
+            "long": [
+              "gitlab-release"
             ],
             "hide": false,
             "global": false,
@@ -297,8 +313,8 @@
           {
             "name": "dry-run",
             "usage": "-n --dry-run",
-            "help": "Generate notes without updating GitHub or verifying links",
-            "help_first_line": "Generate notes without updating GitHub or verifying links",
+            "help": "Generate notes without updating the release or verifying links",
+            "help_first_line": "Generate notes without updating the release or verifying links",
             "short": [
               "n"
             ],
@@ -311,8 +327,8 @@
           {
             "name": "repo",
             "usage": "--repo <REPO>",
-            "help": "GitHub repo in owner/repo format (auto-detected from git remote)",
-            "help_first_line": "GitHub repo in owner/repo format (auto-detected from git remote)",
+            "help": "Repository: GitHub owner/repo, or a GitLab group/subgroup/project path when `forge = \"gitlab\"` is set in communique.toml (auto-detected from git remote)",
+            "help_first_line": "Repository: GitHub owner/repo, or a GitLab group/subgroup/project path when `forge = \"gitlab\"` is set in communique.toml (auto-detected from git remote)",
             "short": [],
             "long": [
               "repo"
@@ -495,8 +511,8 @@
           {
             "name": "dry-run",
             "usage": "--dry-run",
-            "help": "Preview the final release body without writing to GitHub",
-            "help_first_line": "Preview the final release body without writing to GitHub",
+            "help": "Preview the final release body without writing to GitHub or GitLab",
+            "help_first_line": "Preview the final release body without writing to GitHub or GitLab",
             "short": [],
             "long": [
               "dry-run"

@@ -11,31 +11,9 @@ pub fn repo_root() -> Result<PathBuf> {
     Ok(PathBuf::from(path))
 }
 
-pub fn detect_remote(repo_root: &Path) -> Result<String> {
-    let git = Git::new(repo_root.to_path_buf());
-    let url = git
-        .get_remote_url()
-        .ok_or_else(|| Error::Git("no origin remote found".into()))?;
-    parse_owner_repo(&url)
-}
-
-fn parse_owner_repo(url: &str) -> Result<String> {
-    // SSH: git@github.com:owner/repo.git
-    if let Some(rest) = url.strip_prefix("git@github.com:") {
-        let repo = rest.trim_end_matches(".git");
-        return Ok(repo.to_string());
-    }
-    // HTTPS: https://github.com/owner/repo.git
-    if let Some(rest) = url
-        .strip_prefix("https://github.com/")
-        .or_else(|| url.strip_prefix("http://github.com/"))
-    {
-        let repo = rest.trim_end_matches(".git");
-        return Ok(repo.to_string());
-    }
-    Err(Error::Git(format!(
-        "cannot parse GitHub repo from remote URL: {url}"
-    )))
+/// URL of the `origin` remote, if any.
+pub fn remote_url(repo_root: &Path) -> Option<String> {
+    Git::new(repo_root.to_path_buf()).get_remote_url()
 }
 
 #[cfg(test)]
@@ -223,6 +201,70 @@ fn is_automation_login(login: &str) -> bool {
     login.ends_with("[bot]") || SKIPPED.contains(&login.as_str())
 }
 
+/// GitLab merge requests referenced by one commit: `(short hash, full hash, numbers)`.
+pub type MergeRequestRefs = (String, String, Vec<u64>);
+
+/// Find the GitLab merge requests each commit in `from..to` mentions, either
+/// as `!123` (for example a `(!123)` subject suffix) or in GitLab's default
+/// merge commit trailer `See merge request group/project!123`. References to
+/// other projects are ignored. Commits without a reference are returned with
+/// an empty list so callers can look them up through the API.
+pub fn merge_request_refs(
+    repo_root: &Path,
+    from: &str,
+    to: &str,
+    paths: &[String],
+    project_path: &str,
+) -> Result<Vec<MergeRequestRefs>> {
+    let from = verify_ref(repo_root, from)?;
+    let to = resolve_ref(repo_root, to)?;
+    let mut args = vec![
+        "log".to_string(),
+        format!("{from}..{to}"),
+        // `-z` ends each record with NUL, which a commit message cannot contain.
+        "-z".into(),
+        "--pretty=format:%h%x1f%H%x1f%B".into(),
+        "--reverse".into(),
+        "--".into(),
+    ];
+    args.extend(paths.iter().map(|p| format!(":(literal){p}")));
+    let raw = process::cmd("git", args).cwd(repo_root).read()?;
+    Ok(raw
+        .split('\0')
+        .filter_map(|record| {
+            let is_hash = |h: &&str| !h.is_empty() && h.bytes().all(|b| b.is_ascii_hexdigit());
+            let mut fields = record.trim_start().splitn(3, '\x1f');
+            let short = fields.next().filter(is_hash)?;
+            let full = fields.next().filter(is_hash)?;
+            let message = fields.next().unwrap_or_default();
+            Some((
+                short.to_string(),
+                full.to_string(),
+                extract_mr_numbers(message, project_path),
+            ))
+        })
+        .collect())
+}
+
+fn extract_mr_numbers(message: &str, project_path: &str) -> Vec<u64> {
+    let re = Regex::new(r"(?:^|[\s(\[])((?:[\w.-]+/)+[\w.-]+)?!(\d+)\b").unwrap();
+    let mut numbers = Vec::new();
+    for cap in re.captures_iter(message) {
+        if cap
+            .get(1)
+            .is_some_and(|p| !p.as_str().eq_ignore_ascii_case(project_path))
+        {
+            continue;
+        }
+        if let Ok(n) = cap[2].parse()
+            && !numbers.contains(&n)
+        {
+            numbers.push(n);
+        }
+    }
+    numbers
+}
+
 pub fn extract_pr_numbers(log: &str) -> Vec<u64> {
     let re = Regex::new(r"\(#(\d+)\)").unwrap();
     re.captures_iter(log)
@@ -289,19 +331,41 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_owner_repo_ssh() {
+    fn extracts_gitlab_merge_request_references() {
         assert_eq!(
-            parse_owner_repo("git@github.com:jdx/pitchfork.git").unwrap(),
-            "jdx/pitchfork"
+            extract_mr_numbers(
+                "Merge branch 'feat' into 'main'\n\nAdd widgets (!12)\n\nSee merge request group/proj!14",
+                "group/proj"
+            ),
+            vec![12, 14]
+        );
+        assert_eq!(
+            extract_mr_numbers(
+                "See merge request other/proj!3\nfeat!: breaking",
+                "group/proj"
+            ),
+            Vec::<u64>::new()
         );
     }
 
     #[test]
-    fn test_parse_owner_repo_https() {
-        assert_eq!(
-            parse_owner_repo("https://github.com/jdx/pitchfork.git").unwrap(),
-            "jdx/pitchfork"
-        );
+    fn merge_request_refs_reads_commit_bodies() {
+        let repo = crate::test_helpers::TempRepo::new();
+        repo.write_file("f", "a");
+        repo.commit("base");
+        repo.tag("v1");
+        repo.write_file("f", "b");
+        repo.commit("Merge branch 'x' into 'main'\n\nSee merge request group/proj!7");
+        repo.write_file("f", "c");
+        repo.commit("fix: squashed change");
+        repo.write_file("f", "d");
+        repo.commit("fix: odd body\n\nseparators \x1d and \x1f inside (!9)");
+        let refs = merge_request_refs(repo.path(), "v1", "HEAD", &[], "group/proj").unwrap();
+        assert_eq!(refs.len(), 3);
+        assert_eq!(refs[0].2, vec![7]);
+        assert_eq!(refs[0].1.len(), 40);
+        assert!(refs[1].2.is_empty());
+        assert_eq!(refs[2].2, vec![9]);
     }
 
     #[test]

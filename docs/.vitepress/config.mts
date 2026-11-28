@@ -159,6 +159,7 @@ export default defineConfig({
           { text: "Getting Started", link: "/guide/getting-started" },
           { text: "Configuration", link: "/guide/configuration" },
           { text: "GitHub Actions", link: "/guide/github-actions" },
+          { text: "GitLab", link: "/guide/gitlab" },
           { text: "Contributing", link: "/contributing" },
         ],
       },

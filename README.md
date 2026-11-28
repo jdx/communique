@@ -263,6 +263,20 @@ jobs:
 See the [GitHub Actions guide](docs/guide/github-actions.md) for release-plz
 examples and release PR workflows.
 
+## GitLab
+
+communique also supports GitLab.com and self-managed GitLab. In GitLab CI the
+project is detected automatically; set `GITLAB_TOKEN` (an access token with the
+`api` scope) and publish with `--gitlab-release`:
+
+```sh
+communique generate v1.2.0 --gitlab-release
+```
+
+For a self-managed instance outside CI, set `forge = "gitlab"` and
+`forge_url = "https://gitlab.example.com"` under `[defaults]`. See the
+[GitLab guide](docs/guide/gitlab.md).
+
 ## Common Options
 
 ```sh
@@ -293,4 +307,5 @@ If `CHANGELOG.md` updates fail, make sure the file has an `## [Unreleased]` or
 - [Getting started](docs/guide/getting-started.md)
 - [Configuration](docs/guide/configuration.md)
 - [GitHub Actions](docs/guide/github-actions.md)
+- [GitLab](docs/guide/gitlab.md)
 - [CLI reference](docs/cli/index.md)

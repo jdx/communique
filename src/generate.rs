@@ -5,16 +5,18 @@ use clx::progress::{ProgressJob, ProgressJobBuilder, ProgressStatus};
 use log::info;
 
 use crate::config::Defaults;
+use crate::forge::{self, ForgeClient, ForgeKind};
 use crate::llm::LlmClient;
 use crate::output::ParsedOutput;
 use crate::providers::{self, Provider};
-use crate::{agent, config, git, github, prompt, tools};
+use crate::{agent, config, git, prompt, tools};
 
 pub struct GenerateOptions {
     pub tag: String,
     pub workflow: crate::workflow::WorkflowOptions,
     pub prev_tag: Option<String>,
     pub github_release: bool,
+    pub gitlab_release: bool,
     pub changelog: bool,
     pub concise: bool,
     pub dry_run: bool,
@@ -30,8 +32,7 @@ pub struct GenerateOptions {
 
 struct Context {
     repo_root: PathBuf,
-    #[allow(dead_code)]
-    owner_repo: String,
+    repo: forge::Repo,
     tag: String,
     target_commit: String,
     prev_tag: String,
@@ -41,7 +42,7 @@ struct Context {
     rules: crate::workflow::Rules,
     system_extra: Option<String>,
     context: Option<String>,
-    github_client: Option<github::GitHubClient>,
+    forge_client: Option<ForgeClient>,
 }
 
 impl Context {
@@ -58,10 +59,31 @@ impl Context {
     }
 }
 
+impl GenerateOptions {
+    /// Whether the notes will be written to a GitHub or GitLab release.
+    fn publishes_release(&self) -> bool {
+        self.github_release || self.gitlab_release
+    }
+
+    fn release_flag(&self) -> &'static str {
+        if self.gitlab_release {
+            "--gitlab-release"
+        } else {
+            "--github-release"
+        }
+    }
+}
+
 fn validate_generate_options(opts: &GenerateOptions) -> miette::Result<()> {
-    if opts.github_release && opts.tag == "HEAD" {
+    if opts.github_release && opts.gitlab_release {
         return Err(miette::miette!(
-            "--github-release cannot be used with HEAD because HEAD is an unreleased changelog target. Use --changelog, or generate notes for a real tag."
+            "--github-release and --gitlab-release cannot be combined"
+        ));
+    }
+    if opts.publishes_release() && opts.tag == "HEAD" {
+        return Err(miette::miette!(
+            "{} cannot be used with HEAD because HEAD is an unreleased changelog target. Use --changelog, or generate notes for a real tag.",
+            opts.release_flag()
         ));
     }
 
@@ -143,7 +165,7 @@ pub async fn run(mut opts: GenerateOptions) -> miette::Result<()> {
     let ctx = gather_context(&opts, &job).await?;
     let include_changelog = opts.changelog || opts.concise || opts.workflow.draft.is_some();
     let include_release_notes =
-        opts.github_release || !opts.concise || opts.workflow.draft.is_some();
+        opts.publishes_release() || !opts.concise || opts.workflow.draft.is_some();
     let mut parsed = generate_notes(
         &ctx,
         opts.dry_run,
@@ -164,9 +186,7 @@ pub async fn run(mut opts: GenerateOptions) -> miette::Result<()> {
     if let Some(path) = &opts.workflow.review_report {
         xx::file::write(
             path,
-            parsed
-                .review
-                .markdown(&ctx.owner_repo, &ctx.prev_tag, &ctx.tag),
+            parsed.review.markdown(&ctx.repo, &ctx.prev_tag, &ctx.tag),
         )?;
     }
     if let Some(path) = &opts.workflow.migration_guide {
@@ -179,7 +199,7 @@ pub async fn run(mut opts: GenerateOptions) -> miette::Result<()> {
     }
     if let Some(path) = &opts.workflow.draft {
         crate::workflow::Draft::new(
-            &ctx.owner_repo,
+            &ctx.repo,
             &ctx.tag,
             &ctx.prev_tag,
             &ctx.target_commit,
@@ -229,15 +249,6 @@ pub async fn run(mut opts: GenerateOptions) -> miette::Result<()> {
 }
 
 async fn gather_context(opts: &GenerateOptions, job: &Arc<ProgressJob>) -> miette::Result<Context> {
-    let github_token = std::env::var("GITHUB_TOKEN").ok();
-
-    if opts.github_release && github_token.is_none() {
-        return Err(crate::error::Error::GitHub(
-            "GITHUB_TOKEN is required for --github-release".into(),
-        )
-        .into());
-    }
-
     let repo_root = git::repo_root()?;
     info!("repo root: {}", repo_root.display());
 
@@ -253,11 +264,39 @@ async fn gather_context(opts: &GenerateOptions, job: &Arc<ProgressJob>) -> miett
         .max_tokens
         .or(defaults.max_tokens)
         .unwrap_or(config::DEFAULT_MAX_TOKENS);
-    let owner_repo = match opts.repo.clone().or(defaults.repo.clone()) {
-        Some(r) => r,
-        None => git::detect_remote(&repo_root)?,
+    let repo = forge::resolve_repo(
+        forge::RepoSettings {
+            repo: opts.repo.clone().or(defaults.repo.clone()),
+            forge: defaults.forge,
+            forge_url: defaults.forge_url.clone(),
+            remote_url: git::remote_url(&repo_root),
+        },
+        |name| std::env::var(name).ok(),
+    )?;
+    info!("repo: {} on {}", repo.path, repo.kind.name());
+    let forge_token = std::env::var(repo.kind.token_var())
+        .ok()
+        .filter(|t| !t.is_empty());
+    let expected_flag = match repo.kind {
+        ForgeKind::GitHub => "--github-release",
+        ForgeKind::GitLab => "--gitlab-release",
     };
-    info!("repo: {owner_repo}");
+    if opts.publishes_release() && opts.release_flag() != expected_flag {
+        return Err(miette::miette!(
+            "{} cannot be used because {} is hosted on {}; use {expected_flag}",
+            opts.release_flag(),
+            repo.path,
+            repo.kind.name()
+        ));
+    }
+    if opts.publishes_release() && forge_token.is_none() {
+        let message = format!("{} is required for {expected_flag}", repo.kind.token_var());
+        return Err(match repo.kind {
+            ForgeKind::GitHub => crate::error::Error::GitHub(message),
+            ForgeKind::GitLab => crate::error::Error::GitLab(message),
+        }
+        .into());
+    }
 
     // Determine provider
     let provider = opts
@@ -309,15 +348,14 @@ async fn gather_context(opts: &GenerateOptions, job: &Arc<ProgressJob>) -> miett
         &format!("Reading git log {prev_tag}..{}...", opts.tag),
     );
 
-    let github_client = github_token
-        .as_ref()
-        .map(|token| github::GitHubClient::new(token.clone(), &owner_repo))
+    let forge_client = forge_token
+        .map(|token| ForgeClient::new(&repo, token))
         .transpose()?;
 
     let target_commit = git::resolve_ref(&repo_root, &opts.tag)?;
     Ok(Context {
         repo_root,
-        owner_repo,
+        repo,
         tag: opts.tag.clone(),
         target_commit,
         prev_tag,
@@ -327,7 +365,7 @@ async fn gather_context(opts: &GenerateOptions, job: &Arc<ProgressJob>) -> miett
         rules: config.rules,
         system_extra: config.system_extra,
         context: config.context,
-        github_client,
+        forge_client,
     })
 }
 
@@ -344,21 +382,41 @@ async fn generate_notes(
         &ctx.target_commit,
         &ctx.workflow.paths,
     )?;
-    let (git_log, excluded, rule_context) = apply_rules(ctx, &raw_log).await?;
-    let pr_numbers = git::extract_pr_numbers(&git_log);
-    let commit_credits: Vec<git::CommitCredit> = git::commit_credits(
-        &ctx.repo_root,
-        &ctx.prev_tag,
-        &ctx.target_commit,
-        &ctx.workflow.paths,
-    )?
-    .into_iter()
-    .filter(|(hash, _)| {
-        git_log
-            .lines()
-            .any(|line| line.split_whitespace().next() == Some(hash.as_str()))
-    })
-    .collect();
+    let change_refs = change_refs(ctx, &raw_log).await?;
+    let (git_log, excluded, rule_context) = apply_rules(ctx, &raw_log, &change_refs).await?;
+    let pr_numbers = match ctx.repo.kind {
+        ForgeKind::GitHub => git::extract_pr_numbers(&git_log),
+        ForgeKind::GitLab => {
+            let mut numbers = Vec::new();
+            for line in git_log.lines() {
+                let sha = line.split_whitespace().next().unwrap_or_default();
+                for n in change_refs.get(sha).into_iter().flatten() {
+                    if !numbers.contains(n) {
+                        numbers.push(*n);
+                    }
+                }
+            }
+            numbers
+        }
+    };
+    // Commit credits identify GitHub users from their noreply addresses.
+    let commit_credits: Vec<git::CommitCredit> = if ctx.repo.kind == ForgeKind::GitHub {
+        git::commit_credits(
+            &ctx.repo_root,
+            &ctx.prev_tag,
+            &ctx.target_commit,
+            &ctx.workflow.paths,
+        )?
+        .into_iter()
+        .filter(|(hash, _)| {
+            git_log
+                .lines()
+                .any(|line| line.split_whitespace().next() == Some(hash.as_str()))
+        })
+        .collect()
+    } else {
+        vec![]
+    };
     info!(
         "found {} commits, {} PRs",
         git_log.lines().count(),
@@ -389,7 +447,7 @@ async fn generate_notes(
 
     // Fetch existing release and recent releases in parallel
     let match_style = ctx.defaults.match_style.unwrap_or(true);
-    let (existing_release, recent_releases) = if let Some(gh) = &ctx.github_client {
+    let (existing_release, recent_releases) = if let Some(gh) = &ctx.forge_client {
         let existing_fut = async {
             if ctx.is_unreleased_head() {
                 Ok(None)
@@ -453,16 +511,20 @@ async fn generate_notes(
     };
 
     let emoji = ctx.defaults.emoji.unwrap_or(true);
-    let system = prompt::system_prompt(
+    let mut system = prompt::system_prompt(
+        ctx.repo.kind,
         ctx.system_extra.as_deref(),
         emoji,
         include_release_notes,
         include_changelog,
     );
+    if ctx.forge_client.is_none() {
+        system = prompt::without_forge_tools(&system);
+    }
     let mut user_msg = prompt::user_prompt(&prompt::UserPromptContext {
         tag: &ctx.tag,
         prev_tag: &ctx.prev_tag,
-        owner_repo: &ctx.owner_repo,
+        repo: &ctx.repo,
         git_log: &git_log,
         pr_numbers: &pr_numbers,
         is_unreleased_head: ctx.is_unreleased_head(),
@@ -470,6 +532,7 @@ async fn generate_notes(
         existing_release: existing_release.as_deref(),
         context: ctx.context.as_deref(),
         recent_releases: &recent_releases,
+        forge_tools: ctx.forge_client.is_some(),
     });
 
     if let Some(section) = prompt::commit_credits_section(&commit_credits) {
@@ -488,7 +551,7 @@ async fn generate_notes(
     }
     job.prop("message", "Generating release notes...");
     let tool_defs = tools::all_definitions(
-        ctx.github_client.is_some(),
+        ctx.forge_client.as_ref().map(ForgeClient::kind),
         include_release_notes,
         include_changelog,
     );
@@ -501,7 +564,7 @@ async fn generate_notes(
         user_message: &user_msg,
         tool_defs,
         repo_root: &ctx.repo_root,
-        github: ctx.github_client.as_ref(),
+        forge: ctx.forge_client.as_ref(),
         verify_links,
         require_release_notes: include_release_notes,
         require_changelog: include_changelog,
@@ -518,41 +581,62 @@ async fn publish(
     parsed: &ParsedOutput,
     job: &Arc<ProgressJob>,
 ) -> miette::Result<()> {
-    if opts.github_release && !opts.dry_run {
-        job.prop(
-            "message",
-            &format!("Updating GitHub release for {}...", ctx.tag),
-        );
-        let gh = ctx.github_client.as_ref().unwrap();
-        match gh.get_release_by_tag(&ctx.tag).await? {
-            Some(release) => {
-                let body = if opts.workflow.preserve_sections {
-                    crate::workflow::merge_body(
-                        release.body.as_deref().unwrap_or_default(),
-                        &parsed.release_body,
-                    )?
-                } else {
-                    parsed.release_body.clone()
-                };
-                gh.update_release(
-                    release.id,
-                    &release.tag_name,
-                    if opts.workflow.preserve_sections {
-                        None
-                    } else {
-                        Some(&parsed.release_title)
-                    },
-                    Some(&body),
-                )
-                .await?;
-            }
-            None => {
-                job.set_status(ProgressStatus::Warn);
-                job.prop(
-                    "message",
-                    &format!("No GitHub release found for {} — skipping update", ctx.tag),
-                );
-            }
+    if !opts.publishes_release() || opts.dry_run {
+        return Ok(());
+    }
+    let forge_name = ctx.repo.kind.name();
+    job.prop(
+        "message",
+        &format!("Updating {forge_name} release for {}...", ctx.tag),
+    );
+    let client = ctx.forge_client.as_ref().unwrap();
+    if client.kind() == ForgeKind::GitLab {
+        // The release attaches to the tag on GitLab, so make sure it is the
+        // commit these notes describe (the tag may be missing or moved there).
+        let remote_commit = client.tag_commit(&ctx.tag).await?;
+        if remote_commit != ctx.target_commit {
+            return Err(miette::miette!(
+                "Tag {} on GitLab points to {remote_commit}, but these notes were generated for {}. Push the tag or regenerate before publishing.",
+                ctx.tag,
+                ctx.target_commit
+            ));
+        }
+    }
+    let title = if opts.workflow.preserve_sections {
+        None
+    } else {
+        Some(parsed.release_title.as_str())
+    };
+    match client.get_release_by_tag(&ctx.tag).await? {
+        Some(release) => {
+            let body = if opts.workflow.preserve_sections {
+                crate::workflow::merge_body(
+                    release.body.as_deref().unwrap_or_default(),
+                    &parsed.release_body,
+                )?
+            } else {
+                parsed.release_body.clone()
+            };
+            client.update_release(&release, title, Some(&body)).await?;
+        }
+        None if client.kind() == ForgeKind::GitLab => {
+            // GitLab tags usually have no release yet, so create one.
+            let body = if opts.workflow.preserve_sections {
+                crate::workflow::merge_body("", &parsed.release_body)?
+            } else {
+                parsed.release_body.clone()
+            };
+            client.create_release(&ctx.tag, title, &body).await?;
+        }
+        None => {
+            job.set_status(ProgressStatus::Warn);
+            job.prop(
+                "message",
+                &format!(
+                    "No {forge_name} release found for {} — skipping update",
+                    ctx.tag
+                ),
+            );
         }
     }
 
@@ -969,10 +1053,7 @@ async fn update_changelog(
         .unwrap_or_else(|_| "# Changelog\n\n## [Unreleased]\n".to_string());
 
     let date = today_iso();
-    let release_url = format!(
-        "https://github.com/{}/releases/tag/{}",
-        ctx.owner_repo, ctx.tag
-    );
+    let release_url = ctx.repo.release_url(&ctx.tag);
 
     let content =
         upsert_version_changelog(&existing, &ctx.tag, &date, &release_url, &parsed.changelog)?;
@@ -984,35 +1065,134 @@ async fn update_changelog(
     Ok(())
 }
 
+/// Maximum number of commits whose merge requests are looked up through the
+/// GitLab API when their messages don't reference one.
+const MAX_MERGE_REQUEST_LOOKUPS: usize = 100;
+
+/// Map each commit's short hash to the pull/merge requests it belongs to.
+async fn change_refs(
+    ctx: &Context,
+    log: &str,
+) -> miette::Result<std::collections::HashMap<String, Vec<u64>>> {
+    if ctx.repo.kind == ForgeKind::GitHub {
+        return Ok(log
+            .lines()
+            .filter_map(|line| {
+                let sha = line.split_whitespace().next()?;
+                Some((sha.to_string(), git::extract_pr_numbers(line)))
+            })
+            .collect());
+    }
+    let refs = git::merge_request_refs(
+        &ctx.repo_root,
+        &ctx.prev_tag,
+        &ctx.target_commit,
+        &ctx.workflow.paths,
+        &ctx.repo.path,
+    )?;
+    // Key the map by the abbreviations `log` uses. Joining on the full hash
+    // keeps commits matched even if git picks a different abbreviation length
+    // between the two reads.
+    let refs: Vec<_> = refs
+        .into_iter()
+        .map(|(short, full, numbers)| {
+            let key = log
+                .lines()
+                .filter_map(|line| line.split_whitespace().next())
+                .find(|sha| full.starts_with(sha))
+                .map_or(short, str::to_string);
+            (key, full, numbers)
+        })
+        .collect();
+    let mut map: std::collections::HashMap<String, Vec<u64>> = refs
+        .iter()
+        .map(|(short, _, numbers)| (short.clone(), numbers.clone()))
+        .collect();
+    let Some(ForgeClient::GitLab(gitlab)) = &ctx.forge_client else {
+        return Ok(map);
+    };
+    // Squash and fast-forward merges leave no `!123` in the commit message,
+    // so ask GitLab which merged merge request introduced each commit.
+    let unresolved: Vec<_> = refs
+        .iter()
+        .filter(|(_, _, numbers)| numbers.is_empty())
+        .collect();
+    if unresolved.len() > MAX_MERGE_REQUEST_LOOKUPS {
+        info!(
+            "looking up merge requests for the first {MAX_MERGE_REQUEST_LOOKUPS} of {} commits without a merge request reference",
+            unresolved.len()
+        );
+    }
+    let unresolved: Vec<_> = unresolved
+        .into_iter()
+        .take(MAX_MERGE_REQUEST_LOOKUPS)
+        .collect();
+    for chunk in unresolved.chunks(8) {
+        let results = futures_util::future::join_all(
+            chunk
+                .iter()
+                .map(|(_, full, _)| gitlab.merged_requests_for_commit(full)),
+        )
+        .await;
+        for ((short, _, _), result) in chunk.iter().zip(results) {
+            match result {
+                Ok(numbers) => {
+                    map.insert(short.clone(), numbers);
+                }
+                // Without labels, a commit whose lookup failed would look
+                // like one with no merge request and slip past label rules.
+                Err(e) if rules_active(&ctx.rules) => {
+                    return Err(miette::miette!(
+                        "failed to look up the merge request for {short}, which label rules need: {e}"
+                    ));
+                }
+                Err(e) => info!("failed to look up merge requests for {short}: {e}"),
+            }
+        }
+    }
+    Ok(map)
+}
+
+fn rules_active(rules: &crate::workflow::Rules) -> bool {
+    !rules.include_labels.is_empty()
+        || !rules.exclude_labels.is_empty()
+        || !rules.categories.is_empty()
+}
+
 async fn apply_rules(
     ctx: &Context,
     log: &str,
+    change_refs: &std::collections::HashMap<String, Vec<u64>>,
 ) -> miette::Result<(String, Vec<crate::workflow::Coverage>, String)> {
     let rules = &ctx.rules;
-    let active = !rules.include_labels.is_empty()
-        || !rules.exclude_labels.is_empty()
-        || !rules.categories.is_empty();
-    if !active {
+    if !rules_active(rules) {
         return Ok((log.into(), vec![], String::new()));
     }
-    let gh = ctx.github_client.as_ref().ok_or_else(|| {
-        miette::miette!("GITHUB_TOKEN is required to apply configured label rules")
+    let gh = ctx.forge_client.as_ref().ok_or_else(|| {
+        miette::miette!(
+            "{} is required to apply configured label rules",
+            ctx.repo.kind.token_var()
+        )
     })?;
+    let line_refs = |line: &str| -> Vec<u64> {
+        let sha = line.split_whitespace().next().unwrap_or_default();
+        change_refs.get(sha).cloned().unwrap_or_default()
+    };
     let mut prs = std::collections::BTreeMap::new();
-    for number in git::extract_pr_numbers(log) {
+    for number in log.lines().flat_map(line_refs) {
         if let std::collections::btree_map::Entry::Vacant(entry) = prs.entry(number) {
-            entry.insert(gh.get_pr(number).await?);
+            entry.insert(gh.get_change_request(number).await?);
         }
     }
     let mut kept = Vec::new();
     let mut excluded = Vec::new();
     let mut guidance = String::new();
     for line in log.lines() {
-        let numbers = git::extract_pr_numbers(line);
+        let numbers = line_refs(line);
         let labels: Vec<_> = numbers
             .iter()
             .filter_map(|n| prs.get(n))
-            .flat_map(|pr| pr.labels.iter().map(|l| l.name.as_str()))
+            .flat_map(|pr| pr.labels.iter().map(String::as_str))
             .collect();
         let include = rules
             .include_labels
@@ -1060,8 +1240,15 @@ mod tests {
         MockLlmClient, TempRepo, fake_usage, fake_usage_with, submit_tool_call,
     };
     use serde_json::json;
-    use wiremock::matchers::{header, method, path};
+    use wiremock::matchers::{header, method, path, path_regex};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn gh_client(token: &str, uri: &str) -> ForgeClient {
+        ForgeClient::GitHub(
+            crate::github::GitHubClient::with_base_url(token.into(), "test/repo", uri.into())
+                .unwrap(),
+        )
+    }
 
     fn test_opts(tag: &str) -> GenerateOptions {
         GenerateOptions {
@@ -1069,6 +1256,7 @@ mod tests {
             workflow: Default::default(),
             prev_tag: None,
             github_release: false,
+            gitlab_release: false,
             changelog: false,
             concise: false,
             dry_run: false,
@@ -1086,7 +1274,7 @@ mod tests {
     fn test_context(repo_root: PathBuf, tag: &str, prev_tag: &str) -> Context {
         Context {
             repo_root,
-            owner_repo: "test/repo".into(),
+            repo: forge::Repo::github("test/repo"),
             tag: tag.into(),
             target_commit: tag.into(),
             prev_tag: prev_tag.into(),
@@ -1096,7 +1284,7 @@ mod tests {
             defaults: Defaults::default(),
             system_extra: None,
             context: None,
-            github_client: None,
+            forge_client: None,
         }
     }
 
@@ -1132,10 +1320,7 @@ mod tests {
                 .respond_with(ResponseTemplate::new(200)).expect(if malformed { 0 } else { 1 }).mount(&server).await;
             let repo = TempRepo::new();
             let mut ctx = test_context(repo.path().to_path_buf(), "v2", "v1");
-            ctx.github_client = Some(
-                github::GitHubClient::with_base_url("token".into(), "test/repo", server.uri())
-                    .unwrap(),
-            );
+            ctx.forge_client = Some(gh_client("token", &server.uri()));
             let mut opts = test_opts("v2");
             opts.github_release = true;
             opts.workflow.preserve_sections = true;
@@ -1189,10 +1374,7 @@ mod tests {
             let mut ctx = test_context(repo.path().to_path_buf(), "v2.0.0", "v1.0.0");
             ctx.client = Box::new(client);
             ctx.workflow.preserve_sections = true;
-            ctx.github_client = Some(
-                github::GitHubClient::with_base_url("token".into(), "test/repo", server.uri())
-                    .unwrap(),
-            );
+            ctx.forge_client = Some(gh_client("token", &server.uri()));
             let job = Arc::new(ProgressJobBuilder::new().build());
             let result = generate_notes(&ctx, true, true, true, &job).await;
             let prompts = prompts.lock().unwrap();
@@ -1247,6 +1429,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn gitlab_lookup_failures_stop_generation_only_when_labels_matter() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path_regex(
+                r"^/api/v4/projects/group%2Fproj/repository/commits/[0-9a-f]{40}/merge_requests$",
+            ))
+            .respond_with(ResponseTemplate::new(403))
+            .mount(&server)
+            .await;
+        let repo = TempRepo::new();
+        repo.write_file("f", "a");
+        repo.commit("base");
+        repo.tag("v1");
+        repo.write_file("f", "b");
+        repo.commit("fix: squashed change");
+        let mut ctx = test_context(repo.path().to_path_buf(), "HEAD", "v1");
+        ctx.repo = forge::Repo::gitlab("group/proj", &server.uri());
+        ctx.forge_client = Some(ForgeClient::GitLab(
+            crate::gitlab::GitLabClient::new(
+                "token".into(),
+                "group/proj",
+                &format!("{}/api/v4", server.uri()),
+            )
+            .unwrap(),
+        ));
+        let refs = change_refs(&ctx, "").await.unwrap();
+        assert!(refs.values().all(Vec::is_empty));
+        ctx.rules.exclude_labels = vec!["skip".into()];
+        let err = change_refs(&ctx, "").await.unwrap_err();
+        assert!(err.to_string().contains("label rules"), "{err}");
+    }
+
+    #[tokio::test]
     async fn label_rules_exclude_before_generation_and_include_wins() {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
@@ -1269,25 +1484,21 @@ mod tests {
             .await;
         let repo = TempRepo::new();
         let mut ctx = test_context(repo.path().to_path_buf(), "v2", "v1");
-        ctx.github_client = Some(
-            github::GitHubClient::with_base_url("token".into(), "test/repo", server.uri()).unwrap(),
-        );
+        ctx.forge_client = Some(gh_client("token", &server.uri()));
         ctx.rules.include_labels = vec!["keep".into()];
         ctx.rules.exclude_labels = vec!["skip".into()];
         ctx.rules.categories.insert("bug".into(), "Fixed".into());
-        let (log, excluded, guidance) = apply_rules(
-            &ctx,
-            "abc Internal (#1)\ndef Important (#2)\nghi Followup (#2)",
-        )
-        .await
-        .unwrap();
+        let log = "abc Internal (#1)\ndef Important (#2)\nghi Followup (#2)";
+        let refs = change_refs(&ctx, log).await.unwrap();
+        let (log, excluded, guidance) = apply_rules(&ctx, log, &refs).await.unwrap();
         assert!(!log.contains("abc"));
         assert!(log.contains("def"));
         assert_eq!(excluded.len(), 1);
         assert!(guidance.contains("def MUST appear"));
         assert!(guidance.contains("under Fixed"));
-        ctx.github_client = None;
-        assert!(apply_rules(&ctx, "abc (#1)").await.is_err());
+        ctx.forge_client = None;
+        let refs = change_refs(&ctx, "abc (#1)").await.unwrap();
+        assert!(apply_rules(&ctx, "abc (#1)", &refs).await.is_err());
     }
 
     #[tokio::test]
@@ -1476,7 +1687,7 @@ mod tests {
 
         let ctx = Context {
             repo_root: repo.path().to_path_buf(),
-            owner_repo: "test/repo".into(),
+            repo: forge::Repo::github("test/repo"),
             tag: "v1.0.0".into(),
             target_commit: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
@@ -1489,7 +1700,7 @@ mod tests {
             },
             system_extra: None,
             context: None,
-            github_client: None,
+            forge_client: None,
         };
 
         let job = Arc::new(ProgressJobBuilder::new().build());
@@ -1521,7 +1732,7 @@ mod tests {
 
         let ctx = Context {
             repo_root: repo.path().to_path_buf(),
-            owner_repo: "test/repo".into(),
+            repo: forge::Repo::github("test/repo"),
             tag: "v1.0.0".into(),
             target_commit: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
@@ -1534,7 +1745,7 @@ mod tests {
             },
             system_extra: None,
             context: None,
-            github_client: None,
+            forge_client: None,
         };
 
         let job = Arc::new(ProgressJobBuilder::new().build());
@@ -1573,9 +1784,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let gh =
-            github::GitHubClient::with_base_url("test-token".into(), "test/repo", server.uri())
-                .unwrap();
+        let gh = gh_client("test-token", &server.uri());
 
         let mock_client = MockLlmClient::new(vec![TurnResponse {
             tool_calls: vec![submit_tool_call("### Added\n- Feature", "Title", "Body")],
@@ -1586,7 +1795,7 @@ mod tests {
 
         let ctx = Context {
             repo_root: repo.path().to_path_buf(),
-            owner_repo: "test/repo".into(),
+            repo: forge::Repo::github("test/repo"),
             tag: "v1.0.0".into(),
             target_commit: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
@@ -1599,7 +1808,7 @@ mod tests {
             },
             system_extra: Some("Extra instructions".into()),
             context: Some("Test project".into()),
-            github_client: Some(gh),
+            forge_client: Some(gh),
         };
 
         let job = Arc::new(ProgressJobBuilder::new().build());
@@ -1625,13 +1834,11 @@ mod tests {
             .mount(&server)
             .await;
 
-        let gh =
-            github::GitHubClient::with_base_url("test-token".into(), "test/repo", server.uri())
-                .unwrap();
+        let gh = gh_client("test-token", &server.uri());
 
         let ctx = Context {
             repo_root: PathBuf::from("/tmp"),
-            owner_repo: "test/repo".into(),
+            repo: forge::Repo::github("test/repo"),
             tag: "v1.0.0".into(),
             target_commit: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
@@ -1641,7 +1848,7 @@ mod tests {
             defaults: Defaults::default(),
             system_extra: None,
             context: None,
-            github_client: Some(gh),
+            forge_client: Some(gh),
         };
 
         let opts = GenerateOptions {
@@ -1664,10 +1871,61 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn gitlab_publish_requires_the_remote_tag_to_match() {
+        let server = MockServer::start().await;
+        let tags = "/api/v4/projects/group%2Fproj/repository/tags/v1.0.0";
+        Mock::given(method("GET"))
+            .and(path(tags))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "commit": {"id": "b".repeat(40)}
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/api/v4/projects/group%2Fproj/releases"))
+            .respond_with(ResponseTemplate::new(201).set_body_json(json!({})))
+            .expect(0)
+            .mount(&server)
+            .await;
+        let gl = ForgeClient::GitLab(
+            crate::gitlab::GitLabClient::new(
+                "t".into(),
+                "group/proj",
+                &format!("{}/api/v4", server.uri()),
+            )
+            .unwrap(),
+        );
+        let ctx = Context {
+            repo_root: PathBuf::from("/tmp"),
+            repo: forge::Repo::gitlab("group/proj", &server.uri()),
+            tag: "v1.0.0".into(),
+            target_commit: "a".repeat(40),
+            prev_tag: "v0.9.0".into(),
+            client: Box::new(MockLlmClient::new(vec![])),
+            workflow: Default::default(),
+            rules: Default::default(),
+            defaults: Defaults::default(),
+            system_extra: None,
+            context: None,
+            forge_client: Some(gl),
+        };
+        let opts = GenerateOptions {
+            gitlab_release: true,
+            dry_run: false,
+            ..test_opts("v1.0.0")
+        };
+        let job = Arc::new(ProgressJobBuilder::new().build());
+        let err = publish(&opts, &ctx, &test_parsed_output("Change"), &job)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("points to"), "{err}");
+    }
+
+    #[tokio::test]
     async fn test_publish_dry_run_skips_update() {
         let ctx = Context {
             repo_root: PathBuf::from("/tmp"),
-            owner_repo: "test/repo".into(),
+            repo: forge::Repo::github("test/repo"),
             tag: "v1.0.0".into(),
             target_commit: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
@@ -1677,7 +1935,7 @@ mod tests {
             defaults: Defaults::default(),
             system_extra: None,
             context: None,
-            github_client: None,
+            forge_client: None,
         };
 
         let opts = GenerateOptions {
@@ -1713,13 +1971,11 @@ mod tests {
             .mount(&server)
             .await;
 
-        let gh =
-            github::GitHubClient::with_base_url("test-token".into(), "test/repo", server.uri())
-                .unwrap();
+        let gh = gh_client("test-token", &server.uri());
 
         let ctx = Context {
             repo_root: PathBuf::from("/tmp"),
-            owner_repo: "test/repo".into(),
+            repo: forge::Repo::github("test/repo"),
             tag: "v1.0.0".into(),
             target_commit: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
@@ -1729,7 +1985,7 @@ mod tests {
             defaults: Defaults::default(),
             system_extra: None,
             context: None,
-            github_client: Some(gh),
+            forge_client: Some(gh),
         };
 
         let opts = GenerateOptions {
@@ -1884,7 +2140,7 @@ mod tests {
 
         let ctx = Context {
             repo_root: repo.path().to_path_buf(),
-            owner_repo: "test/repo".into(),
+            repo: forge::Repo::github("test/repo"),
             tag: "v1.0.0".into(),
             target_commit: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
@@ -1897,7 +2153,7 @@ mod tests {
             },
             system_extra: None,
             context: None,
-            github_client: None,
+            forge_client: None,
         };
 
         let job = Arc::new(ProgressJobBuilder::new().build());
@@ -1969,7 +2225,7 @@ mod tests {
 
         let ctx = Context {
             repo_root: repo.path().to_path_buf(),
-            owner_repo: "test/repo".into(),
+            repo: forge::Repo::github("test/repo"),
             tag: "v1.0.0".into(),
             target_commit: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
@@ -1982,7 +2238,7 @@ mod tests {
             },
             system_extra: None,
             context: None,
-            github_client: None,
+            forge_client: None,
         };
 
         let job = Arc::new(ProgressJobBuilder::new().build());
@@ -2060,9 +2316,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let gh =
-            github::GitHubClient::with_base_url("test-token".into(), "test/repo", server.uri())
-                .unwrap();
+        let gh = gh_client("test-token", &server.uri());
 
         let mock_client = MockLlmClient::new(vec![
             // Turn 1: get_pr + get_pr_diff (concurrent)
@@ -2109,7 +2363,7 @@ mod tests {
 
         let ctx = Context {
             repo_root: repo.path().to_path_buf(),
-            owner_repo: "test/repo".into(),
+            repo: forge::Repo::github("test/repo"),
             tag: "v1.0.0".into(),
             target_commit: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
@@ -2122,7 +2376,7 @@ mod tests {
             },
             system_extra: None,
             context: None,
-            github_client: Some(gh),
+            forge_client: Some(gh),
         };
 
         let job = Arc::new(ProgressJobBuilder::new().build());
@@ -2168,9 +2422,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let gh =
-            github::GitHubClient::with_base_url("test-token".into(), "test/repo", server.uri())
-                .unwrap();
+        let gh = gh_client("test-token", &server.uri());
 
         let mock_client = MockLlmClient::new(vec![TurnResponse {
             tool_calls: vec![submit_tool_call(
@@ -2185,7 +2437,7 @@ mod tests {
 
         let ctx = Context {
             repo_root: repo.path().to_path_buf(),
-            owner_repo: "test/repo".into(),
+            repo: forge::Repo::github("test/repo"),
             tag: "v1.0.0".into(),
             target_commit: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
@@ -2198,7 +2450,7 @@ mod tests {
             },
             system_extra: None,
             context: None,
-            github_client: Some(gh),
+            forge_client: Some(gh),
         };
 
         let opts = GenerateOptions {
@@ -2250,7 +2502,7 @@ mod tests {
 
         let ctx = Context {
             repo_root: repo.path().to_path_buf(),
-            owner_repo: "test/repo".into(),
+            repo: forge::Repo::github("test/repo"),
             tag: "v1.0.0".into(),
             target_commit: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
@@ -2263,7 +2515,7 @@ mod tests {
             },
             system_extra: None,
             context: None,
-            github_client: None,
+            forge_client: None,
         };
 
         let job = Arc::new(ProgressJobBuilder::new().build());
@@ -2601,7 +2853,7 @@ mod tests {
 
         let ctx = Context {
             repo_root: repo.path().to_path_buf(),
-            owner_repo: "test/repo".into(),
+            repo: forge::Repo::github("test/repo"),
             tag: "v1.0.0".into(),
             target_commit: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
@@ -2611,7 +2863,7 @@ mod tests {
             defaults: Defaults::default(),
             system_extra: None,
             context: None,
-            github_client: None,
+            forge_client: None,
         };
 
         let parsed = ParsedOutput {
@@ -2661,7 +2913,7 @@ mod tests {
 
         let ctx = Context {
             repo_root: repo.path().to_path_buf(),
-            owner_repo: "test/repo".into(),
+            repo: forge::Repo::github("test/repo"),
             tag: "v1.0.0".into(),
             target_commit: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
@@ -2671,7 +2923,7 @@ mod tests {
             defaults: Defaults::default(),
             system_extra: None,
             context: None,
-            github_client: None,
+            forge_client: None,
         };
 
         let parsed = ParsedOutput {
@@ -2710,7 +2962,7 @@ mod tests {
 
         let ctx = Context {
             repo_root: repo.path().to_path_buf(),
-            owner_repo: "test/repo".into(),
+            repo: forge::Repo::github("test/repo"),
             tag: "v1.0.0".into(),
             target_commit: "v1.0.0".into(),
             prev_tag: "v0.9.0".into(),
@@ -2720,7 +2972,7 @@ mod tests {
             defaults: Defaults::default(),
             system_extra: None,
             context: None,
-            github_client: None,
+            forge_client: None,
         };
 
         let parsed = ParsedOutput {
@@ -2802,7 +3054,7 @@ mod tests {
 
         let ctx = Context {
             repo_root: repo.path().to_path_buf(),
-            owner_repo: "test/repo".into(),
+            repo: forge::Repo::github("test/repo"),
             tag: "v4.0.0".into(),
             target_commit: "v4.0.0".into(),
             prev_tag: "v3.0.0".into(),
@@ -2812,7 +3064,7 @@ mod tests {
             defaults: Defaults::default(),
             system_extra: None,
             context: None,
-            github_client: None,
+            forge_client: None,
         };
 
         let parsed = ParsedOutput {
@@ -2876,7 +3128,7 @@ mod tests {
 
         let ctx = Context {
             repo_root: repo.path().to_path_buf(),
-            owner_repo: "test/repo".into(),
+            repo: forge::Repo::github("test/repo"),
             tag: "v1.1.0".into(),
             target_commit: "v1.1.0".into(),
             prev_tag: "v1.0.0".into(),
@@ -2886,7 +3138,7 @@ mod tests {
             defaults: Defaults::default(),
             system_extra: None,
             context: None,
-            github_client: None,
+            forge_client: None,
         };
 
         let parsed = ParsedOutput {

@@ -12,12 +12,12 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::error::Result;
-use crate::github::GitHubClient;
+use crate::forge::{ForgeClient, ForgeKind};
 use crate::llm::ToolDefinition;
 
 /// In-memory cache for tool call results, keyed by (tool_name, input_json).
 /// Only successful results are cached. Avoids redundant file reads, git
-/// operations, and GitHub API calls when the LLM calls the same tool with
+/// operations, and GitHub/GitLab API calls when the LLM calls the same tool with
 /// identical arguments across iterations.
 #[derive(Default)]
 pub struct ToolCache {
@@ -44,8 +44,10 @@ impl ToolCache {
     }
 }
 
+/// `forge` is the forge whose API is available; its pull/merge request and
+/// issue tools are offered only when a token for it is set.
 pub fn all_definitions(
-    has_github: bool,
+    forge: Option<ForgeKind>,
     include_release_notes: bool,
     include_changelog: bool,
 ) -> Vec<ToolDefinition> {
@@ -57,10 +59,10 @@ pub fn all_definitions(
         get_commits::definition(),
         submit_release_notes::definition(include_release_notes, include_changelog),
     ];
-    if has_github {
-        defs.push(get_pr::definition());
-        defs.push(get_pr_diff::definition());
-        defs.push(get_issue::definition());
+    if let Some(forge) = forge {
+        defs.push(get_pr::definition(forge));
+        defs.push(get_pr_diff::definition(forge));
+        defs.push(get_issue::definition(forge));
     }
     defs
 }
@@ -69,7 +71,7 @@ pub async fn dispatch(
     name: &str,
     input: &serde_json::Value,
     repo_root: &Path,
-    github: Option<&GitHubClient>,
+    forge: Option<&ForgeClient>,
 ) -> Result<String> {
     match name {
         "read_file" => read_file::execute(repo_root, input),
@@ -78,22 +80,29 @@ pub async fn dispatch(
         "git_show" => git_show::execute(repo_root, input),
         "get_commits" => get_commits::execute(repo_root, input),
         "get_pr" => {
-            let gh = github.ok_or_else(|| {
-                crate::error::Error::Tool("get_pr requires GITHUB_TOKEN to be set".into())
+            let forge = forge.ok_or_else(|| {
+                crate::error::Error::Tool(
+                    "get_pr requires GITHUB_TOKEN (or GITLAB_TOKEN on GitLab) to be set".into(),
+                )
             })?;
-            get_pr::execute(gh, input).await
+            get_pr::execute(forge, input).await
         }
         "get_pr_diff" => {
-            let gh = github.ok_or_else(|| {
-                crate::error::Error::Tool("get_pr_diff requires GITHUB_TOKEN to be set".into())
+            let forge = forge.ok_or_else(|| {
+                crate::error::Error::Tool(
+                    "get_pr_diff requires GITHUB_TOKEN (or GITLAB_TOKEN on GitLab) to be set"
+                        .into(),
+                )
             })?;
-            get_pr_diff::execute(gh, input).await
+            get_pr_diff::execute(forge, input).await
         }
         "get_issue" => {
-            let gh = github.ok_or_else(|| {
-                crate::error::Error::Tool("get_issue requires GITHUB_TOKEN to be set".into())
+            let forge = forge.ok_or_else(|| {
+                crate::error::Error::Tool(
+                    "get_issue requires GITHUB_TOKEN (or GITLAB_TOKEN on GitLab) to be set".into(),
+                )
             })?;
-            get_issue::execute(gh, input).await
+            get_issue::execute(forge, input).await
         }
         _ => Err(crate::error::Error::Tool(format!("unknown tool: {name}"))),
     }
@@ -106,7 +115,7 @@ mod tests {
 
     #[test]
     fn test_all_definitions_without_github() {
-        let defs = all_definitions(false, true, false);
+        let defs = all_definitions(None, true, false);
         assert_eq!(defs.len(), 6);
         let names: Vec<&str> = defs.iter().map(|d| d.name.as_str()).collect();
         assert!(names.contains(&"read_file"));
@@ -119,12 +128,23 @@ mod tests {
 
     #[test]
     fn test_all_definitions_with_github() {
-        let defs = all_definitions(true, true, true);
+        let defs = all_definitions(Some(ForgeKind::GitHub), true, true);
         assert_eq!(defs.len(), 9);
         let names: Vec<&str> = defs.iter().map(|d| d.name.as_str()).collect();
         assert!(names.contains(&"get_pr"));
         assert!(names.contains(&"get_pr_diff"));
         assert!(names.contains(&"get_issue"));
+    }
+
+    #[test]
+    fn test_all_definitions_with_gitlab_describe_merge_requests() {
+        let defs = all_definitions(Some(ForgeKind::GitLab), true, true);
+        assert_eq!(defs.len(), 9);
+        for def in defs.iter().filter(|d| d.name.starts_with("get_")) {
+            assert!(!def.description.contains("GitHub"), "{}", def.description);
+        }
+        let get_pr = defs.iter().find(|d| d.name == "get_pr").unwrap();
+        assert!(get_pr.description.contains("GitLab merge request"));
     }
 
     #[tokio::test]

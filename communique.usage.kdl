@@ -34,7 +34,7 @@ flagset workflow-options {
     flag --changelog-path help="Changelog destination relative to the repository root" {
         arg <CHANGELOG_PATH>
     }
-    flag --preserve-sections help="Replace only the communique-marked section of a GitHub release"
+    flag --preserve-sections help="Replace only the communique-marked section of a GitHub or GitLab release"
 }
 flag "-v --verbose" help="Enable verbose logging output" global=#true
 flag "-q --quiet" help="Suppress progress output" global=#true
@@ -50,10 +50,11 @@ cmd completion help="Generate a self-contained shell completion script" effect=r
 cmd generate help="Generate release notes for a git tag" effect=read {
     use workflow-options
     flag --github-release help="Push editorialized notes to the GitHub release" effect=write conflicts=--draft
+    flag --gitlab-release help="Create or update the GitLab release with the editorialized notes" effect=write conflicts=--draft
     flag --changelog help="Update CHANGELOG.md with the generated changelog entry" effect=write
     flag --concise help="Output concise changelog entry instead of detailed notes"
-    flag "-n --dry-run" help="Generate notes without updating GitHub or verifying links"
-    flag --repo help="GitHub repo in owner/repo format (auto-detected from git remote)" {
+    flag "-n --dry-run" help="Generate notes without updating the release or verifying links"
+    flag --repo help="Repository: GitHub owner/repo, or a GitLab group/subgroup/project path when `forge = \"gitlab\"` is set in communique.toml (auto-detected from git remote)" {
         arg <REPO>
     }
     flag --model help="LLM model to use" {
@@ -79,7 +80,7 @@ cmd generate help="Generate release notes for a git tag" effect=read {
     arg "[PREV_TAG]" help="Previous tag (auto-detected if omitted)"
 }
 cmd publish help="Publish an edited JSON draft without invoking an LLM" effect=write {
-    flag --dry-run help="Preview the final release body without writing to GitHub"
+    flag --dry-run help="Preview the final release body without writing to GitHub or GitLab"
     flag "-h --help" help="Print help" action=help builtin=#true
     arg <DRAFT> help="JSON artifact written by generate --draft"
 }
