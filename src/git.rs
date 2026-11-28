@@ -54,7 +54,24 @@ pub fn previous_tag_filtered(
         }
         return Ok(tag.into());
     }
+    // In a shallow clone the earlier tags may simply not have been fetched,
+    // and the "root" is the shallow boundary, often the target itself, which
+    // would make an empty range.
+    if is_shallow(repo_root)? {
+        return Err(Error::Git(format!(
+            "no earlier tag is reachable from '{current_tag}' because this is a shallow clone. \
+             Fetch the full history and tags (in GitHub Actions, `fetch-depth: 0` on \
+             actions/checkout), or pass the previous tag as the second argument"
+        )));
+    }
     root_commit(repo_root, &target)
+}
+
+fn is_shallow(repo_root: &Path) -> Result<bool> {
+    let stdout = process::cmd("git", ["rev-parse", "--is-shallow-repository"])
+        .cwd(repo_root)
+        .read()?;
+    Ok(stdout.trim() == "true")
 }
 
 pub fn verify_ref(repo_root: &Path, git_ref: &str) -> Result<String> {
@@ -421,6 +438,39 @@ mod tests {
         // No previous tag — should fall back to root commit SHA
         let prev = previous_tag(repo.path(), "v1.0.0").unwrap();
         assert_eq!(prev.len(), 40);
+    }
+
+    #[test]
+    fn test_previous_tag_shallow_clone_without_earlier_tags() {
+        let repo = crate::test_helpers::TempRepo::new();
+        repo.write_file("f.txt", "a");
+        repo.commit("first");
+        repo.tag("v1.0.0");
+        repo.write_file("f.txt", "b");
+        repo.commit("second");
+        repo.tag("v2.0.0");
+
+        // What actions/checkout does by default: only the tag, one commit deep.
+        let clone = tempfile::tempdir().unwrap();
+        let source = format!("file://{}", repo.path().display());
+        let status = std::process::Command::new("git")
+            .args(["clone", "-q", "--depth", "1", "--branch", "v2.0.0", &source])
+            .arg(clone.path())
+            .status()
+            .unwrap();
+        assert!(status.success());
+
+        let err = previous_tag(clone.path(), "v2.0.0").unwrap_err();
+        assert!(err.to_string().contains("shallow clone"), "{err}");
+
+        // A shallow clone deep enough to reach the earlier tag still works.
+        let status = std::process::Command::new("git")
+            .args(["fetch", "-q", "--deepen", "1", "--tags", "origin"])
+            .current_dir(clone.path())
+            .status()
+            .unwrap();
+        assert!(status.success());
+        assert_eq!(previous_tag(clone.path(), "v2.0.0").unwrap(), "v1.0.0");
     }
 
     #[test]
