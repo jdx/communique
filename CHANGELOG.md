@@ -156,6 +156,30 @@ _Otherwise a maintenance release: CI hardening, `mbx`/`mr-boxington` tooling upd
 
 - *(generate)* Support `communique generate HEAD --changelog` as an intentional `[Unreleased]` target — replaces the existing `## [Unreleased]` section in place instead of inserting a literal `## [HEAD]` entry, with prompt/title labels switched to "unreleased" wording and an early guard rejecting `HEAD --github-release`. ([#121](https://github.com/jdx/communique/pull/121)) (@ThomasK33)
 
+## [1.10.0](https://github.com/jdx/communique/compare/v1.9.0...v1.10.0) - 2026-11-28
+
+### Added
+
+- *(generate)* put pull request descriptions in the first prompt ([#479](https://github.com/jdx/communique/pull/479))
+- support GitLab.com and self-managed GitLab releases ([#475](https://github.com/jdx/communique/pull/475))
+
+### Fixed
+
+- *(links)* stop reporting example URLs in release notes as broken links ([#477](https://github.com/jdx/communique/pull/477))
+
+### Other
+
+- *(links)* check links concurrently and skip the release's own pull requests ([#478](https://github.com/jdx/communique/pull/478))
+- add GitHub Actions workflow lockfile
+- set up Entire graph, brain and search for agents ([#476](https://github.com/jdx/communique/pull/476))
+- fix beta clippy lints ([#474](https://github.com/jdx/communique/pull/474))
+- add caller concurrency to link-discussions
+- use jdx/workflows link-discussions
+- *(deps)* update jdx/renovate-config workflows to v1.2.1
+- *(deps)* update jdx/mise-action action to v5.2.10 ([#469](https://github.com/jdx/communique/pull/469))
+- *(deps)* lock file maintenance ([#472](https://github.com/jdx/communique/pull/472))
+- *(deps)* lock file maintenance ([#471](https://github.com/jdx/communique/pull/471))
+
 ## [1.9.0](https://github.com/jdx/communique/compare/v1.8.0...v1.9.0) - 2026-11-21
 
 ### Added
