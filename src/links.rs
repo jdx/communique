@@ -1,14 +1,404 @@
-use log::warn;
+use log::{debug, warn};
 use regex::Regex;
+use reqwest::Url;
 
-/// Extract all markdown links and bare URLs from text.
+/// Host names reserved for documentation and testing (RFC 2606, RFC 6761).
+/// They never resolve, so a URL on one of them is an example, not a link.
+const RESERVED_HOST_SUFFIXES: [&str; 7] = [
+    ".example",
+    ".test",
+    ".invalid",
+    ".localhost",
+    ".example.com",
+    ".example.net",
+    ".example.org",
+];
+
+/// Extract the URLs a reader could follow: markdown link targets and bare
+/// URLs in prose. URLs inside fenced code blocks and inline code spans are
+/// left out, because there they are sample configuration or output.
 fn extract_urls(text: &str) -> Vec<String> {
-    let re = Regex::new(r"https?://[^\s\)\]>]+").unwrap();
-    re.find_iter(text)
+    let re = Regex::new(r#"https?://[^\s\)\]>"<`]+"#).unwrap();
+    re.find_iter(&without_code(text))
         .map(|m| m.as_str().trim_end_matches(['.', ',', ';']).to_string())
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
         .collect()
+}
+
+/// Drop fenced code blocks and inline code spans from markdown. A fence that
+/// is never closed hides the rest of its blockquote or list item, or the rest
+/// of the text, as it does when rendered. Fences are found inside blockquotes
+/// and list items too, and a code span may wrap onto the next line of its
+/// paragraph.
+fn without_code(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut paragraph = Paragraph::default();
+    let mut fence: Option<Fence> = None;
+    // The blockquote depth and content column of the latest list item, so
+    // that an indented fence after it belongs to it.
+    let mut item: Option<(usize, usize)> = None;
+    for raw in text.lines() {
+        let line = Line::parse(raw);
+        if let Some(open) = &fence {
+            if open.contains(raw, &line) {
+                if open.is_closed_by(raw) {
+                    fence = None;
+                }
+                out.push('\n');
+                continue;
+            }
+            // The blockquote or list item holding the fence ended, and the
+            // fence with it. This line is ordinary Markdown again.
+            fence = None;
+        }
+        let continues_paragraph = !paragraph.text.is_empty()
+            && line.quotes == paragraph.quotes
+            && !item.is_some_and(|(quotes, col)| quotes == line.quotes && line.indent < col);
+        // Content column of the list item this line sits in, or 0.
+        let container = item
+            .filter(|&(quotes, col)| quotes == line.quotes && line.indent >= col)
+            .map_or(0, |(_, col)| col);
+        // A heading, underline or fence indented four or more columns into its
+        // container is indented text instead.
+        let shallow = line.indent <= fence_base(raw, line.quotes, container) + 3;
+        // A lone `-` under a paragraph is a setext underline, not an empty list
+        // item, so it ends the paragraph as a heading.
+        if continues_paragraph && shallow && line.bare == "-" {
+            paragraph.push(raw, line.quotes);
+            paragraph.flush(&mut out);
+            continue;
+        }
+        // A list item numbered other than 1, or an empty one, cannot interrupt
+        // a paragraph, so the line continues it. A new item of the list that
+        // holds the paragraph is not an interruption.
+        if line.item.is_some() && !line.interrupts && continues_paragraph {
+            paragraph.push(raw, line.quotes);
+            continue;
+        }
+        if line.item.is_some() || line.quotes != paragraph.quotes || shallow && line.is_heading() {
+            paragraph.flush(&mut out);
+        }
+        if let Some(col) = line.item {
+            item = Some((line.quotes, col));
+        } else if !line.content.is_empty()
+            && item.is_some_and(|(quotes, col)| quotes != line.quotes || line.indent < col)
+        {
+            item = None;
+        }
+        let col = line.item.unwrap_or(container);
+        let opener = fence_opener(line.content).filter(|_| line.item.is_some() || shallow);
+        if let Some((marker, len)) = opener {
+            paragraph.flush(&mut out);
+            fence = Some(Fence {
+                marker,
+                len,
+                quotes: line.quotes,
+                col,
+            });
+        } else if line.content.is_empty() {
+            paragraph.flush(&mut out);
+        } else {
+            paragraph.push(raw, line.quotes);
+            if shallow && (line.is_heading() || line.is_underline()) {
+                paragraph.flush(&mut out);
+            }
+            continue;
+        }
+        out.push('\n');
+    }
+    paragraph.flush(&mut out);
+    out
+}
+
+/// Consecutive lines of one paragraph, whose code spans can wrap between them.
+#[derive(Default)]
+struct Paragraph {
+    text: String,
+    quotes: usize,
+}
+
+impl Paragraph {
+    fn push(&mut self, line: &str, quotes: usize) {
+        self.text.push_str(line);
+        self.text.push('\n');
+        self.quotes = quotes;
+    }
+
+    fn flush(&mut self, out: &mut String) {
+        out.push_str(&without_code_spans(&self.text));
+        self.text.clear();
+    }
+}
+
+/// An open fenced code block.
+struct Fence {
+    marker: char,
+    len: usize,
+    /// Blockquote depth of the opening line.
+    quotes: usize,
+    /// Content column of the list item holding the fence, or 0.
+    col: usize,
+}
+
+impl Fence {
+    /// Whether a line is still inside the blockquote or list item the fence
+    /// opened in. A blank line does not end a list item, but a blockquote
+    /// marker left of the item's content column does.
+    fn contains(&self, raw: &str, line: &Line) -> bool {
+        if line.quotes < self.quotes {
+            return false;
+        }
+        let blank = line.quotes == self.quotes && line.item.is_none() && line.content.is_empty();
+        blank || start_column(raw, self.quotes) >= self.col
+    }
+
+    /// Whether a line closes the fence: a run of its marker at least as long,
+    /// indented at most three columns into the fence's container.
+    fn is_closed_by(&self, raw: &str) -> bool {
+        let rest = after_quotes(raw, self.quotes).trim_start();
+        start_column(raw, self.quotes) <= fence_base(raw, self.quotes, self.col) + 3
+            && fence_marker(rest).is_some_and(|(marker, run, info)| {
+                marker == self.marker && run >= self.len && info.trim().is_empty()
+            })
+    }
+}
+
+/// A line split into its Markdown containers. Columns count a tab up to the
+/// next multiple of four, as Markdown does.
+struct Line<'a> {
+    /// Number of blockquote markers (`>`).
+    quotes: usize,
+    /// Column of the first character after the leading blockquote markers.
+    indent: usize,
+    /// Content column of the list item (`-`, `*`, `+`, `1.`, `1)`) this line
+    /// opens.
+    item: Option<usize>,
+    /// Whether that list item may interrupt a paragraph: it is a bullet or
+    /// numbered 1, and it is not empty.
+    interrupts: bool,
+    /// The text after the leading blockquote markers, list markers included.
+    bare: &'a str,
+    /// The text inside the containers.
+    content: &'a str,
+}
+
+impl<'a> Line<'a> {
+    fn parse(line: &'a str) -> Self {
+        let column = |rest: &str| columns(&line[..line.len() - rest.len()]);
+        let mut quotes = 0;
+        let mut rest = line.trim_start();
+        while let Some(after) = rest.strip_prefix('>') {
+            quotes += 1;
+            rest = after.trim_start();
+        }
+        let indent = column(rest);
+        let bare = rest.trim_end();
+        let mut item = None;
+        let mut first_marker = None;
+        loop {
+            if let Some(after) = rest.strip_prefix('>') {
+                quotes += 1;
+                rest = after.trim_start();
+            } else if is_thematic_break(rest) {
+                // `* * *` and `- - -` are rules, not empty list items.
+                break;
+            } else if let Some(after) = after_list_marker(rest) {
+                first_marker.get_or_insert(rest);
+                rest = after.trim_start();
+                item = Some(column(rest));
+            } else {
+                break;
+            }
+        }
+        let content = rest.trim_end();
+        let interrupts = !content.is_empty()
+            && first_marker.is_some_and(|marker: &str| {
+                let digits = marker.bytes().take_while(u8::is_ascii_digit).count();
+                digits == 0 || marker[..digits].parse::<u64>() == Ok(1)
+            });
+        Self {
+            quotes,
+            indent,
+            item,
+            interrupts,
+            bare,
+            content,
+        }
+    }
+
+    /// A setext heading underline (`=` or `-`, any number, no spaces between)
+    /// or a thematic break (three or more `*`, `-` or `_`). Either one ends the
+    /// paragraph above it. Shorter `*` or `_` runs are ordinary text.
+    fn is_underline(&self) -> bool {
+        let setext = ['=', '-']
+            .into_iter()
+            .any(|marker| !self.content.is_empty() && self.content.chars().all(|c| c == marker));
+        setext || is_thematic_break(self.content)
+    }
+
+    fn is_heading(&self) -> bool {
+        let hashes = self.content.bytes().take_while(|&b| b == b'#').count();
+        (1..=6).contains(&hashes)
+            && self.content[hashes..]
+                .chars()
+                .next()
+                .is_none_or(char::is_whitespace)
+    }
+}
+
+/// The rest of a line after its first `quotes` blockquote markers, each with
+/// the spaces before it and at most one space after it.
+fn after_quotes(raw: &str, quotes: usize) -> &str {
+    let mut rest = raw;
+    for _ in 0..quotes {
+        let trimmed = rest.trim_start();
+        rest = trimmed
+            .strip_prefix('>')
+            .map_or(trimmed, |after| after.strip_prefix(' ').unwrap_or(after));
+    }
+    rest
+}
+
+/// Column of the first non-space character after a line's first `quotes`
+/// blockquote markers.
+fn start_column(raw: &str, quotes: usize) -> usize {
+    let rest = after_quotes(raw, quotes).trim_start();
+    columns(&raw[..raw.len() - rest.len()])
+}
+
+/// Column where a fence's container starts: the content column of the list
+/// item holding it, or else the column after its blockquote markers.
+fn fence_base(raw: &str, quotes: usize, col: usize) -> usize {
+    let rest = after_quotes(raw, quotes);
+    col.max(columns(&raw[..raw.len() - rest.len()]))
+}
+
+/// A thematic break: three or more `*`, `-` or `_`, all the same, with only
+/// spaces or tabs between them.
+fn is_thematic_break(text: &str) -> bool {
+    let mut chars = text.chars().filter(|c| !matches!(c, ' ' | '\t'));
+    let Some(first) = chars.next().filter(|c| matches!(c, '*' | '-' | '_')) else {
+        return false;
+    };
+    let mut count = 1;
+    for c in chars {
+        if c != first {
+            return false;
+        }
+        count += 1;
+    }
+    count >= 3
+}
+
+/// Width of `text` in Markdown columns, with a tab stop every four columns.
+fn columns(text: &str) -> usize {
+    text.chars().fold(0, |col, c| {
+        if c == '\t' {
+            col + 4 - col % 4
+        } else {
+            col + 1
+        }
+    })
+}
+
+fn after_list_marker(text: &str) -> Option<&str> {
+    let digits = text.bytes().take_while(u8::is_ascii_digit).count();
+    let len = match (digits, text.as_bytes().get(digits)) {
+        (1..=9, Some(b'.' | b')')) => digits + 1,
+        (0, Some(b'-' | b'*' | b'+')) => 1,
+        _ => return None,
+    };
+    let after = &text[len..];
+    (after.is_empty() || after.starts_with([' ', '\t'])).then_some(after)
+}
+
+/// The marker character, run length and info string of a line that starts
+/// with three or more backticks or tildes.
+fn fence_marker(content: &str) -> Option<(char, usize, &str)> {
+    let c = content.chars().next().filter(|c| matches!(c, '`' | '~'))?;
+    let run = content.bytes().take_while(|&b| b == c as u8).count();
+    (run >= 3).then(|| (c, run, &content[run..]))
+}
+
+/// The fence a line opens. A backtick fence cannot have a backtick in its
+/// info string, so a line such as "```cmd``` first" is an inline code span.
+fn fence_opener(content: &str) -> Option<(char, usize)> {
+    let (c, run, info) = fence_marker(content)?;
+    (c == '~' || !info.contains('`')).then_some((c, run))
+}
+
+/// Replace each inline code span in a paragraph with a space. A backtick run
+/// with no closing run of the same length is literal text and stays, and so
+/// does a backtick escaped with a backslash.
+fn without_code_spans(paragraph: &str) -> String {
+    let mut out = String::with_capacity(paragraph.len());
+    let mut rest = paragraph;
+    while let Some(start) = opening_backtick(rest) {
+        let run = backtick_run(&rest[start..]);
+        let after = &rest[start + run..];
+        match closing_run(after, run) {
+            Some(end) => {
+                out.push_str(&rest[..start]);
+                out.push(' ');
+                rest = &after[end + run..];
+            }
+            None => {
+                out.push_str(&rest[..start + run]);
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Offset of the first backtick that a backslash does not escape. Escapes do
+/// not apply inside a code span, so only the opening run is searched this way.
+fn opening_backtick(text: &str) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\\' => i += 2,
+            b'`' => return Some(i),
+            _ => i += 1,
+        }
+    }
+    None
+}
+
+fn backtick_run(text: &str) -> usize {
+    text.bytes().take_while(|&b| b == b'`').count()
+}
+
+/// Offset of the next backtick run that is exactly `run` long.
+fn closing_run(text: &str, run: usize) -> Option<usize> {
+    let mut offset = 0;
+    while let Some(found) = text[offset..].find('`') {
+        let start = offset + found;
+        let len = backtick_run(&text[start..]);
+        if len == run {
+            return Some(start);
+        }
+        offset = start + len;
+    }
+    None
+}
+
+/// Whether `url` can be requested: it parses, and its host is not a reserved
+/// example name. A template such as `http://127.0.0.1:{{ port }}` fails here.
+fn is_checkable(url: &str) -> bool {
+    let Ok(parsed) = Url::parse(url) else {
+        return false;
+    };
+    let Some(host) = parsed.host_str() else {
+        return false;
+    };
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    !RESERVED_HOST_SUFFIXES
+        .iter()
+        .any(|suffix| host == suffix[1..] || host.ends_with(suffix))
 }
 
 /// Verify all URLs in the given texts return non-404 responses.
@@ -16,7 +406,13 @@ fn extract_urls(text: &str) -> Vec<String> {
 pub async fn verify(texts: &[&str]) -> Vec<(String, String)> {
     let mut all_urls = Vec::new();
     for text in texts {
-        all_urls.extend(extract_urls(text));
+        for url in extract_urls(text) {
+            if is_checkable(&url) {
+                all_urls.push(url);
+            } else {
+                debug!("not checking example URL: {url}");
+            }
+        }
     }
 
     if all_urls.is_empty() {
@@ -79,6 +475,231 @@ mod tests {
         let text = "See https://example.com and https://example.com again.";
         let urls = extract_urls(text);
         assert_eq!(urls.len(), 1);
+    }
+
+    #[test]
+    fn test_extract_urls_skips_fenced_code() {
+        let text = "Proxy settings can now be templated:\n\n\
+            ```toml\n[settings]\nurl = \"http://127.0.0.1:{{ port }}\"\n```\n\n\
+            ~~~~sh\ncurl https://tilde.test/a\n~~~\nstill https://tilde.test/b\n~~~~\n\n\
+            See [the docs](https://docs.rs/regex).\n";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/regex"]);
+    }
+
+    #[test]
+    fn test_extract_urls_skips_indented_fence() {
+        let text = "- A list item:\n\n  ```sh\n  curl https://inside.test/x\n  ```\n\n  \
+            and https://docs.rs/after\n";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/after"]);
+    }
+
+    #[test]
+    fn test_extract_urls_skips_code_spans() {
+        let text = "Set `index-url = \"https://gitlab.example.com/api/v4/simple\"` or \
+            ``a ` https://double.test/x`` and read https://docs.rs/reqwest.";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/reqwest"]);
+    }
+
+    #[test]
+    fn test_extract_urls_keeps_text_after_unclosed_backtick() {
+        let text = "A stray ` backtick, then https://docs.rs/tokio";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+    }
+
+    #[test]
+    fn test_extract_urls_inline_triple_backticks_are_not_a_fence() {
+        let text = "Run ```cmd``` first.\nThen read https://docs.rs/tokio";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+    }
+
+    #[test]
+    fn test_extract_urls_skips_code_spans_that_wrap() {
+        let text = "Run `curl\nhttp://127.0.0.1:1/sample` now.\nThen read https://docs.rs/tokio";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+    }
+
+    #[test]
+    fn test_extract_urls_code_spans_end_at_a_blank_line() {
+        let text = "A stray `\n\nhttps://docs.rs/tokio` here";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+    }
+
+    #[test]
+    fn test_extract_urls_skips_fences_in_blockquotes() {
+        let text = "> [!NOTE]\n> ~~~sh\n> curl http://127.0.0.1:1/sample\n> ~~~\n> See https://docs.rs/tokio";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+    }
+
+    #[test]
+    fn test_extract_urls_skips_fences_in_list_items() {
+        let text = "- ```sh\n  curl http://127.0.0.1:1/sample\n  ```\n1. See https://docs.rs/tokio";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+    }
+
+    #[test]
+    fn test_extract_urls_ends_a_quoted_fence_with_its_quote() {
+        let text = "> ~~~sh\n> curl http://127.0.0.1:1/sample\n\nSee https://docs.rs/tokio";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+    }
+
+    #[test]
+    fn test_extract_urls_ends_a_list_fence_with_its_item() {
+        let text = "- ```sh\n  curl http://127.0.0.1:1/sample\n\nSee https://docs.rs/tokio";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+        let text = "- step\n\n  ```sh\n  curl http://127.0.0.1:1/sample\n\n  still code\nSee https://docs.rs/tokio";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+    }
+
+    #[test]
+    fn test_extract_urls_keeps_code_spans_within_a_list_item() {
+        let text =
+            "- Handle a literal ` character (https://docs.rs/tokio).\n- Use `config` for settings.";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+        let text = "# A ` heading\nSee https://docs.rs/tokio and `code`";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+        let text = "A stray `\n## Links\n[docs](https://docs.rs/tokio)`";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+        for underline in ["===", "---", "***", "* * *", "- - -", "_ _ _", "> * * *"] {
+            let text = format!("A stray `\n{underline}\n[docs](https://docs.rs/tokio)`");
+            assert_eq!(
+                extract_urls(&text),
+                vec!["https://docs.rs/tokio"],
+                "{underline}"
+            );
+        }
+        let text = "Run `mise\n=== http://127.0.0.1:1/sample` and see https://docs.rs/tokio";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+    }
+
+    #[test]
+    fn test_extract_urls_ends_paragraphs_at_spaced_rules() {
+        let text = "A literal `\n* * *\nSee https://docs.rs/tokio and `config`";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+    }
+
+    #[test]
+    fn test_extract_urls_ignores_fence_markers_indented_into_code() {
+        // An inner marker indented four columns does not close the fence.
+        let text = "```text\n    ```\nhttp://127.0.0.1:1/sample\n```\nSee https://docs.rs/tokio";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+        let text =
+            "> ```text\n>     ```\n> http://127.0.0.1:1/sample\n> ```\nhttps://docs.rs/tokio";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+        let text =
+            "- ```text\n      ```\n  http://127.0.0.1:1/sample\n  ```\nhttps://docs.rs/tokio";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+        // Up to three columns still close it.
+        let text = "```text\nhttp://127.0.0.1:1/sample\n   ```\nSee https://docs.rs/tokio";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+        // And an indented marker does not open one.
+        let text = "Intro\n\n    ```\nSee https://docs.rs/tokio";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+    }
+
+    #[test]
+    fn test_extract_urls_ends_paragraphs_at_a_lone_dash_underline() {
+        let text = "A literal `\n-\nSee https://docs.rs/tokio and `config`";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+        let text = "> A literal `\n> -\n> See https://docs.rs/tokio and `config`";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+    }
+
+    #[test]
+    fn test_extract_urls_keeps_deeply_indented_underlines_in_the_paragraph() {
+        for marker in ["-", "---", "===", "***", "# Title"] {
+            let text = format!("Run `curl\n    {marker}\nhttp://127.0.0.1:1/sample` now.");
+            assert!(extract_urls(&text).is_empty(), "{marker}");
+        }
+        // Inside a list item the four columns count from its content column.
+        let text = "- Run `curl\n      -\n  http://127.0.0.1:1/sample` now.";
+        assert!(extract_urls(text).is_empty());
+        let text = "- A literal `\n    -\n  See https://docs.rs/tokio and `config`";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+    }
+
+    #[test]
+    fn test_extract_urls_ends_list_fences_at_a_blockquote() {
+        let text = "- ```text\n  http://127.0.0.1:1/sample\n> See https://docs.rs/tokio";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+        let text = "- ```text\n  > http://127.0.0.1:1/sample\n  ```\n> See https://docs.rs/tokio";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+    }
+
+    #[test]
+    fn test_extract_urls_keeps_short_underscore_and_asterisk_lines_in_the_paragraph() {
+        for marker in ["_", "__", "**"] {
+            let text = format!("Run `curl\n{marker}\nhttp://127.0.0.1:1/sample` now.");
+            assert!(extract_urls(&text).is_empty(), "{marker}");
+        }
+    }
+
+    #[test]
+    fn test_extract_urls_counts_tabs_as_columns() {
+        let text = "- ```sh\n\tcurl http://127.0.0.1:1/sample\n  ```\nSee https://docs.rs/tokio";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+    }
+
+    #[test]
+    fn test_extract_urls_keeps_paragraphs_that_a_list_item_cannot_interrupt() {
+        let text = "Run `curl\n2. http://127.0.0.1:1/sample` now, see https://docs.rs/tokio";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+        let text = "1. A literal ` (https://docs.rs/tokio)\n2. Use `config` here";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+    }
+
+    #[test]
+    fn test_extract_urls_reads_list_markers_in_a_fence_as_code() {
+        let text = "~~~sh\n- ~~~\nhttp://127.0.0.1:1/sample\n~~~\nSee https://docs.rs/tokio";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+    }
+
+    #[test]
+    fn test_extract_urls_keeps_links_between_escaped_backticks() {
+        let text = r"Read \`[the docs](https://docs.rs/tokio)\` first";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+    }
+
+    #[test]
+    fn test_extract_urls_stops_at_quote_and_angle_bracket() {
+        let text = "<a href=\"https://docs.rs/a\">a</a> and \"https://docs.rs/b\"";
+        let mut urls = extract_urls(text);
+        urls.sort();
+        assert_eq!(urls, vec!["https://docs.rs/a", "https://docs.rs/b"]);
+    }
+
+    #[test]
+    fn test_is_checkable() {
+        for url in [
+            "https://github.com/jdx/communique/pull/1",
+            "http://127.0.0.1:8080/page",
+            "https://docs.rs/regex",
+            "https://myexample.com/",
+        ] {
+            assert!(is_checkable(url), "{url} should be checked");
+        }
+        for url in [
+            "http://127.0.0.1:{{",
+            "https://example.com/docs",
+            "https://gitlab.example.com/api/v4/simple",
+            "https://EXAMPLE.org./x",
+            "https://registry.example/x",
+            "https://mirror.test/x",
+            "https://nothing.invalid/",
+            "http://localhost:3000/",
+            "http://app.localhost/",
+        ] {
+            assert!(!is_checkable(url), "{url} should not be checked");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_verify_ignores_examples() {
+        // None of these can be fetched, so reporting them would make the
+        // model delete a valid example from the notes.
+        let text = "Templated: http://127.0.0.1:{{ port }} and \
+            https://gitlab.example.com/api/v4/simple\n\n\
+            ```toml\nurl = \"http://127.0.0.1:1/unreachable\"\n```\n";
+        assert!(verify(&[text]).await.is_empty());
     }
 
     #[tokio::test]
