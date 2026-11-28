@@ -55,9 +55,16 @@ fn without_code(text: &str) -> String {
         let continues_paragraph = !paragraph.text.is_empty()
             && line.quotes == paragraph.quotes
             && !item.is_some_and(|(quotes, col)| quotes == line.quotes && line.indent < col);
+        // Content column of the list item this line sits in, or 0.
+        let container = item
+            .filter(|&(quotes, col)| quotes == line.quotes && line.indent >= col)
+            .map_or(0, |(_, col)| col);
+        // A heading, underline or fence indented four or more columns into its
+        // container is indented text instead.
+        let shallow = line.indent <= fence_base(raw, line.quotes, container) + 3;
         // A lone `-` under a paragraph is a setext underline, not an empty list
         // item, so it ends the paragraph as a heading.
-        if continues_paragraph && line.bare == "-" {
+        if continues_paragraph && shallow && line.bare == "-" {
             paragraph.push(raw, line.quotes);
             paragraph.flush(&mut out);
             continue;
@@ -69,7 +76,7 @@ fn without_code(text: &str) -> String {
             paragraph.push(raw, line.quotes);
             continue;
         }
-        if line.item.is_some() || line.quotes != paragraph.quotes || line.is_heading() {
+        if line.item.is_some() || line.quotes != paragraph.quotes || shallow && line.is_heading() {
             paragraph.flush(&mut out);
         }
         if let Some(col) = line.item {
@@ -79,16 +86,8 @@ fn without_code(text: &str) -> String {
         {
             item = None;
         }
-        let col = match (line.item, item) {
-            (Some(col), _) => col,
-            (None, Some((quotes, col))) if quotes == line.quotes && line.indent >= col => col,
-            _ => 0,
-        };
-        // A marker indented four or more columns into its container is
-        // indented text, not a fence.
-        let opener = fence_opener(line.content).filter(|_| {
-            line.item.is_some() || line.indent <= fence_base(raw, line.quotes, col) + 3
-        });
+        let col = line.item.unwrap_or(container);
+        let opener = fence_opener(line.content).filter(|_| line.item.is_some() || shallow);
         if let Some((marker, len)) = opener {
             paragraph.flush(&mut out);
             fence = Some(Fence {
@@ -101,7 +100,7 @@ fn without_code(text: &str) -> String {
             paragraph.flush(&mut out);
         } else {
             paragraph.push(raw, line.quotes);
-            if line.is_heading() || line.is_underline() {
+            if shallow && (line.is_heading() || line.is_underline()) {
                 paragraph.flush(&mut out);
             }
             continue;
@@ -602,6 +601,19 @@ mod tests {
         let text = "A literal `\n-\nSee https://docs.rs/tokio and `config`";
         assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
         let text = "> A literal `\n> -\n> See https://docs.rs/tokio and `config`";
+        assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
+    }
+
+    #[test]
+    fn test_extract_urls_keeps_deeply_indented_underlines_in_the_paragraph() {
+        for marker in ["-", "---", "===", "***", "# Title"] {
+            let text = format!("Run `curl\n    {marker}\nhttp://127.0.0.1:1/sample` now.");
+            assert!(extract_urls(&text).is_empty(), "{marker}");
+        }
+        // Inside a list item the four columns count from its content column.
+        let text = "- Run `curl\n      -\n  http://127.0.0.1:1/sample` now.";
+        assert!(extract_urls(text).is_empty());
+        let text = "- A literal `\n    -\n  See https://docs.rs/tokio and `config`";
         assert_eq!(extract_urls(text), vec!["https://docs.rs/tokio"]);
     }
 
