@@ -23,6 +23,10 @@ pub struct Defaults {
     pub model: Option<String>,
     pub max_tokens: Option<u32>,
     pub repo: Option<String>,
+    /// Code host: "github" or "gitlab" (auto-detected when omitted).
+    pub forge: Option<crate::forge::ForgeKind>,
+    /// Web URL of a self-managed GitLab instance, e.g. "https://gitlab.example.com".
+    pub forge_url: Option<String>,
     pub provider: Option<Provider>,
     pub base_url: Option<String>,
     pub emoji: Option<bool>,
@@ -42,6 +46,8 @@ const TEMPLATE: &str = r#"# Extra instructions appended to the system prompt.
 #model = "claude-opus-5-5"
 #max_tokens = 16384
 #repo = "owner/repo"
+#forge = "github"  # or "gitlab"; auto-detected from the git remote or GitLab CI
+#forge_url = ""    # self-managed GitLab only, e.g. "https://gitlab.example.com"
 #provider = "anthropic"
 #base_url = ""
 #emoji = true
@@ -85,7 +91,7 @@ impl Config {
                 && (!repo.contains('/') || repo.starts_with('/') || repo.ends_with('/'))
             {
                 return Err(crate::error::Error::Config(format!(
-                    "invalid repo '{repo}' (expected 'owner/repo' format)"
+                    "invalid repo '{repo}' (expected 'owner/repo' or 'group/project' format)"
                 )));
             }
         }
@@ -195,5 +201,21 @@ emoji = false
         assert_eq!(defaults.max_tokens, Some(4096));
         assert_eq!(defaults.provider, Some(crate::providers::Provider::OpenAI));
         assert_eq!(defaults.repo.as_deref(), Some("jdx/communique"));
+    }
+
+    #[test]
+    fn test_load_gitlab_forge() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("communique.toml"),
+            "[defaults]\nforge = \"gitlab\"\nforge_url = \"https://gitlab.example.com\"\nrepo = \"group/sub/proj\"\n",
+        )
+        .unwrap();
+        let defaults = Config::load(dir.path()).unwrap().unwrap().defaults.unwrap();
+        assert_eq!(defaults.forge, Some(crate::forge::ForgeKind::GitLab));
+        assert_eq!(
+            defaults.forge_url.as_deref(),
+            Some("https://gitlab.example.com")
+        );
     }
 }

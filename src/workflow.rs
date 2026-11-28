@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 use miette::IntoDiagnostic;
 use serde::{Deserialize, Serialize};
 
-use crate::{github::GitHubClient, output::ParsedOutput};
+use crate::forge::{ForgeClient, ForgeKind, Repo};
+use crate::output::ParsedOutput;
 
 #[derive(Debug, Default, Clone, usage_rs::Args)]
 pub struct WorkflowOptions {
@@ -32,7 +33,7 @@ pub struct WorkflowOptions {
     /// Changelog destination relative to the repository root
     #[usage(long)]
     pub changelog_path: Option<PathBuf>,
-    /// Replace only the communique-marked section of a GitHub release
+    /// Replace only the communique-marked section of a GitHub or GitLab release
     #[usage(long)]
     pub preserve_sections: bool,
 }
@@ -153,14 +154,17 @@ impl Review {
         self.coverage = entries;
     }
 
-    pub fn markdown(&self, repo: &str, from: &str, to: &str) -> String {
+    pub fn markdown(&self, repo: &Repo, from: &str, to: &str) -> String {
         let mut result = format!(
             "# Release coverage\n\nRange: `{from}..{to}`\n\nAssessments are model-generated, except explicit label exclusions. Uncertain entries require manual review.\n"
         );
         for entry in &self.coverage {
             result.push_str(&format!(
-                "\n- **{}** [{}](https://github.com/{repo}/commit/{}): {}\n",
-                entry.status, entry.commit, entry.commit, entry.reason
+                "\n- **{}** [{}]({}): {}\n",
+                entry.status,
+                entry.commit,
+                repo.commit_url(&entry.commit),
+                entry.reason
             ));
         }
         result
@@ -172,6 +176,12 @@ impl Review {
 pub struct Draft {
     pub schema_version: u32,
     pub repo: String,
+    /// Omitted for GitHub so GitHub drafts keep their original shape.
+    #[serde(default, skip_serializing_if = "ForgeKind::is_default")]
+    pub forge: ForgeKind,
+    /// Web URL of a self-managed GitLab instance.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forge_url: Option<String>,
     pub tag: String,
     pub previous_ref: String,
     pub target_commit: String,
@@ -184,7 +194,7 @@ pub struct Draft {
 
 impl Draft {
     pub fn new(
-        repo: &str,
+        repo: &Repo,
         tag: &str,
         previous_ref: &str,
         target_commit: &str,
@@ -193,7 +203,9 @@ impl Draft {
     ) -> Self {
         Self {
             schema_version: 1,
-            repo: repo.into(),
+            repo: repo.path.clone(),
+            forge: repo.kind,
+            forge_url: repo.custom_web_base().map(String::from),
             tag: tag.into(),
             previous_ref: previous_ref.into(),
             target_commit: target_commit.into(),
@@ -204,6 +216,16 @@ impl Draft {
             review: notes.review.clone(),
         }
     }
+    fn repo_info(&self) -> Repo {
+        match self.forge {
+            ForgeKind::GitHub => Repo::github(&self.repo),
+            ForgeKind::GitLab => Repo::gitlab(
+                &self.repo,
+                self.forge_url.as_deref().unwrap_or("https://gitlab.com"),
+            ),
+        }
+    }
+
     pub fn write(&self, path: &Path) -> miette::Result<()> {
         std::fs::write(
             path,
@@ -236,17 +258,21 @@ impl Draft {
                 "Draft target_commit must be a full 40-character commit SHA"
             ));
         }
-        let parts: Vec<_> = self.repo.split('/').collect();
-        if parts.len() != 2
-            || parts.iter().any(|p| {
-                p.is_empty()
-                    || !p
-                        .chars()
-                        .all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
-            })
-        {
-            return Err(miette::miette!("Draft repo must be owner/repo"));
+        if let Some(url) = &self.forge_url {
+            if self.forge != ForgeKind::GitLab {
+                return Err(miette::miette!(
+                    "Draft forge_url is only supported for GitLab drafts"
+                ));
+            }
+            if !(url.starts_with("https://") || url.starts_with("http://")) {
+                return Err(miette::miette!(
+                    "Draft forge_url must start with https:// or http://"
+                ));
+            }
         }
+        self.repo_info()
+            .validate()
+            .map_err(|e| miette::miette!("Draft repo is invalid: {e}"))?;
         Ok(())
     }
 }
@@ -303,56 +329,74 @@ pub async fn publish_draft(path: &Path, dry_run: bool) -> miette::Result<()> {
         println!("# {}\n\n{}", draft.release_title, draft.release_body);
         return Ok(());
     }
-    let token = std::env::var("GITHUB_TOKEN")
-        .into_diagnostic()
-        .map_err(|_| miette::miette!("GITHUB_TOKEN is required to read or update the release"))?;
-    let gh = GitHubClient::new(token, &draft.repo)?;
-    publish_with_client(draft, dry_run, &gh).await
+    let repo = draft.repo_info();
+    let token_var = repo.kind.token_var();
+    let token = std::env::var(token_var)
+        .ok()
+        .filter(|t| !t.is_empty())
+        .ok_or_else(|| miette::miette!("{token_var} is required to read or update the release"))?;
+    let client = ForgeClient::new(&repo, token)?;
+    publish_with_client(draft, dry_run, &client).await
 }
 
-async fn publish_with_client(draft: Draft, dry_run: bool, gh: &GitHubClient) -> miette::Result<()> {
+async fn publish_with_client(
+    draft: Draft,
+    dry_run: bool,
+    client: &ForgeClient,
+) -> miette::Result<()> {
     draft.validate()?;
-    let release = gh
-        .get_release_by_tag(&draft.tag)
-        .await?
-        .ok_or_else(|| miette::miette!("No GitHub release found for {}", draft.tag))?;
+    let release = client.get_release_by_tag(&draft.tag).await?;
+    // GitHub releases are created by the release workflow (often as drafts);
+    // GitLab tags usually have no release yet, so one is created on publish.
+    if release.is_none() && client.kind() == ForgeKind::GitHub {
+        return Err(miette::miette!("No GitHub release found for {}", draft.tag));
+    }
     let body = if draft.preserve_sections {
         merge_body(
-            release.body.as_deref().unwrap_or_default(),
+            release
+                .as_ref()
+                .and_then(|r| r.body.as_deref())
+                .unwrap_or_default(),
             &draft.release_body,
         )?
     } else {
-        draft.release_body
+        draft.release_body.clone()
     };
     if dry_run {
         let title = if draft.preserve_sections {
-            release.name.as_deref().unwrap_or(&draft.tag)
+            release
+                .as_ref()
+                .and_then(|r| r.name.as_deref())
+                .unwrap_or(&draft.tag)
         } else {
             &draft.release_title
         };
         println!("# {title}\n\n{body}");
+        return Ok(());
+    }
+    let remote_commit = client.tag_commit(&draft.tag).await?;
+    if remote_commit != draft.target_commit {
+        return Err(miette::miette!(
+            "Tag {} now resolves to {}, but this draft was generated for {}. Regenerate and review the draft before publishing.",
+            draft.tag,
+            remote_commit,
+            draft.target_commit
+        ));
+    }
+    let title = if draft.preserve_sections {
+        None
     } else {
-        let remote_commit = gh.tag_commit(&draft.tag).await?;
-        if remote_commit != draft.target_commit {
-            return Err(miette::miette!(
-                "Tag {} now resolves to {}, but this draft was generated for {}. Regenerate and review the draft before publishing.",
-                draft.tag,
-                remote_commit,
-                draft.target_commit
-            ));
+        Some(draft.release_title.as_str())
+    };
+    match &release {
+        Some(release) => {
+            client.update_release(release, title, Some(&body)).await?;
+            eprintln!("Updated {}/{}", draft.repo, draft.tag);
         }
-        gh.update_release(
-            release.id,
-            &release.tag_name,
-            if draft.preserve_sections {
-                None
-            } else {
-                Some(&draft.release_title)
-            },
-            Some(&body),
-        )
-        .await?;
-        eprintln!("Updated {}/{}", draft.repo, draft.tag);
+        None => {
+            client.create_release(&draft.tag, title, &body).await?;
+            eprintln!("Created {}/{}", draft.repo, draft.tag);
+        }
     }
     Ok(())
 }
@@ -387,8 +431,14 @@ mod tests {
                 .expect(0)
                 .mount(&server)
                 .await;
-            let gh =
-                GitHubClient::with_base_url("token".into(), "owner/repo", server.uri()).unwrap();
+            let gh = ForgeClient::GitHub(
+                crate::github::GitHubClient::with_base_url(
+                    "token".into(),
+                    "owner/repo",
+                    server.uri(),
+                )
+                .unwrap(),
+            );
             let notes = ParsedOutput {
                 changelog: "Change".into(),
                 release_title: "Title".into(),
@@ -397,7 +447,7 @@ mod tests {
                 review: Default::default(),
             };
             let draft = Draft::new(
-                "owner/repo",
+                &Repo::github("owner/repo"),
                 "v1",
                 "v0",
                 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -414,6 +464,104 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn gitlab_draft_round_trips_and_creates_missing_release() {
+        use wiremock::matchers::{body_json, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let notes = ParsedOutput {
+            changelog: "Change".into(),
+            release_title: "Title".into(),
+            release_body: "Body".into(),
+            usage: Default::default(),
+            review: Default::default(),
+        };
+        let sha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let github = serde_json::to_value(Draft::new(
+            &Repo::github("owner/repo"),
+            "v1",
+            "v0",
+            sha,
+            &notes,
+            false,
+        ))
+        .unwrap();
+        assert!(github.get("forge").is_none());
+        assert!(github.get("forge_url").is_none());
+
+        let repo = Repo::gitlab("group/sub/proj", "https://gitlab.example.com");
+        let draft = Draft::new(&repo, "v1", "v0", sha, &notes, false);
+        let json = serde_json::to_string(&draft).unwrap();
+        let draft: Draft = serde_json::from_str(&json).unwrap();
+        assert_eq!(draft.forge, ForgeKind::GitLab);
+        assert_eq!(
+            draft.forge_url.as_deref(),
+            Some("https://gitlab.example.com")
+        );
+        draft.validate().unwrap();
+
+        let server = MockServer::start().await;
+        let project = "/api/v4/projects/group%2Fsub%2Fproj";
+        Mock::given(method("GET"))
+            .and(path(format!("{project}/releases/v1")))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(format!("{project}/repository/tags/v1")))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({"commit": {"id": sha}})),
+            )
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path(format!("{project}/releases")))
+            .and(body_json(
+                serde_json::json!({"tag_name": "v1", "name": "Title", "description": "Body"}),
+            ))
+            .respond_with(ResponseTemplate::new(201))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let client = ForgeClient::GitLab(
+            crate::gitlab::GitLabClient::new(
+                "token".into(),
+                "group/sub/proj",
+                &format!("{}/api/v4", server.uri()),
+            )
+            .unwrap(),
+        );
+        publish_with_client(draft, false, &client).await.unwrap();
+        server.verify().await;
+    }
+
+    #[test]
+    fn gitlab_drafts_reject_bad_forge_urls() {
+        let notes = ParsedOutput {
+            changelog: "Change".into(),
+            release_title: "Title".into(),
+            release_body: "Body".into(),
+            usage: Default::default(),
+            review: Default::default(),
+        };
+        let mut draft = Draft::new(
+            &Repo::github("owner/repo"),
+            "v1",
+            "v0",
+            &"a".repeat(40),
+            &notes,
+            false,
+        );
+        draft.forge_url = Some("https://gitlab.example.com".into());
+        assert!(draft.validate().is_err());
+        draft.forge = ForgeKind::GitLab;
+        draft.repo = "group/sub/proj".into();
+        draft.validate().unwrap();
+        draft.forge_url = Some("file:///etc".into());
+        assert!(draft.validate().is_err());
+    }
+
     #[test]
     fn malformed_draft_fields_are_rejected() {
         let notes = ParsedOutput {
@@ -424,7 +572,7 @@ mod tests {
             review: Default::default(),
         };
         let draft = Draft::new(
-            "owner/repo",
+            &Repo::github("owner/repo"),
             "v1",
             "v0",
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -481,7 +629,10 @@ mod tests {
             .expect(1)
             .mount(&server)
             .await;
-        let gh = GitHubClient::with_base_url("token".into(), "owner/repo", server.uri()).unwrap();
+        let gh = ForgeClient::GitHub(
+            crate::github::GitHubClient::with_base_url("token".into(), "owner/repo", server.uri())
+                .unwrap(),
+        );
         let notes = ParsedOutput {
             changelog: "Change".into(),
             release_title: "Edited title".into(),
@@ -491,7 +642,7 @@ mod tests {
         };
         publish_with_client(
             Draft::new(
-                "owner/repo",
+                &Repo::github("owner/repo"),
                 "v1",
                 "v0",
                 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -505,7 +656,7 @@ mod tests {
         .unwrap();
         publish_with_client(
             Draft::new(
-                "owner/repo",
+                &Repo::github("owner/repo"),
                 "v1",
                 "v0",
                 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -550,7 +701,10 @@ mod tests {
             .expect(1)
             .mount(&server)
             .await;
-        let gh = GitHubClient::with_base_url("token".into(), "owner/repo", server.uri()).unwrap();
+        let gh = ForgeClient::GitHub(
+            crate::github::GitHubClient::with_base_url("token".into(), "owner/repo", server.uri())
+                .unwrap(),
+        );
         let notes = ParsedOutput {
             changelog: "Change".into(),
             release_title: "Generated title".into(),
@@ -560,7 +714,7 @@ mod tests {
         };
         publish_with_client(
             Draft::new(
-                "owner/repo",
+                &Repo::github("owner/repo"),
                 "v1",
                 "v0",
                 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -574,7 +728,7 @@ mod tests {
         .unwrap();
         publish_with_client(
             Draft::new(
-                "owner/repo",
+                &Repo::github("owner/repo"),
                 "v1",
                 "v0",
                 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -627,7 +781,11 @@ mod tests {
         assert_eq!(review.coverage.len(), 3);
         assert_eq!(review.coverage[1].status, "uncertain");
         assert_eq!(review.coverage[2].reason, "Label exclusion");
-        assert!(!review.markdown("owner/repo", "v1", "v2").contains("fake"));
+        assert!(
+            !review
+                .markdown(&Repo::github("owner/repo"), "v1", "v2")
+                .contains("fake")
+        );
     }
 
     #[test]
@@ -666,7 +824,7 @@ changelog_path = "crates/cli/CHANGELOG.md"
             review: Default::default(),
         };
         let mut draft = Draft::new(
-            "owner/repo",
+            &Repo::github("owner/repo"),
             "v1",
             "v0",
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",

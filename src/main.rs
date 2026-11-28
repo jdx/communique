@@ -2,9 +2,11 @@ mod agent;
 mod cli;
 mod config;
 mod error;
+mod forge;
 mod generate;
 mod git;
 mod github;
+mod gitlab;
 mod links;
 mod llm;
 mod output;
@@ -66,6 +68,7 @@ async fn main() -> miette::Result<()> {
                 workflow: g.workflow,
                 prev_tag: g.prev_tag,
                 github_release: g.github_release,
+                gitlab_release: g.gitlab_release,
                 changelog: g.changelog,
                 concise: g.concise,
                 dry_run: g.dry_run,

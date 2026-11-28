@@ -45,7 +45,11 @@ repo = "owner/repo"
 |-----|-------------|---------|
 | `model` | Model identifier | `claude-opus-5-5` |
 | `max_tokens` | Maximum tokens permitted per model response (billing is based on actual usage) | `16384` |
-| `repo` | GitHub repo in `owner/repo` format | Auto-detected from git remote |
+| `repo` | GitHub `owner/repo` or GitLab `group/project` path | Auto-detected from git remote |
+| `forge` | `github` or `gitlab` | Auto-detected from GitLab CI or the git remote |
+| `forge_url` | Web URL of a self-managed GitLab instance, e.g. `https://gitlab.example.com` | `https://gitlab.com` (or `CI_SERVER_URL` in GitLab CI) |
+
+See the [GitLab guide](./gitlab.md) for GitLab.com and self-managed GitLab.
 
 ## Resolution Order
 
@@ -115,8 +119,9 @@ requires it to match the commit recorded when generation began. A moved or missi
 tag stops publication; regenerate and review the draft before trying again.
 The plain `--dry-run` preview is offline and does not check the remote tag.
 Publishing updates an existing GitHub Release and requires
-`GITHUB_TOKEN`; it does not write the saved changelog to disk. Draft generation
-cannot be combined with `--github-release`.
+`GITHUB_TOKEN`; on GitLab it updates or creates the tag's release and requires
+`GITLAB_TOKEN`. It does not write the saved changelog to disk. Draft generation
+cannot be combined with `--github-release` or `--gitlab-release`.
 
 Coverage reports list each scoped commit as included, omitted, or uncertain with
 a source link and reason. Model assessments are advisory; missing, duplicate, or
@@ -127,7 +132,7 @@ If the model fails to return a requested guide, generation fails before publishi
 
 ### Preserve hand-written release text
 
-Use `--preserve-sections` with `--github-release` or `--draft` to manage only this
+Use `--preserve-sections` with `--github-release`, `--gitlab-release`, or `--draft` to manage only this
 part of a release:
 
 ```markdown
@@ -145,4 +150,4 @@ and is instructed to omit markers and surrounding hand-written text.
 If markers are absent, a marked section is appended to the existing body. Invalid
 or repeated markers cause an error. The existing release title is preserved in
 this mode. `publish --dry-run` fetches the existing release when merging a marked
-section, so that preview requires GitHub authentication too.
+section, so that preview requires GitHub or GitLab authentication too.

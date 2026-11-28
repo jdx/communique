@@ -10,5 +10,5 @@ Publish an edited JSON draft without invoking an LLM
 - **`<DRAFT>`** — JSON artifact written by generate --draft
 
 ## Flags
-- **`--dry-run`** — Preview the final release body without writing to GitHub
+- **`--dry-run`** — Preview the final release body without writing to GitHub or GitLab
 - **`-h --help`** — Print help

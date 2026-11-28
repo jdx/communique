@@ -27,16 +27,19 @@ Generate release notes for a git tag
 
   **Choices:** `stable`, `all`
 - **`--changelog-path <CHANGELOG_PATH>`** — Changelog destination relative to the repository root
-- **`--preserve-sections`** — Replace only the communique-marked section of a GitHub release
+- **`--preserve-sections`** — Replace only the communique-marked section of a GitHub or GitLab release
 - **`--github-release`** — Push editorialized notes to the GitHub release
+
+  **Effect:** modifies state
+- **`--gitlab-release`** — Create or update the GitLab release with the editorialized notes
 
   **Effect:** modifies state
 - **`--changelog`** — Update CHANGELOG.md with the generated changelog entry
 
   **Effect:** modifies state
 - **`--concise`** — Output concise changelog entry instead of detailed notes
-- **`-n --dry-run`** — Generate notes without updating GitHub or verifying links
-- **`--repo <REPO>`** — GitHub repo in owner/repo format (auto-detected from git remote)
+- **`-n --dry-run`** — Generate notes without updating the release or verifying links
+- **`--repo <REPO>`** — Repository: GitHub owner/repo or GitLab group/project (auto-detected from git remote)
 - **`--model <MODEL>`** — LLM model to use
 - **`--max-tokens <MAX_TOKENS>`** — Max response tokens
 - **`--provider <PROVIDER>`** — LLM provider (anthropic or openai, auto-detected from model if omitted)
